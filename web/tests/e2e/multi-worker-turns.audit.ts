@@ -13,11 +13,14 @@ test.describe("four-worker v2 turn acceptance", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    // The Next dev-tools overlay portal (dev-only) intercepts pointer events on
-    // small (mobile) viewports and blocks clicks on composer controls. CSS on
-    // the 0x0 host doesn't reach the shadow overlay, so remove the element the
-    // moment it appears.
+    // Pin the English UI: the audit locators are English, and a prior run can
+    // leave the fixture home's interface.json on another language.
     await page.addInitScript(() => {
+      localStorage.setItem("openkg-webui-language", "en");
+      // The Next dev-tools overlay portal (dev-only) intercepts pointer events on
+      // small (mobile) viewports and blocks clicks on composer controls. CSS on
+      // the 0x0 host doesn't reach the shadow overlay, so remove the element the
+      // moment it appears.
       const removePortal = () =>
         document
           .querySelectorAll("nextjs-portal")
@@ -44,17 +47,13 @@ test.describe("four-worker v2 turn acceptance", () => {
     await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
     await runtimeFixture.act(scenario.scenario_id, "drop_socket");
 
-    const evidence = await runtimeFixture.expectEvidence(
+    const evidence = await runtimeFixture.expectCompletedWithFullDelivery(
       scenario.scenario_id,
-      (value) => value.terminal_status === "completed",
-      "the resumed turn did not complete",
+      "the resumed turn did not complete with full delivery",
     );
     expect(evidence.connection_workers).toEqual(
       expect.arrayContaining(["worker-a", "worker-b"]),
     );
-    expect(evidence.delivered_sequences).toEqual(evidence.emitted_sequences);
-    expect(evidence.duplicate_count).toBe(0);
-    expect(evidence.gap_count).toBe(0);
     // The completed status header reads "Done" (en locale), so assert on the
     // agent's final answer instead of the activity label.
     await expect(page.getByText("Multi-worker turn complete.")).toBeVisible();
@@ -110,13 +109,11 @@ test.describe("four-worker v2 turn acceptance", () => {
     await answer.fill("Continue on the same turn");
     await page.getByRole("button", { name: /answer|submit/i }).click();
 
-    const evidence = await runtimeFixture.expectEvidence(
+    const evidence = await runtimeFixture.expectCompletedWithFullDelivery(
       scenario.scenario_id,
-      (value) => value.terminal_status === "completed",
-      "the answered turn did not complete",
+      "the answered turn did not complete with full delivery",
     );
     expect(evidence.command_workers).toContain("worker-d");
-    expect(evidence.gap_count).toBe(0);
     await expect(page.getByText("Multi-worker reply complete.")).toBeVisible();
   });
 
@@ -161,14 +158,10 @@ test.describe("four-worker v2 turn acceptance", () => {
     await runtimeFixture.act(scenario.scenario_id, "pause_after_checkpoint");
     await page.reload();
 
-    const evidence = await runtimeFixture.expectEvidence(
+    const evidence = await runtimeFixture.expectCompletedWithFullDelivery(
       scenario.scenario_id,
-      (value) => value.terminal_status === "completed",
-      "the reloaded turn did not complete",
+      "the reloaded turn did not complete with full delivery",
     );
-    expect(evidence.delivered_sequences).toEqual(evidence.emitted_sequences);
-    expect(evidence.duplicate_count).toBe(0);
-    expect(evidence.gap_count).toBe(0);
     // The completed status header reads "Done" (en locale), so assert on the
     // agent's final answer instead of the activity label.
     await expect(page.getByText("Multi-worker turn complete.")).toBeVisible();

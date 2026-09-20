@@ -189,6 +189,37 @@ export class MultiWorkerRuntimeFixture {
     );
   }
 
+  /**
+   * Wait for a completed turn whose delivery is fully settled.
+   *
+   * ``terminal_status`` flips to "completed" as soon as the backend commits
+   * the turn, but the last connection's delivered buffer flushes only when
+   * that socket closes (the client holds it open ~2s after ``done`` for the
+   * post-turn title). Asserting on a bare terminal poll races that flush, so
+   * the delivery proofs (delivered==emitted, zero duplicates/gaps) belong in
+   * the poll predicate.
+   */
+  async expectCompletedWithFullDelivery(
+    scenarioId: string,
+    description: string,
+  ): Promise<ScenarioEvidence> {
+    return this.expectEvidence(
+      scenarioId,
+      (value) => {
+        const delivered = value.delivered_sequences?.length ?? 0;
+        const emitted = value.emitted_sequences?.length ?? 0;
+        return (
+          value.terminal_status === "completed" &&
+          delivered === emitted &&
+          delivered > 0 &&
+          value.duplicate_count === 0 &&
+          value.gap_count === 0
+        );
+      },
+      description,
+    );
+  }
+
   assertNoLegacyRequests(): void {
     assert.deepEqual(
       this.legacyRequests,

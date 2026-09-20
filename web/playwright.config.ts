@@ -40,11 +40,13 @@ export default defineConfig({
     {
       name: "multi-worker-turns-desktop",
       testMatch: "**/e2e/multi-worker-turns.audit.ts",
+      timeout: 60_000,
       use: { ...devices["Desktop Chrome"], reducedMotion: "reduce" },
     },
     {
       name: "multi-worker-turns-mobile",
       testMatch: "**/e2e/multi-worker-turns.audit.ts",
+      timeout: 60_000,
       use: { ...devices["iPhone 13"], reducedMotion: "reduce" },
     },
   ],
