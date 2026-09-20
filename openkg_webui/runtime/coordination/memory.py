@@ -108,6 +108,10 @@ class MemoryCoordinator:
         async with self._lock:
             rows = self._events.setdefault(turn_id, [])
             payload = dict(event)
+            # Stream events are contract-required to carry a numeric timestamp;
+            # the recovery path publishes directly and must not omit it.
+            if not isinstance(payload.get("timestamp"), (int, float)):
+                payload["timestamp"] = time.time()
             seq = int(payload.get("seq") or 0)
             if seq <= 0:
                 seq = (int(rows[-1]["seq"]) if rows else 0) + 1

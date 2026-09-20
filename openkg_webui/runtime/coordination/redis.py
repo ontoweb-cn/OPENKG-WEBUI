@@ -314,6 +314,11 @@ class RedisCoordinator:
 
     async def publish_event(self, turn_id: str, event: dict[str, Any]) -> dict[str, Any]:
         requested_seq = int(event.get("seq") or 0)
+        # Stream events are contract-required to carry a numeric timestamp; the
+        # recovery path publishes directly and must not omit it (the strict
+        # browser-side parser drops timestamp-less events).
+        if not isinstance(event.get("timestamp"), (int, float)):
+            event = {**event, "timestamp": time.time()}
         try:
             result = await self.client.eval(
                 _PUBLISH_EVENT_LUA,
