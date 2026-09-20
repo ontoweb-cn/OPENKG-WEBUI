@@ -30,7 +30,12 @@ export default defineConfig({
     {
       name: "critical-turns",
       testMatch: "**/e2e/turn-lifecycle.audit.ts",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        // The streaming-status breathing animation keeps composer controls
+        // perpetually "unstable" for Playwright's actionability check.
+        reducedMotion: "reduce",
+      },
     },
     {
       name: "multi-worker-turns-desktop",

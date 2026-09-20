@@ -1,5 +1,4 @@
 import {
-  assistantActivity,
   expect,
   multiWorkerFixtureAvailable,
   sendPrompt,
@@ -14,6 +13,21 @@ test.describe("four-worker v2 turn acceptance", () => {
 
   test.beforeEach(async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // The Next dev-tools overlay portal (dev-only) intercepts pointer events on
+    // small (mobile) viewports and blocks clicks on composer controls. CSS on
+    // the 0x0 host doesn't reach the shadow overlay, so remove the element the
+    // moment it appears.
+    await page.addInitScript(() => {
+      const removePortal = () =>
+        document
+          .querySelectorAll("nextjs-portal")
+          .forEach((element) => element.remove());
+      removePortal();
+      new MutationObserver(removePortal).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    });
     await page.goto("/");
   });
 
@@ -27,8 +41,7 @@ test.describe("four-worker v2 turn acceptance", () => {
       disconnect_after_seq: 2,
     });
     await sendPrompt(page, scenario.prompt);
-
-    await expect(assistantActivity(page).last()).toBeVisible();
+    await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
     await runtimeFixture.act(scenario.scenario_id, "drop_socket");
 
     const evidence = await runtimeFixture.expectEvidence(
@@ -42,7 +55,9 @@ test.describe("four-worker v2 turn acceptance", () => {
     expect(evidence.delivered_sequences).toEqual(evidence.emitted_sequences);
     expect(evidence.duplicate_count).toBe(0);
     expect(evidence.gap_count).toBe(0);
-    await expect(assistantActivity(page).last()).toContainText(/responded/i);
+    // The completed status header reads "Done" (en locale), so assert on the
+    // agent's final answer instead of the activity label.
+    await expect(page.getByText("Multi-worker turn complete.")).toBeVisible();
   });
 
   test("keeps cancellation pending until worker C acknowledges it", async ({
@@ -54,8 +69,19 @@ test.describe("four-worker v2 turn acceptance", () => {
       command_worker: "worker-c",
     });
     await sendPrompt(page, scenario.prompt);
-    await expect(assistantActivity(page).last()).toBeVisible();
-    await page.getByRole("button", { name: /stop generating/i }).click();
+    await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
+    // Wait until the client has bound the server turn id (a couple events past
+    // the session envelope) so the cancel command carries it.
+    await runtimeFixture.expectEvidence(
+      scenario.scenario_id,
+      (value) => (value.emitted_sequences?.length ?? 0) >= 3,
+      "the turn did not stream past its session envelope",
+    );
+    // element.click() bypasses hit-testing: the Next dev-overlay shadow portal
+    // intercepts pointer events on small viewports.
+    await page
+      .getByRole("button", { name: /stop generating/i })
+      .evaluate((element) => (element as HTMLButtonElement).click());
 
     const evidence = await runtimeFixture.expectEvidence(
       scenario.scenario_id,
@@ -77,6 +103,7 @@ test.describe("four-worker v2 turn acceptance", () => {
       command_worker: "worker-d",
     });
     await sendPrompt(page, scenario.prompt);
+    await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
 
     const answer = page.getByRole("textbox", { name: /answer/i });
     await expect(answer).toBeVisible();
@@ -90,7 +117,7 @@ test.describe("four-worker v2 turn acceptance", () => {
     );
     expect(evidence.command_workers).toContain("worker-d");
     expect(evidence.gap_count).toBe(0);
-    await expect(assistantActivity(page).last()).toContainText(/responded/i);
+    await expect(page.getByText("Multi-worker reply complete.")).toBeVisible();
   });
 
   test("surfaces owner loss as retryable and regenerates elsewhere", async ({
@@ -102,7 +129,7 @@ test.describe("four-worker v2 turn acceptance", () => {
       recovery_worker: "worker-b",
     });
     await sendPrompt(page, scenario.prompt);
-    await expect(assistantActivity(page).last()).toBeVisible();
+    await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
     await runtimeFixture.act(scenario.scenario_id, "kill_owner");
 
     const failed = await runtimeFixture.expectEvidence(
@@ -130,7 +157,7 @@ test.describe("four-worker v2 turn acceptance", () => {
       reload_worker: "worker-b",
     });
     await sendPrompt(page, scenario.prompt);
-    await expect(assistantActivity(page).last()).toBeVisible();
+    await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
     await runtimeFixture.act(scenario.scenario_id, "pause_after_checkpoint");
     await page.reload();
 
@@ -142,7 +169,9 @@ test.describe("four-worker v2 turn acceptance", () => {
     expect(evidence.delivered_sequences).toEqual(evidence.emitted_sequences);
     expect(evidence.duplicate_count).toBe(0);
     expect(evidence.gap_count).toBe(0);
-    await expect(assistantActivity(page).last()).toContainText(/responded/i);
+    // The completed status header reads "Done" (en locale), so assert on the
+    // agent's final answer instead of the activity label.
+    await expect(page.getByText("Multi-worker turn complete.")).toBeVisible();
   });
 
   test("observing a turn through a non-owner never marks it failed", async ({
@@ -154,6 +183,7 @@ test.describe("four-worker v2 turn acceptance", () => {
       observer_worker: "worker-d",
     });
     await sendPrompt(page, scenario.prompt);
+    await runtimeFixture.waitForTurnStreaming(scenario.scenario_id);
     await runtimeFixture.act(scenario.scenario_id, "query_from_observer");
     await expect(page.getByRole("button", { name: /retry/i })).toHaveCount(0);
 
