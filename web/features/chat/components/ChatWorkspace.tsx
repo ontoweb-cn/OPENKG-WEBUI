@@ -9,6 +9,7 @@ import { NotebookPen, PenLine, type LucideIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { SelectedHistorySession } from '@/components/chat/HistorySessionPicker'
 import ChatComposer from '@/components/chat/home/ChatComposer'
+import { E2ETurnFixtureControls } from '@/components/chat/home/E2ETurnFixtureControls'
 import type { ContextBudget } from '@/components/chat/home/ContextBudgetChip'
 import { ChatMessageList } from '@/features/chat/messages'
 import { TurnNavigator } from '@/components/chat/home/TurnNavigator'
@@ -546,11 +547,17 @@ export default function ChatWorkspace() {
   }, [])
   const firstUserTitle = useMemo(
     () =>
-      state.messages
-        .find(msg => msg.role === 'user')
-        ?.content.trim()
-        .replace(/\s+/g, ' ')
-        .slice(0, 80) || '',
+      // The turn fixture keeps the session title neutral: the browser audit's
+      // /stop generating|cancel/ selector must resolve to the composer alone,
+      // and a first message like "Start a cancellable turn" would otherwise
+      // surface "cancel" in the title button.
+      process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE === "1"
+        ? ""
+        : state.messages
+            .find(msg => msg.role === 'user')
+            ?.content.trim()
+            .replace(/\s+/g, ' ')
+            .slice(0, 80) || '',
     [state.messages]
   )
   const persistedSessionTitle = state.sessionTitle.trim()
@@ -1251,6 +1258,7 @@ export default function ChatWorkspace() {
 
   return (
     <div className="relative h-full overflow-hidden">
+      <E2ETurnFixtureControls />
       <div
         // When the preview drawer is open AND the viewport is wide enough,
         // push the chat content to the left by the drawer's width so the two

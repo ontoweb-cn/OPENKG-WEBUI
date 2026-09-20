@@ -1647,6 +1647,22 @@ export function ChatStateAdapterProvider({
     [ensureRunner],
   );
 
+  // Fixture-only: the critical-turns browser audit clicks a "Drop connection"
+  // button that dispatches this event; each live runner drops its socket
+  // transiently so the client reconnects with its resume cursor intact. The
+  // affordance is compiled in only when NEXT_PUBLIC_TURN_E2E_FIXTURE=1.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE !== "1") return;
+    const onDropConnection = () => {
+      for (const record of runnersRef.current.values()) {
+        if (record.client.connected) record.client.dropConnectionForTest();
+      }
+    };
+    window.addEventListener("openkg-e2e-drop-connection", onDropConnection);
+    return () =>
+      window.removeEventListener("openkg-e2e-drop-connection", onDropConnection);
+  }, []);
+
   /** Select a session we already hold in memory, if we do.
    *
    *  Lets a caller paint a previously-opened conversation immediately and

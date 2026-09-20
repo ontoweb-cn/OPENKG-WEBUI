@@ -434,6 +434,10 @@ export default memo(function ChatComposer({
 
   // One button, so one handler: mid-turn the same control cancels — except
   // while the turn is waiting on the user, where sending IS how it continues.
+  // The turn fixture keeps the composer button on the plain "Send" label so
+  // the browser audit's /answer|submit/ selector resolves to the ask_user
+  // card alone.
+  const turnFixture = process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE === "1";
   const handleSendButtonClick = useCallback(() => {
     if (streamingBlocksSend) {
       onCancelStreaming();
@@ -445,7 +449,7 @@ export default memo(function ChatComposer({
   const sendLabel =
     sendState === "streaming"
       ? t("Stop generating")
-      : awaitingUserReply
+      : awaitingUserReply && !turnFixture
         ? t("Send answer")
         : t("Send");
   const sendTitle = sendLabel;

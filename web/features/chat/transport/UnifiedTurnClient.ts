@@ -130,4 +130,13 @@ export class UnifiedTurnClient {
     this.runtime.setResumeCursor(null, 0);
     this.connectionState = "stopped";
   }
+
+  /**
+   * Fixture-only: transiently close the turn socket so the client reconnects
+   * with its resume cursor intact — the "drop connection" affordance the
+   * critical-turns browser audit drives. Never called in production paths.
+   */
+  dropConnectionForTest(): void {
+    this.runtime.manualRetry();
+  }
 }
