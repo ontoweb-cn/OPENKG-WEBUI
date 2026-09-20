@@ -1,0 +1,2 @@
+recursive-include openkg_webui_web *
+recursive-include openkg_webui_web/.next *

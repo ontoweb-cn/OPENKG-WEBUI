@@ -1,0 +1,315 @@
+"use client";
+
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { useTranslation } from "react-i18next";
+import ChatSpaceMenu, {
+  type ChatSpaceSelectionCounts,
+} from "@/components/chat/space/ChatSpaceMenu";
+import { shouldSubmitOnEnter } from "@/lib/composer-keyboard";
+import { useAutoSizedTextarea } from "@/lib/use-auto-sized-textarea";
+import { useImeComposing } from "@/lib/use-ime-composing";
+
+interface ComposerInputProps {
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  isStreaming?: boolean;
+  // When true, parent has attachments/references queued and will accept a
+  // send even if the text body is empty. Without this, Enter would silently
+  // do nothing for an attachment-only message.
+  canSendEmpty: boolean;
+  onSend: (content: string) => void;
+  onInputChange: (content: string) => void;
+  onPaste: (e: React.ClipboardEvent) => void;
+  selectedCounts: ChatSpaceSelectionCounts;
+  onSelectAttach: () => void;
+  onSelectHistoryPicker: () => void;
+  /**
+   * Override the default placeholder.
+   */
+  placeholder?: string;
+  /**
+   * A line Tab accepts into the empty composer.
+   *
+   * Reading an offered question and then retyping it is exactly the work
+   * the offer was meant to save, so Tab takes it. Only while the composer
+   * is empty — past the first character the user is writing their own
+   * question, and stealing Tab there would break moving focus out of the
+   * box.
+   */
+  placeholderCompletion?: string;
+  /**
+   * Minimum textarea height in pixels. The auto-sized hook grows the
+   * textarea past this as the user types. Bumped on the empty-state
+   * composer so the resting box looks inviting rather than crammed.
+   */
+  minHeight?: number;
+}
+
+export interface ComposerInputHandle {
+  clear: () => void;
+  getValue: () => string;
+  /**
+   * Programmatically replace the textarea contents (used by the
+   * ``AskUserOptions`` chip click handler — picks an option, prefills
+   * the composer, leaves it to the user to edit/send rather than
+   * auto-firing the message).
+   */
+  setValue: (value: string) => void;
+}
+
+export function shouldOpenAtPopup(value: string, cursorPos: number): boolean {
+  const prefix = value.slice(0, cursorPos);
+  return /(^|\s)@[^\s]*$/.test(prefix);
+}
+
+export function stripTrailingAtMention(value: string): string {
+  return value.replace(/(^|\s)@[^\s]*$/, "$1").replace(/\s+$/, "");
+}
+
+export const ComposerInput = memo(
+  forwardRef<ComposerInputHandle, ComposerInputProps>(function ComposerInput(
+    {
+      textareaRef,
+      isStreaming = false,
+      canSendEmpty,
+      onSend,
+      onInputChange,
+      onPaste,
+      selectedCounts,
+      onSelectAttach,
+      onSelectHistoryPicker,
+      placeholder,
+      placeholderCompletion,
+      minHeight = 28,
+    },
+    ref,
+  ) {
+    const { t } = useTranslation();
+    const [input, setInput] = useState("");
+    const [showAtPopup, setShowAtPopup] = useState(false);
+
+    // Latest text mirrored into a ref by the change handlers (never updated
+    // during render). The @space handlers and the imperative handle read
+    // from this ref so their identities stay stable across keystrokes,
+    // letting `memo` on ChatSpaceMenu actually skip re-renders when
+    // `showAtPopup` doesn't change.
+    const inputRef = useRef("");
+    const { isComposingRef, onCompositionStart, onCompositionEnd } =
+      useImeComposing();
+    // Helper that always updates state and ref together so they can't drift.
+    const setInputBoth = useCallback((value: string) => {
+      inputRef.current = value;
+      setInput(value);
+    }, []);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        clear: () => {
+          setInputBoth("");
+          onInputChange("");
+        },
+        getValue: () => inputRef.current,
+        setValue: (value: string) => {
+          const text = value ?? "";
+          setInputBoth(text);
+          onInputChange(text);
+          // Focus + move caret to the end so the user can immediately
+          // edit or press Enter to send.
+          const el = textareaRef.current;
+          if (el) {
+            requestAnimationFrame(() => {
+              el.focus();
+              el.setSelectionRange(text.length, text.length);
+            });
+          }
+        },
+      }),
+      [setInputBoth, onInputChange, textareaRef],
+    );
+
+    useAutoSizedTextarea(textareaRef, input, { min: minHeight, max: 200 });
+
+    const handleInputChange = useCallback(
+      (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const value = e.target.value;
+        const cursorPos = e.target.selectionStart ?? value.length;
+        setInputBoth(value);
+        onInputChange(value);
+        setShowAtPopup(shouldOpenAtPopup(value, cursorPos));
+      },
+      [setInputBoth, onInputChange],
+    );
+
+    const handleTextareaClick = useCallback(
+      (e: React.MouseEvent<HTMLTextAreaElement>) => {
+        const target = e.currentTarget;
+        const cursorPos = target.selectionStart ?? target.value.length;
+        setShowAtPopup(shouldOpenAtPopup(target.value, cursorPos));
+      },
+      [],
+    );
+
+    const doSend = useCallback(() => {
+      const content = inputRef.current.trim();
+      // Allow sending when text is empty but the parent has attachments or
+      // references queued (canSendEmpty). This matches the send-button's
+      // own enablement logic in ChatComposer (`canSend`).
+      if (!content && !canSendEmpty) return;
+      onSend(content);
+      setInputBoth("");
+      onInputChange("");
+      setShowAtPopup(false);
+    }, [canSendEmpty, onSend, setInputBoth, onInputChange]);
+
+    const clearTrailingMention = useCallback(() => {
+      const next = stripTrailingAtMention(inputRef.current);
+      setInputBoth(next);
+      onInputChange(next);
+    }, [setInputBoth, onInputChange]);
+
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        // Tab takes the offered question — but only into an empty composer, so
+        // Tab keeps meaning "leave this box" the moment there is a draft in it.
+        if (
+          e.key === "Tab" &&
+          !e.shiftKey &&
+          placeholderCompletion &&
+          !inputRef.current.trim()
+        ) {
+          e.preventDefault();
+          setInputBoth(placeholderCompletion);
+          onInputChange(placeholderCompletion);
+          return;
+        }
+        if (shouldSubmitOnEnter(e, isComposingRef.current)) {
+          e.preventDefault();
+          if (!isStreaming) doSend();
+        } else if (e.key === "Escape") {
+          setShowAtPopup(false);
+        }
+      },
+      [
+        doSend,
+        isStreaming,
+        isComposingRef,
+        onInputChange,
+        placeholderCompletion,
+        setInputBoth,
+      ],
+    );
+
+    const handleSelectSpaceItem = useCallback(
+      (key: "attach" | "chat_history") => {
+        clearTrailingMention();
+        setShowAtPopup(false);
+        if (key === "attach") onSelectAttach();
+        else if (key === "chat_history") onSelectHistoryPicker();
+      },
+      [clearTrailingMention, onSelectAttach, onSelectHistoryPicker],
+    );
+
+    // Close the @-mention popup on outside click. Without this, clicking
+    // anywhere outside the popup or textarea left the menu hovering
+    // indefinitely. We bind on mousedown so the close fires before a
+    // synthetic click on a sibling button (e.g. the Tools menu) can
+    // re-open something else.
+    const popupRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+      if (!showAtPopup) return;
+      const handler = (e: MouseEvent) => {
+        const target = e.target as Node | null;
+        if (!target) return;
+        if (popupRef.current?.contains(target)) return;
+        if (textareaRef.current?.contains(target)) return;
+        setShowAtPopup(false);
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [showAtPopup, textareaRef]);
+
+    const basePlaceholder = placeholder ?? t("How can I help you today?");
+    // The Tab hint used to be a separate pill under the textarea — its own
+    // block that appeared and disappeared as the offer came and went,
+    // nudging the composer's height around it. Rendered as an overlay over
+    // the (now empty) native placeholder instead: same muted tone, same
+    // line, no layout of its own. Two spans rather than one concatenated
+    // string — a hint long enough to fill the line would otherwise wrap the
+    // textarea onto a second line and silently clip the very text that
+    // explains how to accept it; the hint span truncates with an ellipsis
+    // instead, while "→ Tab to complete" stays pinned and fully visible.
+    const showHintOverlay = Boolean(placeholderCompletion) && !input.trim();
+
+    return (
+      <div className="px-4 pt-3.5 pb-2">
+        {showAtPopup && (
+          <div
+            ref={popupRef}
+            className="absolute bottom-full left-0 z-[70] mb-2"
+          >
+            <ChatSpaceMenu
+              variant="mention"
+              selectedCounts={selectedCounts}
+              onSelectItem={handleSelectSpaceItem}
+            />
+          </div>
+        )}
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
+            onClick={handleTextareaClick}
+            onPaste={onPaste}
+            rows={1}
+            // Cap input at 32k chars. A bigger paste (e.g. an entire textbook
+            // dumped via Cmd+V) would force a layout reflow on every keystroke
+            // and lock the page; the cap is a defensive guard, not a real
+            // product limit. Users hit by this cap should be using the
+            // attachment path, not the composer body.
+            maxLength={32000}
+            suppressHydrationWarning
+            placeholder={placeholderCompletion ? "" : basePlaceholder}
+            // The overlay below replaces the native placeholder visually
+            // (so a long hint can truncate instead of wrapping), but an
+            // empty placeholder would otherwise leave the field with no
+            // accessible name — this restores one that reads the same as
+            // what's on screen.
+            aria-label={
+              placeholderCompletion
+                ? `${placeholderCompletion} — ${t("Tab to complete")}`
+                : undefined
+            }
+            className="w-full resize-none overflow-hidden bg-transparent text-[16px] leading-relaxed text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+            style={{ transition: "height 0.15s ease-out" }}
+          />
+          {showHintOverlay ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 flex items-start gap-1 overflow-hidden text-[16px] leading-relaxed text-[var(--muted-foreground)]"
+            >
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                {placeholderCompletion}
+              </span>
+              <span className="shrink-0 whitespace-nowrap">
+                → {t("Tab to complete")}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }),
+);

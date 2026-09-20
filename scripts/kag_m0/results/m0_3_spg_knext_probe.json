@@ -1,0 +1,59 @@
+{
+  "host": "http://127.0.0.1:8887",
+  "project_id": "3",
+  "steps": [
+    {
+      "step": "project_get（GET /public/v1/project）",
+      "ok": true,
+      "count": 3,
+      "first_project_fields": {
+        "id": "1",
+        "name": "m0_probe_pubnet",
+        "description": "None",
+        "namespace": "m0_probe_pubnet",
+        "tenant_id": "None",
+        "config": "{}"
+      }
+    },
+    {
+      "step": "get_config（项目 config 字段解析）",
+      "ok": true,
+      "config_keys": [
+        "graph_store",
+        "vectorizer"
+      ]
+    },
+    {
+      "step": "SchemaSession 加载（/public/v1/schema 契约）",
+      "ok": true,
+      "spg_type_count": 5,
+      "spg_types": [
+        "Entity",
+        "m0ProbeLive.ArtificialObject",
+        "m0ProbeLive.Astronomy",
+        "m0ProbeLive.Building",
+        "m0ProbeLive.Chunk"
+      ]
+    },
+    {
+      "step": "REST 方法对照（人工核对用）",
+      "methods": [
+        "ProjectApi.project_get / project_create_post / project_update_post",
+        "ReasonerApi.reason_run_post / reasoner_dialog_report_completions_post",
+        "SchemaSession → schema_query_project_schema_get"
+      ],
+      "note": "各方法 resource_path 见 knext/*/rest/*_api.py；m0_4 裸探测端点表以此为权威。"
+    }
+  ],
+  "ok": true,
+  "__env__": {
+    "recorded_at": "2026-09-18T11:51:07.055330+00:00",
+    "python": "3.14.6",
+    "argv": [],
+    "kag_version": "0.8.0",
+    "env:KAG_PROJECT_HOST_ADDR": "http://127.0.0.1:8887",
+    "env:KAG_PROJECT_ID": "3",
+    "env:KAG_PROJECT_NAMESPACE": "",
+    "env:KAG_GRAPH_STORE_URI": ""
+  }
+}

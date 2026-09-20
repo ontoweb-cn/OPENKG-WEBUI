@@ -1,0 +1,53 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/  # note: keep web/dist handled below (compiled node tests) — see note
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+coverage.xml
+.ipynb_checkpoints/
+
+# === Virtualenv / 依赖 ===
+.venv/
+venv/
+node_modules/
+
+# === Node / Next.js 前端 ===
+.next/
+.next-*/
+web/.next/
+web/.next-*/
+web/dist/
+web/out/
+*.tsbuildinfo
+
+# === 运行时数据 ===
+data/
+
+# === 环境 / 密钥 / 证书 ===
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# === 系统 / 编辑器 ===
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# === 本地工具目录 ===
+.trae/
+.zcode/
+
+# === 打包中间产物 ===
+*.whl
+*.tar.gz

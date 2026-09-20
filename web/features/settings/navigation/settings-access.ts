@@ -1,0 +1,48 @@
+import type { AuthStatus } from "@/lib/auth";
+
+export interface SettingsAccess {
+  /** False until the backend has resolved the runtime auth mode and account. */
+  resolved: boolean;
+  /** Admin-owned settings stay hidden on auth failures and for ordinary users. */
+  hideAdminOnly: boolean;
+  /**
+   * Whether the conversation-facing LLM settings (the `llm` leaf of the
+   * models category) apply to the configured agent backend. Only a
+   * self-hosted HTTP backend needs conversation credentials entered here —
+   * the CLI family carries its own login state. Other models-category
+   * settings (task models, voice) apply regardless of backend and are never
+   * hidden by this flag. Defaults to ``true`` so a failed or pending lookup
+   * never hides a section that used to be visible.
+   */
+  enableLlmSettings: boolean;
+}
+
+export const PENDING_SETTINGS_ACCESS: SettingsAccess = {
+  resolved: false,
+  hideAdminOnly: true,
+  enableLlmSettings: true,
+};
+
+/** Convert the backend's account identity into the settings visibility model. */
+export function settingsAccessFromAuthStatus(
+  authStatus: AuthStatus | null,
+): SettingsAccess {
+  if (!authStatus) {
+    return { ...PENDING_SETTINGS_ACCESS, resolved: true };
+  }
+
+  return {
+    resolved: true,
+    hideAdminOnly: Boolean(authStatus.enabled) && !authStatus.is_admin,
+    enableLlmSettings: true,
+  };
+}
+
+/** Overlay backend-driven gates onto the account-derived access model. */
+export function withLlmSettingsGate(
+  access: SettingsAccess,
+  llmSettingsEnabled: boolean | null,
+): SettingsAccess {
+  if (llmSettingsEnabled === null) return access;
+  return { ...access, enableLlmSettings: llmSettingsEnabled };
+}

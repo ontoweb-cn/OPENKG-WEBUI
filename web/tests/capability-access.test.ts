@@ -1,0 +1,30 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { capabilityForPath } from "../lib/capability-routes";
+
+// ── capabilityForPath ──────────────────────────────────────────────────
+
+test("capabilityForPath maps LLM features to llm", () => {
+  assert.equal(capabilityForPath("/chat"), "llm");
+});
+
+test("capabilityForPath matches nested routes by prefix", () => {
+  assert.equal(capabilityForPath("/chat/abc-123"), "llm");
+});
+
+test("capabilityForPath matches on a segment boundary, not a bare prefix", () => {
+  // A sibling route must never be swallowed by a shorter gated prefix.
+  assert.equal(capabilityForPath("/chatter"), null);
+  assert.equal(capabilityForPath("/partnerless"), null);
+  // The gated route itself and its children still match.
+  assert.equal(capabilityForPath("/chat/abc-123"), "llm");
+});
+
+test("capabilityForPath returns null for ungated routes", () => {
+  // Knowledge is ungated: embedding is shared admin infra, not per-user.
+  assert.equal(capabilityForPath("/knowledge-bases"), null);
+  assert.equal(capabilityForPath("/memory"), null);
+  assert.equal(capabilityForPath("/space"), null);
+  assert.equal(capabilityForPath("/settings"), null);
+});

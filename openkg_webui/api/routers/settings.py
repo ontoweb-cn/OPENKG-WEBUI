@@ -1,0 +1,2342 @@
+"""
+Settings API Router
+===================
+
+UI preferences, configuration catalog management, and detailed streamed tests.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from typing import Any, List, Literal, Optional
+
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+from openkg_webui.multi_user.context import get_current_user
+from openkg_webui.multi_user.model_access import allowed_llm_options
+from openkg_webui.multi_user.paths import get_admin_path_service
+from openkg_webui.services.agent_loop.builtin import normalize_profile_models
+from openkg_webui.services.agent_loop.workdir import (
+    normalize_workdir_roots,
+    resolve_allowed_workdir,
+)
+from openkg_webui.services.codebuddy_auth import get_codebuddy_auth_service
+from openkg_webui.services.config import (
+    CATALOG_SECRET_MASK,
+    get_config_test_runner,
+    get_model_catalog_service,
+    get_runtime_settings_service,
+    redact_catalog_secrets,
+    restore_catalog_secrets,
+)
+from openkg_webui.services.config.origins import normalize_origins
+from openkg_webui.services.config.runtime_settings import (
+    AGENT_LOOP_CONSULT_BUDGET_RANGE,
+    AGENT_LOOP_CONTEXT_WINDOW_RANGE,
+    AGENT_LOOP_TIMEOUT_RANGE,
+    CHAT_ATTACHMENT_CHARS_RANGE,
+    CHAT_ATTACHMENT_MAX_FILE_MB_RANGE,
+    CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE,
+    DEFAULT_WORKDIR_ROOT,
+    compute_ws_max_size,
+)
+from openkg_webui.services.config.settings_draft import (
+    get_settings_draft_service,
+    is_empty_draft,
+    merge_draft_secrets,
+    redact_draft,
+)
+from openkg_webui.services.llm.config import clear_llm_config_cache
+from openkg_webui.services.model_selection import list_llm_options
+from openkg_webui.services.path_service import get_path_service
+from openkg_webui.services.settings.interface_settings import (
+    DEFAULT_UI_SETTINGS as INTERFACE_DEFAULTS,
+)
+from openkg_webui.services.settings.interface_settings import (
+    atomic_update,
+    get_response_language,
+    resolve_languages,
+)
+from openkg_webui.services.settings.starter_settings import (
+    TRACE_COUNT_RANGE as STARTER_TRACE_COUNT_RANGE,
+)
+
+router = APIRouter()
+# Public UI-settings router. The app shell bootstraps the interface language
+# from GET /api/settings/ui, and auth pages (/register, /login) must be
+# able to do the same *before* a session exists — so this one read endpoint
+# is intentionally mounted outside the ``_auth`` dependency (see main.py).
+# It only exposes non-sensitive UI preferences (theme/language), never the
+# model catalog, provider credentials, or runtime configuration.
+public_router = APIRouter()
+
+TOUR_CACHE = None
+
+
+def _settings_file():
+    return get_path_service().get_settings_file("interface")
+
+
+def _tour_cache_file():
+    if TOUR_CACHE is not None:
+        return TOUR_CACHE
+    return get_path_service().get_settings_dir() / ".tour_cache.json"
+
+
+DEFAULT_UI_SETTINGS = {
+    # theme / language / response_language come from the module that owns
+    # interface.json, so the two readers of that file can't drift on what a
+    # fresh install defaults to.
+    **INTERFACE_DEFAULTS,
+    # When true, chat auto-plays each assistant reply via TTS. Per-user UI
+    # preference (not catalog); the chat surface also keeps a per-session
+    # override on top of this global default.
+    "voice_autoplay": False,
+    # Seconds the chat UI waits for any turn event before declaring the
+    # connection timed out. Bumped from 60 → 180 so slow tools (image/video
+    # generation) don't trip it; user-adjustable in Settings > Network.
+    "chat_response_timeout": 180,
+}
+
+# Bounds for the chat idle timeout (seconds): long enough for video renders,
+# capped so a typo can't wedge a turn open forever.
+CHAT_RESPONSE_TIMEOUT_MIN = 30
+CHAT_RESPONSE_TIMEOUT_MAX = 1800
+
+
+class UISettings(BaseModel):
+    theme: Literal["light", "dark", "glass", "snow"] = "snow"
+    language: Literal["zh", "en"] = "en"
+    response_language: Literal["zh", "en"] = "en"
+    code_block_theme: Optional[str] = None
+    code_block_show_line_numbers: Optional[bool] = None
+    code_block_wrap_long_lines: Optional[bool] = None
+
+
+class UISettingsUpdate(BaseModel):
+    """Partial UI settings for user-initiated PATCH/PUT updates via /api/settings/ui.
+
+    All fields have None defaults so `model_dump(exclude_unset=True)` naturally
+    excludes fields not provided in the frontend payload, while explicitly provided
+    defaults (e.g., `theme: "snow"`) still update the backend. This separates
+    the semantic contract: `/ui` endpoint only merges whatever explicitly arrives
+    from the frontend.
+    """
+
+    # Same Literal domains as UISettings — a None default keeps them optional
+    # for exclude_unset partial merges, but an explicit value is still validated
+    # so PUT /ui cannot persist a theme/language the app can't render.
+    theme: Literal["light", "dark", "glass", "snow"] | None = None
+    language: Literal["zh", "en"] | None = None
+    response_language: Literal["zh", "en"] | None = None
+    code_block_theme: str | None = None
+    code_block_show_line_numbers: bool | None = None
+    code_block_wrap_long_lines: bool | None = None
+    # Cost switch for the post-turn insight judge (one extra model call per
+    # multi-round turn). Absent here it would be silently dropped by pydantic,
+    # making the flag unsettable through the API.
+    turn_insight_enabled: bool | None = None
+
+
+class VoiceAutoplayUpdate(BaseModel):
+    voice_autoplay: bool
+
+
+class ChatResponseTimeoutUpdate(BaseModel):
+    chat_response_timeout: int = Field(ge=CHAT_RESPONSE_TIMEOUT_MIN, le=CHAT_RESPONSE_TIMEOUT_MAX)
+
+
+class ThemeUpdate(BaseModel):
+    theme: Literal["light", "dark", "glass", "snow"]
+
+
+class LanguageUpdate(BaseModel):
+    language: Literal["zh", "en"]
+
+
+class SidebarDescriptionUpdate(BaseModel):
+    description: str
+
+
+class CatalogPayload(BaseModel):
+    catalog: dict[str, Any]
+
+
+class SettingsDraftPayload(BaseModel):
+    """The unapplied settings envelope, as the settings UI holds it."""
+
+    catalog: dict[str, Any] | None = None
+    # Opaque per-page state, keyed by the string the page registers with.
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+
+class CodexReasoningEffortUpdate(BaseModel):
+    model: str = Field(min_length=1)
+    reasoning_effort: str | None = None
+
+
+class FetchModelsPayload(BaseModel):
+    binding: str = ""
+    base_url: str = ""
+    api_key: Optional[str] = None
+    profile_id: Optional[str] = None
+    # Which LLM-shaped service the profile lives in (for resolving a masked key).
+    service: Literal["llm", "task"] = "llm"
+    # The profile's API format; decides whether /models takes Anthropic headers.
+    api_format: Optional[str] = None
+
+
+class ModelCapabilitiesQuery(BaseModel):
+    binding: str = ""
+    model: str = ""
+
+
+class NetworkSettingsUpdate(BaseModel):
+    backend_port: int = Field(ge=1, le=65535)
+    frontend_port: int = Field(ge=1, le=65535)
+    public_api_base: str = ""
+    cors_origins: list[str] = Field(default_factory=list)
+
+
+class ChatAttachmentSettingsUpdate(BaseModel):
+    """Chat attachment policy (size caps + extraction budgets).
+
+    Bounds mirror the normalization clamps in
+    ``runtime_settings.CHAT_ATTACHMENT_*_RANGE`` so the API rejects loudly
+    what the file layer would silently clamp.
+    """
+
+    max_file_mb: int = Field(
+        ge=CHAT_ATTACHMENT_MAX_FILE_MB_RANGE[0], le=CHAT_ATTACHMENT_MAX_FILE_MB_RANGE[1]
+    )
+    max_total_mb: int = Field(
+        ge=CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE[0], le=CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE[1]
+    )
+    max_chars_per_doc: int = Field(
+        ge=CHAT_ATTACHMENT_CHARS_RANGE[0], le=CHAT_ATTACHMENT_CHARS_RANGE[1]
+    )
+    max_chars_total: int = Field(
+        ge=CHAT_ATTACHMENT_CHARS_RANGE[0], le=CHAT_ATTACHMENT_CHARS_RANGE[1]
+    )
+
+
+class ChatStarterSettingsUpdate(BaseModel):
+    """How much recent activity shapes the home screen's starting points.
+
+    Bounds mirror ``starter_settings.TRACE_COUNT_RANGE`` so the API rejects
+    loudly what the file layer would silently clamp.
+    """
+
+    trace_count: int = Field(ge=STARTER_TRACE_COUNT_RANGE[0], le=STARTER_TRACE_COUNT_RANGE[1])
+
+
+class AgentLoopProfileUpdate(BaseModel):
+    """One agent-loop profile. ``api_key`` is tri-state like MinerU's
+    ``api_token``: ``None`` keeps the stored credential (matched by id), ""
+    clears it, a non-empty string replaces it."""
+
+    id: str = ""
+    name: str = ""
+    preset: str
+    #: Which way to reach a preset that offers several (the community
+    #: Intellect preset: ``acp`` local child vs ``http`` service). Empty =
+    #: the preset's default.
+    transport: str = ""
+    enabled: bool = True
+    command: str = ""
+    args: List[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str = ""
+    turn_path: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+    api_key: Optional[str] = None
+    timeout_seconds: int = Field(
+        default=900, ge=AGENT_LOOP_TIMEOUT_RANGE[0], le=AGENT_LOOP_TIMEOUT_RANGE[1]
+    )
+    session_workspace: bool = True
+    consult_enabled: bool = True
+    #: CLI family only. Empty = the per-session workspace; a non-empty value
+    #: must sit inside ``allowed_workdir_roots``.
+    workdir: str = ""
+    #: Approval policy for control-capable backends: how long a parked turn
+    #: waits for a decision (seconds) and what answers for the user when
+    #: nothing arrives (timeout, headless entry point).
+    approval_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    approval_default: str = "deny"
+    #: The model this backend should run. Empty = the backend's own default.
+    #: CLI profiles reference it as ``{model}`` in ``args``; HTTP profiles send
+    #: it in the request body.
+    model: str = ""
+    #: Operator-curated per-turn model vocabulary (``[{id, name}]`` or plain
+    #: strings, normalized on save). Option source for the composer's model
+    #: picker; for the plain HTTP-turn presets a non-empty list also opts the
+    #: profile into per-turn model support.
+    models: List[Any] = Field(default_factory=list)
+    #: The backend's real context window, used for history budgeting. 0 = not
+    #: configured (the budget planner falls back to its model-name heuristics).
+    context_window: int = Field(default=0, ge=0, le=AGENT_LOOP_CONTEXT_WINDOW_RANGE[1])
+    #: HTTP family only. Who a turn runs as on the remote service: ``off``
+    #: sends nothing extra, ``header`` attributes the turn to the calling
+    #: account, ``token`` also presents that account's own linked member token,
+    #: ``token_required`` refuses to run without one. Empty = the preset's own
+    #: default (attribution for the self-hosted Intellect services).
+    identity_mode: str = ""
+    #: The instance tenant the service runs as, when the deployment names one.
+    #: Intellect validates it against its configured tenant (32 hex chars) and
+    #: answers 400/403 on a malformed or mismatched value, so it is checked
+    #: here rather than at the first turn. Empty = the service's default tenant.
+    tenant_id: str = ""
+
+
+class AgentLoopSettingsUpdate(BaseModel):
+    """The whole ``agent_loop`` v2 block, as the settings UI holds it.
+
+    ``primary`` is ``None`` for "let the default rule pick" (local Intellect
+    first — resolved and persisted on save), a profile id to pin one, or ""
+    for the explicit shell-stub choice.
+    """
+
+    profiles: List[AgentLoopProfileUpdate] = Field(default_factory=list)
+    primary: Optional[str] = None
+    consult_budget: int = Field(
+        default=3, ge=AGENT_LOOP_CONSULT_BUDGET_RANGE[0], le=AGENT_LOOP_CONSULT_BUDGET_RANGE[1]
+    )
+    allowed_workdir_roots: List[str] = Field(default_factory=lambda: [DEFAULT_WORKDIR_ROOT])
+
+
+class MinerUSettingsUpdate(BaseModel):
+    """MinerU document-parsing backend settings.
+
+    ``api_token`` is tri-state: ``None`` keeps the stored token (the UI sends
+    None when the user didn't edit the secret field), ``""`` clears it, and a
+    non-empty string or string array replaces it. The GET payload never echoes
+    the raw token.
+    """
+
+    mode: Literal["local", "cloud"] = "local"
+    api_base_url: str = "https://mineru.net"
+    api_token: Optional[str | list[str]] = None
+    local_cli_path: str = ""
+    model_download_source: Literal["huggingface", "modelscope"] = "huggingface"
+    model_download_endpoint: str = ""
+    model_version: Literal["pipeline", "vlm"] = "pipeline"
+    language: str = "auto"
+    enable_formula: bool = True
+    enable_table: bool = True
+    is_ocr: bool = False
+    # Off by default → a local parse fails fast rather than silently pulling
+    # multi-GB model weights on first run.
+    allow_local_model_download: bool = False
+
+
+class MinerUModelDownloadPayload(BaseModel):
+    """One-click model download request (draft form values, like /test)."""
+
+    model_type: Literal["pipeline", "vlm", "all"] = "pipeline"
+    source: Literal["huggingface", "modelscope"] = "huggingface"
+    endpoint: str = ""
+    local_cli_path: str = ""
+
+
+class DocumentParsingUpdate(BaseModel):
+    """Document-parsing settings update (the multi-engine control panel).
+
+    ``engine`` (when provided) switches the active parse engine. ``engines``
+    carries partial per-engine updates merged over the stored slices. For the
+    MinerU engine, ``api_token`` stays tri-state: omit it (or send ``None``) to
+    keep the stored token, ``""`` clears it, a non-empty string replaces it.
+    The MinerU engine's own knobs can also be edited via the legacy
+    ``/mineru`` endpoints; both preserve the other engines' settings.
+    """
+
+    engine: Optional[str] = None
+    engines: Optional[dict[str, dict]] = None
+
+
+class DocumentParsingTest(BaseModel):
+    """Readiness test for one engine (defaults to the active engine)."""
+
+    engine: Optional[str] = None
+
+
+class DoclingRemoteTest(BaseModel):
+    """Draft Docling remote-server test. ``api_token`` is tri-state: ``None``
+    falls back to the stored key, ``""`` clears it, a string supplies it (so
+    the user can verify an unsaved key before saving)."""
+
+    api_base_url: str = "http://localhost:5001"
+    api_token: Optional[str] = None
+
+
+class TikaRemoteTest(BaseModel):
+    """Draft Tika server test. Tests the unsaved URL so the user can verify
+    before saving."""
+
+    server_url: str = "http://localhost:9998"
+
+
+class DocumentParsingInstall(BaseModel):
+    """One-click pip install of an optional parser engine's package(s)."""
+
+    engine: str
+
+
+def _invalidate_runtime_caches() -> None:
+    """Force runtime clients/config to pick up the latest saved catalog.
+
+    The LLM and embedding clients are process-wide singletons, so resetting
+    them here will affect any user turn that is mid-flight on another worker.
+    Admins issuing Apply during active sessions accept that trade-off; we log
+    a WARNING so the cause is visible in the audit trail.
+    """
+    logger.warning(
+        "Admin applied catalog; resetting the global LLM client. "
+        "In-flight user turns may flip backend client mid-call."
+    )
+    from openkg_webui.services.llm.client import reset_llm_client
+
+    clear_llm_config_cache()
+    reset_llm_client()
+
+
+def load_ui_settings() -> dict[str, Any]:
+    settings_file = _settings_file()
+    if settings_file.exists():
+        try:
+            with open(settings_file, encoding="utf-8") as handle:
+                saved = json.load(handle)
+                # resolve_languages owns the legacy migration (a file predating
+                # the UI/response split inherits its one language into both).
+                merged = {**DEFAULT_UI_SETTINGS, **saved, **resolve_languages(saved)}
+                # Removed subsystem keys must not leak back out of a persisted
+                # file (and forever re-enter the response payload).
+                for dead in (
+                    "enabled_optional_tools",
+                    "sidebar_description",
+                    "sidebar_nav_order",
+                ):
+                    merged.pop(dead, None)
+                return merged
+        except Exception:
+            pass
+    return DEFAULT_UI_SETTINGS.copy()
+
+
+def save_ui_settings(settings: dict[str, Any]) -> None:
+    """Replace the whole stored UI settings document.
+
+    Writes through ``atomic_update`` rather than opening the file here, so this
+    module and the setup capability — which both write ``interface.json`` —
+    share one lock and one atomic replace. A lock held by only one of two
+    writers protects nothing: measured with the old direct write, six concurrent
+    router saves alongside six capability writes lost every one of the router's.
+
+    Prefer :func:`patch_ui_settings` for changing individual fields. This
+    replaces the whole document, so a caller that builds it from
+    ``load_ui_settings`` writes the merged defaults back as stored values and
+    stops following later changes to any of them.
+    """
+    payload = dict(settings)
+    atomic_update(_settings_file(), lambda _stored: payload)
+
+
+def patch_ui_settings(**fields: Any) -> None:
+    """Change individual UI fields without rewriting the rest of the document."""
+    atomic_update(_settings_file(), lambda stored: {**stored, **fields})
+
+
+def _require_settings_admin() -> None:
+    if not get_current_user().is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Model configuration is managed by an administrator.",
+        )
+
+
+def _require_same_origin(request: Request) -> None:
+    """Refuse a credential-mutating request driven by a cross-site page.
+
+    These endpoints store a credential that then authorizes this account's
+    turns against a remote service, so a forged request is worth more than a
+    nuisance: linking a victim to the *attacker's* account makes the victim's
+    conversations run under an identity the attacker can read. CORS does not
+    cover it — the request executes even when the browser refuses the response,
+    and the default (auth-off) configuration lets the preflight through — so
+    the check is made against the request's own origin. See
+    :func:`openkg_webui.services.config.origins.origin_is_trusted`.
+    """
+    from openkg_webui.services.config.origins import (
+        normalize_origins,
+        origin_is_trusted,
+        request_authority,
+    )
+    from openkg_webui.services.config.runtime_settings import load_system_settings
+
+    try:
+        system_settings = load_system_settings()
+        allowed = normalize_origins(
+            [system_settings.get("cors_origin"), system_settings.get("cors_origins")]
+        )
+    except Exception:
+        # A settings read must not become a lockout: fall back to the
+        # same-origin comparison alone, which is the check that matters.
+        allowed = []
+    if not origin_is_trusted(
+        request.headers.get("origin"),
+        request_authority(
+            request.headers.get("host"), request.headers.get("x-forwarded-host")
+        ),
+        allowed,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cross-site request refused.",
+        )
+
+
+def _identity_public(user_id: str) -> dict[str, Any]:
+    """Describe the caller's link without ever revealing the token."""
+    from openkg_webui.services.agent_loop.identity import identity_store_for, service_origin
+    from openkg_webui.services.agent_loop.settings import (
+        get_agent_loop_settings,
+        resolve_primary_profile,
+    )
+
+    payload: dict[str, Any] = {"available": _identity_service_available()}
+    record = identity_store_for(user_id).load(user_id)
+    if record is None:
+        payload.update({"linked": False, "stale": False})
+        return payload
+    # The link is bound to the service it was minted against; a deployment that
+    # has moved since then does not silently use it, so say so here rather than
+    # letting the user discover it as a failed turn. Compared as origins (not
+    # raw strings) and only as a boolean — the URL is admin-owned config.
+    current = service_origin((resolve_primary_profile(get_agent_loop_settings()) or {}).get("url"))
+    moved = bool(current) and current != service_origin(record.service_origin)
+    expired = record.is_expired()
+    payload.update(
+        {
+            "linked": True,
+            "member_id": record.member_id,
+            "team_id": record.team_id or None,
+            "project_id": record.project_id or None,
+            "expires_at": record.expires_at or None,
+            "linked_at": record.linked_at or None,
+            # A link that lapsed client-side — or that points at a service this
+            # deployment no longer uses — is reported so the UI can prompt. A
+            # link the *service* has since revoked cannot be told apart from a
+            # good one without a live call, so this is the honest subset.
+            "stale": expired or moved,
+            "stale_reason": "expired" if expired else ("service_changed" if moved else None),
+        }
+    )
+    return payload
+
+
+def _identity_service_available() -> bool:
+    """Whether this deployment has an agent service a user could link to.
+
+    Reported as a bare boolean: the service URL is admin-owned configuration,
+    and an ordinary user only needs to know whether the card applies to them.
+    """
+    try:
+        from openkg_webui.services.agent_loop.settings import (
+            get_agent_loop_settings,
+            resolve_primary_profile,
+        )
+
+        profile = resolve_primary_profile(get_agent_loop_settings()) or {}
+        return bool(str(profile.get("url") or "").strip())
+    except Exception:
+        return False
+
+
+def _provider_choices() -> dict[str, list[dict[str, Any]]]:
+    """Build dropdown options for provider selection, keyed by service type."""
+    from openkg_webui.services.config.provider_runtime import (
+        DEPRECATED_SEARCH_PROVIDERS,
+        IMAGEGEN_PROVIDERS,
+        SEARCH_PROVIDERS,
+        STT_PROVIDERS,
+        TTS_PROVIDERS,
+    )
+    from openkg_webui.services.provider_registry import PROVIDERS
+
+    llm = sorted(
+        [
+            {
+                "value": s.name,
+                "label": (
+                    "Custom (OpenAI API)"
+                    if s.name == "custom"
+                    else "Custom (Anthropic API)"
+                    if s.name == "custom_anthropic"
+                    else s.label
+                ),
+                "base_url": s.default_api_base,
+                "auth_mode": s.auth_mode,
+                "supports_wire_api_selection": s.supports_wire_api_selection,
+                # Which protocols a profile on this vendor may pick, and the
+                # vendor endpoint each one lives at when that differs.
+                "api_formats": list(s.api_formats),
+                "default_api_format": s.default_api_format,
+                "base_urls": {
+                    api_format: s.default_api_base_for(api_format)
+                    for api_format in s.api_formats
+                    if s.default_api_base_for(api_format)
+                },
+                # Legacy entries stay resolvable for stored catalogs but are
+                # not offered for new profiles; the same thing is expressed
+                # today as a provider plus an API format.
+                "status": "legacy" if s.is_legacy else "supported",
+            }
+            for s in PROVIDERS
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    # Derived from SEARCH_PROVIDERS so the dropdown, the connection-field form
+    # and the provider warnings the web app renders all follow the backend spec
+    # table. No search provider ships a default base_url — only SearXNG takes
+    # one, and it is the user's own instance.
+    search = [
+        {
+            "value": name,
+            "label": spec.label,
+            "base_url": "",
+            "requires_api_key": spec.requires_api_key,
+            "requires_base_url": spec.requires_base_url,
+            "soft_fallback": spec.soft_fallback,
+            "status": "supported",
+        }
+        for name, spec in SEARCH_PROVIDERS.items()
+    ]
+    # Retired providers ride along marked rather than offered, so a stale
+    # catalog can be told apart from a typo without a second name table in the
+    # web app. The dropdown filters them out; only the warning text uses them.
+    search += [
+        {
+            "value": name,
+            "label": name,
+            "base_url": "",
+            "requires_api_key": False,
+            "requires_base_url": False,
+            "soft_fallback": True,
+            "status": "deprecated",
+        }
+        for name in sorted(DEPRECATED_SEARCH_PROVIDERS)
+    ]
+    tts = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+                "default_voice": spec.default_voice,
+            }
+            for name, spec in TTS_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    stt = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+            }
+            for name, spec in STT_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    imagegen = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+            }
+            for name, spec in IMAGEGEN_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    return {
+        "llm": llm,
+        # Same shape, same vendors: the task service stands in for the LLM.
+        "task": llm,
+        "search": search,
+        "tts": tts,
+        "stt": stt,
+        "imagegen": imagegen,
+    }
+
+
+def _match_service_provider(
+    provider: str,
+    table: dict[str, Any],
+) -> tuple[str, Any] | None:
+    """Find *provider*'s entry in one service's provider table.
+
+    Vendors are not named identically across tables — the LLM registry calls
+    Alibaba's endpoint ``dashscope`` while the embedding table calls it
+    ``aliyun`` — so an exact key miss falls back to the spec's own keywords
+    rather than to a second hand-maintained name map.
+    """
+    if provider in table:
+        return provider, table[provider]
+    for name, spec in table.items():
+        if provider in getattr(spec, "keywords", ()):
+            return name, spec
+    return None
+
+
+def _connection_targets() -> list[dict[str, Any]]:
+    """Which services one vendor credential can configure, and with what.
+
+    The connection UI needs to answer "if I paste an OpenRouter key here, what
+    does it get me?" — so this joins the six per-service provider tables on the
+    vendor and reports, per service, the provider value and the prefills a
+    profile created from that connection should start with. Derived rather than
+    duplicated: adding a vendor to a service table is enough to make it
+    connectable, and the web app never keeps a second copy of the tables.
+    """
+    from openkg_webui.services.config.provider_runtime import (
+        IMAGEGEN_PROVIDERS,
+        STT_PROVIDERS,
+        TTS_PROVIDERS,
+    )
+    from openkg_webui.services.provider_registry import PROVIDERS
+
+    service_tables: dict[str, dict[str, Any]] = {
+        "tts": TTS_PROVIDERS,
+        "stt": STT_PROVIDERS,
+        "imagegen": IMAGEGEN_PROVIDERS,
+    }
+
+    targets: list[dict[str, Any]] = []
+    for spec in PROVIDERS:
+        # OAuth vendors sign in through their own flow; there is no key to
+        # share, so offering them here would promise something untrue.
+        if spec.is_oauth:
+            continue
+        services: dict[str, dict[str, Any]] = {
+            "llm": {
+                "provider": spec.name,
+                "base_url": spec.default_api_base,
+                "default_model": "",
+            }
+        }
+        for service_name, table in service_tables.items():
+            match = _match_service_provider(spec.name, table)
+            if match is None:
+                continue
+            name, service_spec = match
+            entry: dict[str, Any] = {
+                "provider": name,
+                "base_url": service_spec.default_api_base,
+                "default_model": service_spec.default_model,
+            }
+            if service_name == "tts":
+                entry["default_voice"] = service_spec.default_voice
+            services[service_name] = entry
+        targets.append(
+            {
+                "provider": spec.name,
+                "label": (
+                    "Custom (OpenAI API)"
+                    if spec.name == "custom"
+                    else "Custom (Anthropic API)"
+                    if spec.name == "custom_anthropic"
+                    else spec.label
+                ),
+                "default_base_url": spec.default_api_base,
+                "services": services,
+            }
+        )
+    return sorted(targets, key=lambda item: str(item["label"]).lower())
+
+
+def _api_base_source(system: dict[str, Any]) -> str:
+    if system.get("next_public_api_base_external"):
+        return "next_public_api_base_external"
+    if system.get("next_public_api_base"):
+        return "next_public_api_base"
+    return "default_backend_url"
+
+
+def _network_settings_payload() -> dict[str, Any]:
+    service = get_runtime_settings_service()
+    file_system = service.load_system(include_process_overrides=False)
+    effective_system = service.load_system(include_process_overrides=True)
+    auth = service.load_auth(include_process_overrides=True)
+    backend_url = f"http://localhost:{effective_system['backend_port']}"
+    browser_api_base = (
+        effective_system["next_public_api_base_external"]
+        or effective_system["next_public_api_base"]
+        or backend_url
+    )
+    cors_origins = normalize_origins(
+        [effective_system["cors_origin"], effective_system["cors_origins"]]
+    )
+    auth_enabled = bool(auth["enabled"])
+    cookie_secure = bool(auth["cookie_secure"])
+    return {
+        "settings": {
+            "backend_port": file_system["backend_port"],
+            "frontend_port": file_system["frontend_port"],
+            "public_api_base": file_system["next_public_api_base_external"],
+            "cors_origins": normalize_origins(
+                [file_system["cors_origin"], file_system["cors_origins"]]
+            ),
+        },
+        "effective": {
+            "backend_url": backend_url,
+            "frontend_url": f"http://localhost:{effective_system['frontend_port']}",
+            "browser_api_base": browser_api_base,
+            "api_base_source": _api_base_source(effective_system),
+            "cors_mode": "explicit" if auth_enabled else "permissive",
+            "cors_origins": cors_origins,
+            "allow_remote_http_origins": not auth_enabled,
+        },
+        "auth": {
+            "enabled": auth_enabled,
+            "cookie_secure": cookie_secure,
+            "cookie_samesite": "none" if cookie_secure else "lax",
+            "cross_site_cookie_ready": bool(auth_enabled and cookie_secure),
+        },
+        "restart_required": True,
+    }
+
+
+@router.get("")
+async def get_settings():
+    user = get_current_user()
+    if not user.is_admin:
+        # Non-admins never see the catalog (provider URLs/keys); their model
+        # choices come from /settings/llm-options (grant-filtered).
+        return {"ui": load_ui_settings()}
+    return {
+        "ui": load_ui_settings(),
+        "catalog": redact_catalog_secrets(get_model_catalog_service().load()),
+        "providers": _provider_choices(),
+        "connection_targets": _connection_targets(),
+    }
+
+
+class IdentityLinkRequest(BaseModel):
+    """Either a password login, or a token the user was handed out of band."""
+
+    login_name: str = ""
+    password: str = ""
+    token: str = ""
+
+
+@router.get("/agent-loop/identity")
+async def get_agent_loop_identity() -> dict[str, Any]:
+    """The calling user's linked Intellect account, if any."""
+    from openkg_webui.multi_user.context import get_current_user
+
+    return _identity_public(get_current_user().id)
+
+
+@router.post("/agent-loop/identity")
+async def link_agent_loop_identity(
+    payload: IdentityLinkRequest, request: Request
+) -> dict[str, Any]:
+    """Connect the calling user's Intellect account.
+
+    Accepts either Intellect credentials (exchanged once for a member token) or
+    a token directly. Both are verified against the configured service before
+    anything is stored, so a mistake is reported here rather than becoming a
+    failed conversation later.
+    """
+    _require_same_origin(request)
+    from openkg_webui.multi_user.context import get_current_user
+    from openkg_webui.services.agent_loop.identity import (
+        IdentityLinkError,
+        identity_store_for,
+        link_with_password,
+        link_with_token,
+    )
+
+    user_id = str(get_current_user().id)
+    language = get_response_language()
+    try:
+        if payload.token.strip():
+            record = await link_with_token(payload.token, user_id=user_id, language=language)
+        elif payload.login_name.strip() and payload.password:
+            record = await link_with_password(
+                payload.login_name.strip(), payload.password, user_id=user_id, language=language
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide either a token, or a login name and password.",
+            )
+    except IdentityLinkError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+
+    identity_store_for(user_id).save(record)
+    return _identity_public(user_id)
+
+
+@router.delete("/agent-loop/identity")
+async def unlink_agent_loop_identity(request: Request) -> dict[str, Any]:
+    """Disconnect the calling user's Intellect account, revoking the token.
+
+    Guarded like the link: a cross-site DELETE would not merely disconnect the
+    victim but let the attacker re-link them to an account of their choosing.
+    """
+    _require_same_origin(request)
+    from openkg_webui.multi_user.context import get_current_user
+    from openkg_webui.services.agent_loop.identity import unlink
+
+    await unlink(str(get_current_user().id))
+    return {"available": _identity_service_available(), "linked": False, "stale": False}
+
+
+@router.get("/providers/codebuddy/auth/status")
+async def get_codebuddy_auth_status() -> dict[str, Any]:
+    _require_settings_admin()
+    return await get_codebuddy_auth_service().status()
+
+
+@router.post("/providers/codebuddy/auth/start")
+async def start_codebuddy_auth() -> dict[str, Any]:
+    _require_settings_admin()
+    return await get_codebuddy_auth_service().start_login()
+
+
+@router.post("/providers/codebuddy/auth/cancel")
+async def cancel_codebuddy_auth() -> dict[str, Any]:
+    _require_settings_admin()
+    return await get_codebuddy_auth_service().cancel_login()
+
+
+@router.post("/providers/codebuddy/auth/logout")
+async def logout_codebuddy_auth() -> dict[str, Any]:
+    _require_settings_admin()
+    return await get_codebuddy_auth_service().logout()
+
+
+@router.get("/catalog")
+async def get_catalog():
+    _require_settings_admin()
+    return {"catalog": redact_catalog_secrets(get_model_catalog_service().load())}
+
+
+@router.get("/network")
+async def get_network_settings():
+    _require_settings_admin()
+    return _network_settings_payload()
+
+
+@router.put("/network")
+async def update_network_settings(payload: NetworkSettingsUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    current = service.load_system(include_process_overrides=False)
+    service.save_system(
+        {
+            **current,
+            "backend_port": payload.backend_port,
+            "frontend_port": payload.frontend_port,
+            "next_public_api_base_external": payload.public_api_base.strip(),
+            "cors_origin": "",
+            "cors_origins": normalize_origins(payload.cors_origins),
+        }
+    )
+    return _network_settings_payload()
+
+
+def _chat_attachments_payload() -> dict[str, Any]:
+    service = get_runtime_settings_service()
+    stored = service.load_system(include_process_overrides=False)
+    effective = service.load_system(include_process_overrides=True)
+    max_total_bytes = int(effective["chat_attachment_max_total_mb"]) * 1024 * 1024
+    return {
+        "settings": {
+            "max_file_mb": stored["chat_attachment_max_file_mb"],
+            "max_total_mb": stored["chat_attachment_max_total_mb"],
+            "max_chars_per_doc": stored["chat_attachment_max_chars_per_doc"],
+            "max_chars_total": stored["chat_attachment_max_chars_total"],
+        },
+        "effective": {
+            "max_file_bytes": int(effective["chat_attachment_max_file_mb"]) * 1024 * 1024,
+            "max_total_bytes": max_total_bytes,
+            "max_chars_per_doc": effective["chat_attachment_max_chars_per_doc"],
+            "max_chars_total": effective["chat_attachment_max_chars_total"],
+            "ws_max_size": compute_ws_max_size(max_total_bytes),
+        },
+        "bounds": {
+            "max_file_mb": list(CHAT_ATTACHMENT_MAX_FILE_MB_RANGE),
+            "max_total_mb": list(CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE),
+            "chars": list(CHAT_ATTACHMENT_CHARS_RANGE),
+        },
+        # Size caps and char budgets are re-read on every message, but the WS
+        # frame ceiling is fixed at process start — uploads bigger than the
+        # old ceiling need a backend restart to actually go through.
+        "restart_required_for_larger_uploads": True,
+    }
+
+
+@router.get("/chat-attachments")
+async def get_chat_attachment_settings():
+    """Chat attachment policy. Readable by any user — the composer needs the
+    caps to gate file picks client-side; only the PUT is admin-gated."""
+    return _chat_attachments_payload()
+
+
+@router.get("/chat-starters")
+async def get_chat_starter_settings():
+    """How many recent activities shape the home screen's starting points.
+
+    Per user and not admin-gated, unlike the attachment caps next door: this
+    changes the size of one prompt built from the caller's own memory, not any
+    resource other people share.
+    """
+    from openkg_webui.services.settings.starter_settings import (
+        TRACE_COUNT_RANGE,
+        get_starter_settings,
+    )
+
+    return {"settings": get_starter_settings(), "bounds": {"trace_count": TRACE_COUNT_RANGE}}
+
+
+@router.put("/chat-starters")
+async def update_chat_starter_settings(payload: ChatStarterSettingsUpdate):
+    from openkg_webui.services.settings.starter_settings import (
+        TRACE_COUNT_RANGE,
+        save_starter_settings,
+    )
+
+    saved = save_starter_settings({"trace_count": payload.trace_count})
+    return {"settings": saved, "bounds": {"trace_count": TRACE_COUNT_RANGE}}
+
+
+@router.put("/chat-attachments")
+async def update_chat_attachment_settings(payload: ChatAttachmentSettingsUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    current = service.load_system(include_process_overrides=False)
+    service.save_system(
+        {
+            **current,
+            "chat_attachment_max_file_mb": payload.max_file_mb,
+            "chat_attachment_max_total_mb": payload.max_total_mb,
+            "chat_attachment_max_chars_per_doc": payload.max_chars_per_doc,
+            "chat_attachment_max_chars_total": payload.max_chars_total,
+        }
+    )
+    return _chat_attachments_payload()
+
+
+# agent_loop block keys a process-env override can currently pin. When one is
+# pinned, the stored value is not what turns actually use — the UI disables the
+# corresponding input instead of letting an operator "save" a lie.
+AGENT_LOOP_ENV_OVERRIDABLE_KEYS = ("preset", "transport", "command", "url", "api_key")
+
+
+def _agent_loop_profile_block(
+    profile: AgentLoopProfileUpdate,
+    stored_profiles: dict[str, dict],
+) -> dict[str, Any]:
+    """One profile as persisted — honoring the api_key tri-state and the
+    stored key for unknown ids (new profiles default to no key)."""
+    from openkg_webui.services.agent_loop.builtin import profile_transport_id
+
+    stored = stored_profiles.get(profile.id) or {}
+    api_key = str(stored.get("api_key") or "")
+    if profile.api_key is not None:
+        api_key = profile.api_key.strip()
+    return {
+        "id": profile.id.strip(),
+        "name": profile.name.strip(),
+        "preset": profile.preset,
+        # Stored normalized: a single-transport preset keeps "" (so the file
+        # does not grow a field that means nothing), and a multi-transport
+        # preset resolves its default here rather than at every read site.
+        "transport": profile_transport_id(profile.preset, profile.transport),
+        "enabled": profile.enabled,
+        "command": profile.command,
+        "args": [str(arg) for arg in profile.args],
+        "env": dict(profile.env),
+        "url": profile.url,
+        "turn_path": profile.turn_path,
+        "headers": dict(profile.headers),
+        "api_key": api_key,
+        "timeout_seconds": profile.timeout_seconds,
+        "session_workspace": profile.session_workspace,
+        "consult_enabled": profile.consult_enabled,
+        "workdir": profile.workdir.strip(),
+        "approval_timeout_seconds": profile.approval_timeout_seconds,
+        "approval_default": profile.approval_default,
+        "model": profile.model.strip(),
+        "models": normalize_profile_models(profile.models),
+        "context_window": profile.context_window,
+        "identity_mode": profile.identity_mode.strip(),
+        "tenant_id": profile.tenant_id.strip(),
+    }
+
+
+def _agent_loop_settings_block(payload: AgentLoopSettingsUpdate) -> dict[str, Any]:
+    import uuid
+
+    stored = get_runtime_settings_service().load_system(include_process_overrides=False)
+    stored_profiles = {
+        str(item.get("id")): item
+        for item in (stored.get("agent_loop") or {}).get("profiles", [])
+        if isinstance(item, dict)
+    }
+    profiles: list[dict[str, Any]] = []
+    taken_ids: set[str] = set()
+    for index, profile in enumerate(payload.profiles):
+        profile_id = profile.id.strip()
+        if not profile_id or profile_id in taken_ids:
+            profile_id = f"p-{uuid.uuid4().hex[:8]}"
+        profile = profile.model_copy(update={"id": profile_id})
+        taken_ids.add(profile_id)
+        profiles.append(_agent_loop_profile_block(profile, stored_profiles))
+    return {
+        "version": 2,
+        "profiles": profiles,
+        # None = auto-resolve (the default rule runs in the normalizer);
+        # "" = the explicit shell stub.
+        "primary": payload.primary,
+        "consult_budget": payload.consult_budget,
+        # Same normalization as the file layer, so the response, the persisted
+        # block, and the runtime check cannot disagree. An empty list survives
+        # (that is "no workdirs allowed").
+        "allowed_workdir_roots": normalize_workdir_roots(
+            payload.allowed_workdir_roots, default=DEFAULT_WORKDIR_ROOT
+        ),
+    }
+
+
+def _agent_loop_payload() -> dict[str, Any]:
+    """State for the Agent Loop settings page: stored block (keys redacted),
+    effective block (env overrides applied), preset catalog, the auto-primary
+    candidate, and bounds."""
+    service = get_runtime_settings_service()
+    stored = service.load_system(include_process_overrides=False).get("agent_loop") or {}
+    effective = service.load_system(include_process_overrides=True).get("agent_loop") or {}
+
+    from openkg_webui.services.agent_loop.builtin import PRESETS
+
+    def _public(block: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **{key: value for key, value in block.items() if key != "profiles"},
+            "profiles": [
+                {
+                    **{key: value for key, value in profile.items() if key != "api_key"},
+                    "api_key_set": bool(profile.get("api_key")),
+                }
+                for profile in (block.get("profiles") or [])
+                if isinstance(profile, dict)
+            ],
+        }
+
+    effective_primary = str(effective.get("primary") or "")
+    stored_primary = str(stored.get("primary") or "")
+    from openkg_webui.services.agent_loop.builtin import preset_transports, transport_key
+    from openkg_webui.services.agent_loop.settings import (
+        profile_family,
+        profile_llm_settings_apply,
+        profile_per_turn_model,
+        resolve_primary_profile,
+    )
+    from openkg_webui.services.config.runtime_settings import _auto_primary_agent_loop
+
+    # Which backend actually drives turns, and whether the LLM settings apply to
+    # it. Resolved from the *effective* block (env overrides included) through
+    # the same helper the turn path uses, so the UI cannot disagree with runtime
+    # behaviour.
+    resolved = resolve_primary_profile(effective)
+    resolved_preset = str((resolved or {}).get("preset") or "")
+    resolved_transport = str((resolved or {}).get("transport") or "")
+
+    return {
+        "settings": _public(stored),
+        "effective": _public(effective),
+        "effective_primary": {
+            "id": str((resolved or {}).get("id") or ""),
+            "name": str((resolved or {}).get("name") or ""),
+            "preset": resolved_preset,
+            "transport": resolved_transport,
+            "family": profile_family(resolved),
+            # Gates the LLM (models and connections) section: only a
+            # self-hosted HTTP backend needs model credentials entered here.
+            "llm_settings_enabled": profile_llm_settings_apply(resolved),
+            # Gates the composer's model selector: only backends that consume
+            # a per-turn model expose one (one-shot CLI family today).
+            "per_turn_model": profile_per_turn_model(resolved),
+        },
+        # What the default rule (local Intellect first) would pick — shown
+        # next to the "Automatic" primary option so the rule is visible.
+        "auto_primary": _auto_primary_agent_loop(
+            [dict(p) for p in (stored.get("profiles") or []) if isinstance(p, dict)]
+        ),
+        "env_overrides": {
+            key: stored_primary != effective_primary
+            or _primary_field_differs(stored, effective, key)
+            for key in AGENT_LOOP_ENV_OVERRIDABLE_KEYS
+        },
+        "presets": [
+            {
+                "name": preset.name,
+                "family": preset.family,
+                "description": preset.description,
+                # Several ways to reach the same product (the community
+                # Intellect preset: local ACP child vs remote /v1/runs
+                # service). Empty for single-transport presets.
+                "transports": [
+                    {
+                        "id": transport.id,
+                        "family": transport.family,
+                        "label": transport.label,
+                        "description": transport.description,
+                        "detect_key": transport_key(preset.name, transport.id),
+                    }
+                    for transport in preset_transports(preset.name)
+                ]
+                if preset.transports
+                else [],
+                "default_transport": preset.default_transport,
+                # The preset picker's detection column is filled by /detect.
+            }
+            for preset in PRESETS.values()
+        ],
+        "bounds": {
+            "timeout_seconds": list(AGENT_LOOP_TIMEOUT_RANGE),
+            "consult_budget": list(AGENT_LOOP_CONSULT_BUDGET_RANGE),
+            "context_window": list(AGENT_LOOP_CONTEXT_WINDOW_RANGE),
+        },
+    }
+
+
+def _primary_field_differs(stored: dict[str, Any], effective: dict[str, Any], key: str) -> bool:
+    def _field(block: dict[str, Any]) -> Any:
+        primary_id = str(block.get("primary") or "")
+        for profile in block.get("profiles") or []:
+            if isinstance(profile, dict) and str(profile.get("id")) == primary_id:
+                return profile.get(key)
+        return None
+
+    return _field(stored) != _field(effective)
+
+
+@router.get("/agent-loop")
+async def get_agent_loop_settings():
+    _require_settings_admin()
+    return _agent_loop_payload()
+
+
+def _reject_unauthorized_workdirs(block: dict[str, Any]) -> None:
+    """Refuse a profile workdir outside the allowed roots while saving.
+
+    The turn-time check (``chat/capability.py``) is the authoritative one — a
+    config can be saved before the roots change — but catching it here turns a
+    silent trace note into an error the settings page shows next to the field.
+
+    Only enabled CLI profiles are checked: a disabled profile never spawns, and
+    the HTTP family never reads ``workdir``, so a stale value there must not
+    block an unrelated save.
+    """
+    from openkg_webui.services.agent_loop.builtin import PRESETS
+
+    roots = list(block.get("allowed_workdir_roots") or [])
+    base = get_admin_path_service().project_root
+    for profile in block.get("profiles") or []:
+        if not profile.get("enabled"):
+            continue
+        preset = PRESETS.get(str(profile.get("preset") or ""))
+        if preset is None or preset.family != "cli":
+            continue
+        workdir = str(profile.get("workdir") or "").strip()
+        if workdir and resolve_allowed_workdir(workdir, roots, base=base) is None:
+            label = profile.get("name") or profile.get("id") or "profile"
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Profile {label!r}: workdir {workdir!r} is outside the allowed "
+                    f"roots ({', '.join(roots) or 'none configured'})."
+                ),
+            )
+
+
+def _reject_malformed_tenant_ids(block: dict[str, Any]) -> None:
+    """Refuse a tenant id the service would reject, while saving.
+
+    Intellect compares the header with the tenant its instance is configured
+    with, and a value that is not 32 hex characters is refused outright with a
+    400 before the comparison even happens. Both failure modes are identical on
+    every turn, so the one place a typo can be caught is here — the field is a
+    deployment fact the operator copies from the service, not something OPENKG-WebUI
+    can repair or normalize (re-casing would silently stop matching a service
+    configured with a lowercase id).
+    """
+    for profile in block.get("profiles") or []:
+        tenant = str(profile.get("tenant_id") or "").strip()
+        if not tenant:
+            continue
+        if len(tenant) != 32 or any(char not in "0123456789abcdefABCDEF" for char in tenant):
+            label = profile.get("name") or profile.get("id") or "profile"
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Profile {label!r}: tenant_id must be 32 hex characters "
+                    f"(the service's tenant id), got {tenant!r}."
+                ),
+            )
+
+
+@router.put("/agent-loop")
+async def update_agent_loop_settings(payload: AgentLoopSettingsUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    current = service.load_system(include_process_overrides=False)
+    block = _agent_loop_settings_block(payload)
+    _reject_unauthorized_workdirs(block)
+    _reject_malformed_tenant_ids(block)
+    # save_system re-normalizes (migration of odd shapes, id dedupe, the
+    # auto-primary rule, clamps) exactly as it does for every other
+    # system.json block, so the response is the truth.
+    service.save_system({**current, "agent_loop": block})
+    return _agent_loop_payload()
+
+
+@router.get("/agent-loop/detect")
+async def detect_agent_loops():
+    """Probe local agent loops: PATH-probe every CLI preset, reachability-
+    probe every configured HTTP profile. Like DeepMentor's machine-global
+    /api/subagents/detect — but admin-gated, matching the other settings
+    reads here."""
+    _require_settings_admin()
+    from openkg_webui.services.agent_loop.detect import detect_agent_loops as run_detect
+
+    # Read through the router's settings service (not the module singleton)
+    # so probes follow the same settings directory as every other endpoint.
+    block = get_runtime_settings_service().load_system().get("agent_loop") or {}
+    results = await run_detect(block)
+    return {"results": [result.to_dict() for result in results]}
+
+
+@router.post("/agent-loop/test")
+async def test_agent_loop_settings(payload: AgentLoopProfileUpdate):
+    """Validate one draft profile without saving it or sending a live turn.
+
+    Builds the backend exactly as a turn would (preset resolution, required
+    command / URL). CLI commands additionally get a server-PATH resolution
+    probe; HTTP services only get URL sanity checks — the turn contract has
+    no health endpoint, and POSTing it would run a real (possibly costly)
+    agent turn.
+    """
+    _require_settings_admin()
+    import os
+    import shutil
+    import urllib.parse
+
+    from openkg_webui.services.agent_loop import AgentLoopError, build_agent_loop_backend
+
+    stored = get_runtime_settings_service().load_system(include_process_overrides=False)
+    stored_profiles = {
+        str(item.get("id")): item
+        for item in (stored.get("agent_loop") or {}).get("profiles", [])
+        if isinstance(item, dict)
+    }
+    profile = _agent_loop_profile_block(payload, stored_profiles)
+    try:
+        backend = build_agent_loop_backend(profile)
+    except AgentLoopError as exc:
+        return {"ok": False, "message": str(exc)}
+    if backend is None:
+        return {
+            "ok": True,
+            "message": "No backend configured; chat stays the framework-shell stub.",
+        }
+
+    command = str(getattr(backend, "command", "") or "")
+    if command:
+        if os.path.sep in command or (os.altsep and os.altsep in command):
+            found = os.path.isfile(command)
+            detail = command
+        else:
+            resolved = shutil.which(command)
+            found = resolved is not None
+            detail = resolved or command
+        if not found:
+            return {
+                "ok": False,
+                "message": f"'{command}' was not found on the server PATH.",
+            }
+        # Control-capable backends (ACP) get the definitive check here: a
+        # handshake probe — spawn, initialize, attach, shut down. Still no
+        # live turn.
+        probe = getattr(backend, "probe", None)
+        if callable(probe):
+            ok, detail = await probe()
+            prefix = f"CLI resolved: {detail}. "
+            return {"ok": ok, "message": prefix + detail}
+        return {"ok": True, "message": f"CLI resolved: {detail}. No live turn was sent."}
+
+    scheme = urllib.parse.urlsplit(str(getattr(backend, "url", "") or "")).scheme.lower()
+    if scheme not in {"http", "https"}:
+        return {
+            "ok": False,
+            "message": "The service URL needs an http:// or https:// scheme.",
+        }
+    return {
+        "ok": True,
+        "message": (
+            f"Configuration resolves: turns will POST {backend.url}{backend.turn_path}. "
+            "No live turn was sent."
+        ),
+    }
+
+
+def _mineru_settings_payload() -> dict[str, Any]:
+    """MinerU settings for the UI, with the API token redacted to a boolean.
+
+    ``local_cli`` is a fast PATH probe (no subprocess) so the page can show
+    install status at config time instead of failing at parse time; the
+    definitive ``--version`` check runs behind the explicit Test button.
+    """
+    from openkg_webui.services.parsing.engines.mineru.backend import local_cli_probe
+
+    service = get_runtime_settings_service()
+    settings = service.load_mineru(include_process_overrides=True)
+    public = {key: value for key, value in settings.items() if key != "api_token"}
+    return {
+        "settings": public,
+        "api_token_set": bool(settings.get("api_token")),
+        "local_cli": local_cli_probe(str(settings.get("local_cli_path") or "")),
+    }
+
+
+def _document_parsing_payload() -> dict[str, Any]:
+    """State for the Document Parsing settings page: active engine, all engine
+    slices (MinerU token redacted), engine availability, and per-engine
+    readiness (so the UI can surface the "models not downloaded" gate)."""
+    from openkg_webui.services.parsing.engines._install import (
+        installable_engines,
+        model_downloadable_engines,
+    )
+    from openkg_webui.services.parsing.engines.factory import (
+        get_parser,
+        list_engines,
+    )
+    from openkg_webui.services.parsing.engines.mineru.backend import local_cli_probe
+
+    service = get_runtime_settings_service()
+    full = service.load_document_parsing(include_process_overrides=True)
+    engines = full.get("engines", {})
+
+    redacted: dict[str, Any] = {}
+    for name, slice_ in engines.items():
+        clean = dict(slice_)
+        clean.pop("api_token", None)
+        redacted[name] = clean
+
+    readiness: dict[str, Any] = {}
+    available = list_engines()
+    for entry in available:
+        try:
+            parser = get_parser(entry["id"])
+            report = parser.is_ready(parser.resolve_config())
+            readiness[entry["id"]] = {
+                "ready": report.ready,
+                "reason": report.reason,
+                "message": report.message,
+            }
+        except Exception:  # pragma: no cover - defensive
+            continue
+
+    mineru_slice = engines.get("mineru", {})
+    docling_slice = engines.get("docling", {})
+    return {
+        "engine": full.get("engine"),
+        "engines": redacted,
+        "available_engines": available,
+        "readiness": readiness,
+        # Engine ids that support one-click pip install / model download here.
+        "installable": sorted(installable_engines()),
+        "model_downloadable": sorted(model_downloadable_engines()),
+        # MinerU-specific UI state (token presence + CLI probe).
+        "mineru": {
+            "api_token_set": bool(mineru_slice.get("api_token")),
+            "local_cli": local_cli_probe(str(mineru_slice.get("local_cli_path") or "")),
+        },
+        # Docling UI state (token presence for remote mode).
+        "docling": {
+            "api_token_set": bool(docling_slice.get("api_token")),
+        },
+    }
+
+
+@router.get("/mineru")
+async def get_mineru_settings():
+    _require_settings_admin()
+    return _mineru_settings_payload()
+
+
+@router.put("/mineru")
+async def update_mineru_settings(payload: MinerUSettingsUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    current = service.load_mineru(include_process_overrides=False)
+    # Tri-state token: None keeps the stored value, anything else replaces it.
+    token = current.get("api_token", "")
+    if payload.api_token is not None:
+        token = (
+            [value.strip() for value in payload.api_token if value.strip()]
+            if isinstance(payload.api_token, list)
+            else payload.api_token.strip()
+        )
+    service.save_mineru(
+        {
+            "mode": payload.mode,
+            "api_base_url": payload.api_base_url,
+            "api_token": token,
+            "local_cli_path": payload.local_cli_path,
+            "model_download_source": payload.model_download_source,
+            "model_download_endpoint": payload.model_download_endpoint,
+            "model_version": payload.model_version,
+            "language": payload.language,
+            "enable_formula": payload.enable_formula,
+            "enable_table": payload.enable_table,
+            "is_ocr": payload.is_ocr,
+            "allow_local_model_download": payload.allow_local_model_download,
+        }
+    )
+    return _mineru_settings_payload()
+
+
+@router.get("/document-parsing")
+async def get_document_parsing_settings():
+    _require_settings_admin()
+    return _document_parsing_payload()
+
+
+@router.put("/document-parsing")
+async def update_document_parsing_settings(payload: DocumentParsingUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    full = service.load_document_parsing(include_process_overrides=False)
+    engines = {name: dict(slice_) for name, slice_ in full.get("engines", {}).items()}
+
+    for name, update in (payload.engines or {}).items():
+        if name not in engines:
+            continue
+        merged = dict(update or {})
+        # Token tri-state for engines with a secret (MinerU, Docling remote):
+        # omitted / None keeps the stored token; "" clears it; a string
+        # replaces it.
+        if "api_token" in (engines[name] or {}) and merged.get("api_token") is None:
+            merged.pop("api_token", None)
+        engines[name].update(merged)
+
+    new_engine = payload.engine or full.get("engine")
+    service.save_document_parsing({"engine": new_engine, "engines": engines})
+    return _document_parsing_payload()
+
+
+@router.post("/document-parsing/test")
+async def test_document_parsing(payload: DocumentParsingTest):
+    """Readiness test for an engine. For MinerU's deeper checks (live cloud
+    token / CLI ``--version``) the UI uses ``/mineru/test``; this generic test
+    covers engine availability + model readiness for all engines."""
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.factory import get_parser, is_engine_available
+
+    service = get_runtime_settings_service()
+    engine = payload.engine or service.load_document_parsing().get("engine") or ""
+    if not is_engine_available(engine):
+        return {"ok": False, "message": f"The '{engine}' parsing engine isn't installed."}
+    try:
+        parser = get_parser(engine)
+        config = parser.resolve_config()
+        report = parser.is_ready(config)
+        # Remote engines get a live connectivity check (e.g. Docling Serve
+        # /health) rather than a config-only readiness gate.
+        verify = getattr(parser, "verify", None)
+        if verify is not None and report.ready and callable(verify):
+            ok, message = verify(config)
+            return {"ok": ok, "message": message or ("Ready to parse." if ok else "Not ready.")}
+    except Exception as exc:  # noqa: BLE001 - surface as a test result
+        return {"ok": False, "message": str(exc)}
+    return {
+        "ok": report.ready,
+        "message": report.message or ("Ready to parse." if report.ready else "Not ready."),
+    }
+
+
+@router.post("/document-parsing/docling/test")
+async def test_docling_remote_connection(payload: DoclingRemoteTest):
+    """Live connectivity check for the Docling remote-server draft values.
+    Pings the server health + version endpoints and returns ``ok`` + a
+    human-readable detail. Tests draft form values so the user can verify the
+    URL/key before saving; falls back to the stored key when the secret field
+    is untouched."""
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.docling.config import (
+        DoclingConfig,
+        resolve_docling_config,
+    )
+    from openkg_webui.services.parsing.engines.docling.remote import verify_remote
+
+    stored = resolve_docling_config()
+    base_url = payload.api_base_url.strip().rstrip("/") or "http://localhost:5001"
+    token = stored.api_token if payload.api_token is None else payload.api_token.strip()
+    config = DoclingConfig(
+        mode="remote",
+        api_base_url=base_url,
+        api_token=token,
+        do_ocr=stored.do_ocr,
+        do_table_structure=stored.do_table_structure,
+    )
+    ok, detail = await asyncio.to_thread(verify_remote, config)
+    return {"ok": ok, "message": detail or ("Ready to parse." if ok else "Not ready.")}
+
+
+@router.post("/document-parsing/tika/test")
+async def test_tika_remote_connection(payload: TikaRemoteTest):
+    """Live connectivity check for the Tika server draft URL. Pings ``/version``
+    so the user can verify the URL before saving."""
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.tika.config import TikaConfig
+    from openkg_webui.services.parsing.engines.tika.remote import verify_remote
+
+    server_url = payload.server_url.strip().rstrip("/") or "http://localhost:9998"
+    config = TikaConfig(server_url=server_url)
+    ok, detail = await asyncio.to_thread(verify_remote, config)
+    return {"ok": ok, "message": detail or ("Ready to parse." if ok else "Not ready.")}
+
+
+def _normalize_engine_name(name: str) -> str:
+    return (name or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+@router.post("/document-parsing/install")
+async def start_document_parsing_install(payload: DocumentParsingInstall):
+    """Kick off a one-click ``pip install`` of an optional engine's package(s).
+
+    Returns ``{ok, message}`` immediately; progress is polled via the shared job
+    status endpoint. Only one job runs at a time (process-wide singleton). The
+    engine must be in the install allow-list (``ENGINE_PIP_SPECS``)."""
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines._install import (
+        ENGINE_PIP_SPECS,
+        get_background_job_manager,
+    )
+
+    engine = _normalize_engine_name(payload.engine)
+    specs = ENGINE_PIP_SPECS.get(engine)
+    if not specs:
+        return {"ok": False, "message": f"No installable package for engine '{engine}'."}
+    return get_background_job_manager().start_install(engine=engine, specs=specs)
+
+
+@router.post("/document-parsing/models/download")
+async def start_document_parsing_model_download(payload: DocumentParsingInstall):
+    """Kick off a one-click model-weight download for an engine (e.g. Docling).
+
+    Runs the engine's downloader console script (``docling-tools models
+    download``) as a background subprocess; progress is polled via the shared job
+    status endpoint. The engine must be in ``ENGINE_MODEL_DOWNLOADERS`` and its
+    script reachable next to the server's python or on PATH."""
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines._install import (
+        get_background_job_manager,
+        model_downloadable_engines,
+        resolve_model_downloader,
+    )
+
+    engine = _normalize_engine_name(payload.engine)
+    if engine not in model_downloadable_engines():
+        return {"ok": False, "message": f"No model download for engine '{engine}'."}
+    cmd = resolve_model_downloader(engine)
+    if not cmd:
+        return {
+            "ok": False,
+            "message": (
+                f"The {engine} model downloader wasn't found. Reinstall the engine "
+                f"(pip install openkg-webui[parse-{engine}]) so its CLI is on PATH."
+            ),
+        }
+    return get_background_job_manager().start_model_download(engine=engine, cmd=cmd)
+
+
+@router.get("/document-parsing/job/status")
+async def document_parsing_job_status(cursor: int = 0):
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines._install import get_background_job_manager
+
+    return get_background_job_manager().status(cursor)
+
+
+@router.post("/document-parsing/job/cancel")
+async def cancel_document_parsing_job():
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines._install import get_background_job_manager
+
+    return get_background_job_manager().cancel()
+
+
+@router.post("/mineru/models/download")
+async def start_mineru_models_download(payload: MinerUModelDownloadPayload):
+    """Kick off a one-click model download via ``mineru-models-download``.
+
+    Returns ``{ok, message}`` immediately; progress is polled via the status
+    endpoint. Only one download runs at a time (process-wide singleton).
+    """
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.mineru.models import (
+        get_model_download_manager,
+        resolve_models_downloader,
+    )
+
+    resolved = resolve_models_downloader(payload.local_cli_path)
+    if not resolved["found"]:
+        if resolved["path"]:
+            message = (
+                f"mineru-models-download not found next to the configured CLI "
+                f"(expected {resolved['path']}). The configured install may be "
+                "legacy magic-pdf — upgrade to MinerU >= 3.4.5 for one-click downloads."
+            )
+        else:
+            message = (
+                "mineru-models-download not found on the server PATH. Install "
+                'current MinerU first (uv pip install -U "mineru[all]>=3.4.5") or set '
+                "the CLI path."
+            )
+        return {"ok": False, "message": message}
+
+    return get_model_download_manager().start(
+        downloader=resolved["path"],
+        model_type=payload.model_type,
+        source=payload.source,
+        endpoint=payload.endpoint,
+    )
+
+
+@router.get("/mineru/models/download/status")
+async def mineru_models_download_status(cursor: int = 0):
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.mineru.models import get_model_download_manager
+
+    return get_model_download_manager().status(cursor)
+
+
+@router.post("/mineru/models/download/cancel")
+async def cancel_mineru_models_download():
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.mineru.models import get_model_download_manager
+
+    return get_model_download_manager().cancel()
+
+
+@router.post("/mineru/test")
+async def test_mineru_connection(payload: MinerUSettingsUpdate):
+    """Validate the active backend. ``mode == "local"`` checks the CLI install
+    (PATH probe + ``--version``); cloud mode validates the token against the
+    live MinerU API (no parse quota consumed). Tests the draft form values so
+    the user can verify before saving; falls back to the stored token when the
+    secret field is untouched."""
+    _require_settings_admin()
+    from openkg_webui.services.parsing.engines.mineru.cloud import verify_credentials
+    from openkg_webui.services.parsing.engines.mineru.config import MinerUConfig, MinerUError
+
+    if payload.mode == "local":
+        from openkg_webui.services.parsing.engines.mineru.backend import (
+            local_cli_probe,
+            local_cli_version,
+        )
+        from openkg_webui.services.parsing.engines.mineru.formats import (
+            MIN_MINERU_VERSION,
+            mineru_version_is_current,
+        )
+
+        probe = local_cli_probe(payload.local_cli_path)
+        if not probe["found"]:
+            if probe.get("source") == "configured":
+                return {
+                    "ok": False,
+                    "message": (
+                        f"Configured CLI path is not an executable file: {probe['path']}. "
+                        "Fix the path or clear it to auto-detect from PATH."
+                    ),
+                }
+            return {
+                "ok": False,
+                "message": (
+                    "MinerU CLI not found on the server PATH. Install it "
+                    '(uv pip install -U "mineru[all]>=3.4.5"), set an explicit CLI path, '
+                    "or switch to cloud mode."
+                ),
+            }
+        # For a configured path, run --version against the path itself (the
+        # bare command name may not be on this process's PATH).
+        version_target = (
+            probe["path"] if probe.get("source") == "configured" else str(probe["command"])
+        )
+        version = await asyncio.to_thread(local_cli_version, version_target)
+        if not mineru_version_is_current(version):
+            detail = version or "an unknown version"
+            return {
+                "ok": False,
+                "message": (
+                    f"Local MinerU CLI reported {detail}. OPENKG-WebUI needs MinerU >= "
+                    f"{MIN_MINERU_VERSION}; upgrade with "
+                    f"`pip install -U 'mineru[all]>={MIN_MINERU_VERSION}'`."
+                ),
+            }
+        return {
+            "ok": True,
+            "message": f"Local MinerU CLI detected: {probe['command']} ({version})",
+        }
+
+    service = get_runtime_settings_service()
+    stored = service.load_mineru(include_process_overrides=False)
+    token = stored.get("api_token", "")
+    if payload.api_token is not None:
+        token = (
+            [value.strip() for value in payload.api_token if value.strip()]
+            if isinstance(payload.api_token, list)
+            else payload.api_token.strip()
+        )
+    config = MinerUConfig(
+        mode="cloud",
+        api_base_url=(payload.api_base_url or "").strip().rstrip("/") or "https://mineru.net",
+        api_token=token,
+        model_version=payload.model_version,
+        language=payload.language or "auto",
+        enable_formula=payload.enable_formula,
+        enable_table=payload.enable_table,
+        is_ocr=payload.is_ocr,
+    )
+    try:
+        await asyncio.to_thread(verify_credentials, config)
+    except MinerUError as exc:
+        return {"ok": False, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001 — report any provider error to the UI
+        logger.exception("MinerU connectivity test failed")
+        return {"ok": False, "message": f"Unexpected error: {exc}"}
+    return {"ok": True, "message": "MinerU API token is valid."}
+
+
+@router.get("/llm-options")
+async def get_llm_options():
+    if not get_current_user().is_admin:
+        return allowed_llm_options()
+    return list_llm_options(get_model_catalog_service().load())
+
+
+@router.get("/agent-loop/models")
+async def get_agent_loop_models(session_id: str = ""):
+    """Options for the composer's per-turn agent-loop model picker.
+
+    One source per backend family (see the composer model-selector design):
+
+    - ``acp``     — the agent's advertised selector (live session's handshake
+                    answer, else a TTL-cached probe child);
+    - ``catalog`` — the conversation LLM catalog, which is the intended model
+                    configuration only for the self-hosted Intellect HTTP
+                    services; the frontend fetches ``/llm-options`` itself so
+                    grant filtering and ``active`` semantics stay in one place;
+    - ``profile`` — the operator-curated ``models`` list (plus the profile's
+                    configured ``model``), the honest fallback for the CLI
+                    family and the opt-in for plain HTTP-turn services;
+    - ``none``    — the backend consumes no per-turn model (picker hidden).
+    """
+    from openkg_webui.services.agent_loop.builtin import (
+        is_intellect_preset,
+        normalize_profile_models,
+        preset_family,
+    )
+    from openkg_webui.services.agent_loop.protocol import profile_model_options
+    from openkg_webui.services.agent_loop.settings import (
+        profile_per_turn_model,
+        resolve_primary_profile,
+    )
+
+    # Through the module accessor (not agent_loop.settings's own reader) so
+    # the same RuntimeSettingsService every other endpoint here uses is
+    # consulted — including the one tests install.
+    block = get_runtime_settings_service().load_system().get("agent_loop") or {}
+    profile = resolve_primary_profile(block)
+    if profile is None:
+        return {"per_turn_model": False, "source": "none", "backend_label": "", "options": []}
+    preset = str(profile.get("preset") or "")
+    transport = str(profile.get("transport") or "")
+    family = preset_family(preset, transport)
+    backend_label = str(profile.get("name") or preset)
+    if not profile_per_turn_model(profile):
+        return {
+            "per_turn_model": False,
+            "source": "none",
+            "backend_label": backend_label,
+            "options": [],
+        }
+
+    # 1) ACP: the agent's own selector is the truthful list.
+    if family == "cli" and transport == "acp":
+        options: list[dict[str, Any]] | None = None
+        try:
+            from openkg_webui.services.agent_loop import build_agent_loop_backend
+
+            backend = build_agent_loop_backend(profile)
+            if backend is not None:
+                options = await backend.list_model_options(session_id)
+        except Exception:  # noqa: BLE001 — listing degrades to the profile list
+            logger.debug("agent-loop models: ACP listing failed", exc_info=True)
+        if options:
+            return {
+                "per_turn_model": True,
+                "source": "acp",
+                "backend_label": backend_label,
+                "options": options,
+            }
+
+    # 2) Catalog: only the family the conversation LLM settings actually
+    # configure (self-hosted Intellect HTTP). Non-empty, or the profile list
+    # answers instead.
+    if is_intellect_preset(preset) and family == "http":
+        try:
+            if allowed_llm_options().get("options"):
+                return {
+                    "per_turn_model": True,
+                    "source": "catalog",
+                    "backend_label": backend_label,
+                    "options": [],
+                }
+        except Exception:  # noqa: BLE001 — a broken catalog degrades, never fails
+            logger.debug("agent-loop models: catalog listing failed", exc_info=True)
+
+    # 3) Profile vocabulary: curated list plus the configured model itself —
+    # the same rows `AgentLoopBackend.list_model_options` defaults to (shared
+    # helper, so the endpoint and the backends cannot drift apart).
+    options = profile_model_options(
+        normalize_profile_models(profile.get("models")),
+        str(profile.get("model") or ""),
+    )
+    return {
+        "per_turn_model": True,
+        "source": "profile",
+        "backend_label": backend_label,
+        "options": options,
+    }
+
+
+@router.put("/catalog")
+async def update_catalog(payload: CatalogPayload):
+    _require_settings_admin()
+    service = get_model_catalog_service()
+    current = service.load()
+    restored = restore_catalog_secrets(payload.catalog, current)
+    proposed = restored  # codex catalog reconciliation retired with codex_auth
+    catalog = service.save(proposed)
+    _invalidate_runtime_caches()
+    return {"catalog": redact_catalog_secrets(catalog)}
+
+
+@router.get("/draft")
+async def get_settings_draft():
+    """Return the unapplied draft, or nothing when there is none.
+
+    The draft is deliberately invisible to every other read path: nothing that
+    resolves runtime configuration looks here, which is the whole difference
+    between saving a draft and applying it.
+    """
+    _require_settings_admin()
+    draft = get_settings_draft_service().load()
+    if is_empty_draft(draft):
+        return {"draft": None}
+    return {"draft": redact_draft(draft)}
+
+
+@router.put("/draft")
+async def update_settings_draft(payload: SettingsDraftPayload):
+    _require_settings_admin()
+    service = get_settings_draft_service()
+    stored = service.load()
+    merged = merge_draft_secrets(
+        payload.model_dump(),
+        stored,
+        get_model_catalog_service().load(),
+    )
+    if is_empty_draft(merged):
+        service.clear()
+        return {"draft": None}
+    saved = service.save(merged)
+    return {"draft": redact_draft(saved)}
+
+
+@router.delete("/draft")
+async def discard_settings_draft():
+    _require_settings_admin()
+    get_settings_draft_service().clear()
+    return {"draft": None}
+
+
+@router.post("/apply")
+async def apply_catalog(payload: CatalogPayload | None = None):
+    """Move settings into the files the runtime reads, and clear the draft.
+
+    With no body this promotes the stored draft's catalog, which is how the
+    settings UI applies: credentials that only ever existed in a draft would
+    otherwise have to round-trip through the browser as placeholders and come
+    back resolving to the previous key.
+    """
+    _require_settings_admin()
+    service = get_model_catalog_service()
+    draft_service = get_settings_draft_service()
+    current = service.load()
+    if payload is not None:
+        proposed = restore_catalog_secrets(payload.catalog, current)
+    else:
+        draft_catalog = draft_service.load().get("catalog")
+        proposed = (
+            restore_catalog_secrets(draft_catalog, current)
+            if isinstance(draft_catalog, dict)
+            else current
+        )
+    catalog = proposed
+    applied = service.apply(catalog)
+    draft_service.clear()
+    _invalidate_runtime_caches()
+    return {
+        "message": "Catalog applied to runtime settings.",
+        "catalog": redact_catalog_secrets(service.load()),
+        "runtime": applied,
+    }
+
+
+@router.post("/fetch-models")
+async def fetch_models_from_provider(payload: FetchModelsPayload):
+    """List the model IDs an OpenAI-compatible provider exposes.
+
+    Thin HTTP surface over ``factory.fetch_models`` so the settings UI can
+    populate a model picker from ``base_url`` + ``api_key`` instead of making
+    the user type model IDs by hand.
+    """
+    _require_settings_admin()
+    from openkg_webui.services.llm.factory import fetch_models as fetch_llm_models
+
+    base_url = (payload.base_url or "").strip()
+    binding = (payload.binding or "").strip().lower() or "openai"
+    if not base_url and binding != "codebuddy":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="base_url is required for this provider.",
+        )
+
+    api_key = payload.api_key
+    api_format = (payload.api_format or "").strip().lower()
+    if payload.profile_id and (api_key == CATALOG_SECRET_MASK or not api_format):
+        service = get_model_catalog_service().load().get("services", {}).get(payload.service, {})
+        profile = next(
+            (item for item in service.get("profiles", []) if item.get("id") == payload.profile_id),
+            None,
+        )
+        if api_key == CATALOG_SECRET_MASK:
+            api_key = profile.get("api_key") if profile else None
+        if not api_format and profile:
+            api_format = str(profile.get("api_format") or "")
+
+    try:
+        model_ids = await fetch_llm_models(binding, base_url, api_key, api_format or "auto")
+    except Exception as exc:  # noqa: BLE001 — surface any provider error as 502
+        logger.exception("Failed to fetch models from %s", base_url)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Provider request failed: {exc}",
+        ) from exc
+
+    return {"models": [{"id": model_id, "name": model_id} for model_id in model_ids]}
+
+
+@router.post("/model-capabilities")
+async def resolve_model_capabilities(payload: ModelCapabilitiesQuery):
+    """What the built-in capability tables assume for one provider/model pair.
+
+    The settings UI shows these as the value "Auto" resolves to next to each
+    per-model override, so a user can see what they are overriding.
+    """
+    _require_settings_admin()
+    from openkg_webui.services.llm.capabilities import effective_capabilities
+
+    binding = (payload.binding or "").strip().lower() or "openai"
+    model = (payload.model or "").strip()
+    return {
+        "binding": binding,
+        "model": model,
+        "defaults": effective_capabilities(binding, model),
+    }
+
+
+@router.put("/theme")
+async def update_theme(update: ThemeUpdate):
+    patch_ui_settings(theme=update.theme)
+    return {"theme": update.theme}
+
+
+@router.put("/language")
+async def update_language(update: LanguageUpdate):
+    patch_ui_settings(language=update.language)
+    return {"language": update.language}
+
+
+@router.put("/voice-autoplay")
+async def update_voice_autoplay(update: VoiceAutoplayUpdate):
+    """Persist the global default for auto-playing chat replies via TTS.
+
+    A personal UI preference (any authenticated user); the chat surface layers
+    a per-session override on top of this value.
+    """
+    patch_ui_settings(voice_autoplay=update.voice_autoplay)
+    return {"voice_autoplay": update.voice_autoplay}
+
+
+@router.put("/chat-response-timeout")
+async def update_chat_response_timeout(update: ChatResponseTimeoutUpdate):
+    """Persist how long the chat UI waits for a turn event before timing out.
+
+    A personal UI preference (any authenticated user). Slow tools like image /
+    video generation can take longer than the old 60s default, so this is
+    user-adjustable; the chat surface reads it client-side.
+    """
+    patch_ui_settings(chat_response_timeout=update.chat_response_timeout)
+    return {"chat_response_timeout": update.chat_response_timeout}
+
+
+# The UI preferences a page can need before it knows who is asking. All three
+# describe the person's own presentation and output choices; none of them say
+# anything about how the deployment is configured.
+PRESESSION_UI_FIELDS = ("theme", "language", "response_language")
+
+
+@public_router.get("/ui")
+async def get_ui_settings():
+    """Return the pre-session UI preferences: theme and the two languages.
+
+    Public by design, which is why it is a narrow projection rather than the
+    saved ``ui`` blob. The app shell — and the statically prerendered auth
+    pages, which have no session at all — adopt the persisted languages here
+    during bootstrap. Theme rides along so those pages can paint in the right
+    one instead of flashing.
+
+    Everything else under ``ui`` (chat_response_timeout,
+    …) describes what the deployment has turned on, so
+    it stays behind auth: read it from the ``ui`` key of GET /settings.
+    """
+    settings = load_ui_settings()
+    return {field: settings.get(field) for field in PRESESSION_UI_FIELDS}
+
+
+@router.put("/ui")
+async def update_ui_settings(update: UISettingsUpdate):
+    """Merge frontend partial update into current UI settings.
+
+    Uses exclude_unset=True semantics so that only fields explicitly provided
+    by the frontend override saved values. Fields not in the frontend payload
+    (even if they equal the model defaults) are omitted from the merge.
+    """
+    dump = update.model_dump(exclude_unset=True)  # Only merge explicitly provided fields
+    # Merged into the stored document, not into the defaults-merged view: saving
+    # that view back would freeze today's defaults as this user's explicit
+    # choices. The response keeps returning the merged view clients expect.
+    patch_ui_settings(**dump)
+    return load_ui_settings()
+
+
+@router.post("/reset")
+async def reset_settings():
+    save_ui_settings(DEFAULT_UI_SETTINGS)
+    return DEFAULT_UI_SETTINGS
+
+
+@router.get("/themes")
+async def get_themes():
+    return {
+        "themes": [
+            {"id": "snow", "name": "Default"},
+            {"id": "light", "name": "Cream"},
+            {"id": "dark", "name": "Dark"},
+            {"id": "glass", "name": "Glass"},
+        ]
+    }
+
+
+@router.post("/tests/{service}/start")
+async def start_service_test(service: str, payload: CatalogPayload | None = None):
+    _require_settings_admin()
+    catalog = None
+    if payload is not None:
+        catalog_service = get_model_catalog_service()
+        current = catalog_service.load()
+        catalog = restore_catalog_secrets(payload.catalog, current)
+        catalog = catalog_service.resolve_connections(catalog)
+    run = get_config_test_runner().start(service, catalog)
+    return {"run_id": run.id}
+
+
+@router.get("/tests/{service}/{run_id}/events")
+async def stream_service_test_events(service: str, run_id: str, request: Request):
+    _require_settings_admin()
+    runner = get_config_test_runner()
+    run = runner.get(run_id)
+
+    async def event_stream():
+        sent = 0
+        while True:
+            if await request.is_disconnected():
+                return
+            events = run.snapshot(sent)
+            if events:
+                for event in events:
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                sent += len(events)
+                if events[-1]["type"] in {"completed", "failed"}:
+                    return
+            else:
+                yield "event: heartbeat\ndata: {}\n\n"
+            await asyncio.sleep(0.35)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/tests/{service}/{run_id}/cancel")
+async def cancel_service_test(service: str, run_id: str):
+    _require_settings_admin()
+    get_config_test_runner().cancel(run_id)
+    return {"message": "Cancelled"}
+
+
+@router.get("/tour/status")
+async def tour_status():
+    tour_cache = _tour_cache_file()
+    if tour_cache.exists():
+        try:
+            cache = json.loads(tour_cache.read_text(encoding="utf-8"))
+            return {
+                "active": True,
+                "status": cache.get("status", "unknown"),
+                "launch_at": cache.get("launch_at"),
+                "redirect_at": cache.get("redirect_at"),
+            }
+        except Exception:
+            pass
+    return {"active": False, "status": "none", "launch_at": None, "redirect_at": None}
+
+
+class TourCompletePayload(BaseModel):
+    catalog: dict[str, Any] | None = None
+    test_results: dict[str, str] | None = None
+
+
+@router.post("/tour/complete")
+async def complete_tour(payload: TourCompletePayload | None = None):
+    _require_settings_admin()
+    service = get_model_catalog_service()
+    current = service.load()
+    catalog = (
+        restore_catalog_secrets(payload.catalog, current)
+        if payload and payload.catalog
+        else current
+    )
+    applied = service.apply(catalog)
+    _invalidate_runtime_caches()
+    now = int(time.time())
+    launch_at = now + 3
+    redirect_at = now + 5
+
+    tour_cache = _tour_cache_file()
+    if tour_cache.exists():
+        try:
+            cache = json.loads(tour_cache.read_text(encoding="utf-8"))
+        except Exception:
+            cache = {}
+        cache["status"] = "completed"
+        cache["launch_at"] = launch_at
+        cache["redirect_at"] = redirect_at
+        if payload and payload.test_results:
+            cache["test_results"] = payload.test_results
+        tour_cache.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+    return {
+        "status": "completed",
+        "message": "Configuration saved. OPENKG-WebUI will restart shortly.",
+        "launch_at": launch_at,
+        "redirect_at": redirect_at,
+        "runtime": applied,
+    }
+
+
+@router.post("/tour/reopen")
+async def reopen_tour():
+    return {
+        "message": "Run the terminal setup guide from the project root to re-open the guided setup.",
+        "command": "openkg-webui init",
+    }
+
+
+# ---------------------------------------------------------------------------
+# KAG integration domain（设计 docs/kag-integration-design.md §6.3 T1 子集）
+# ---------------------------------------------------------------------------
+
+
+def _kag_domain_payload(block: dict[str, Any]) -> dict[str, Any]:
+    """bridge_api_key 为 write-only：GET/PUT 响应均不回显（沿 agent-loop 先例）。"""
+    return {**block, "bridge_api_key": "", "bridge_api_key_set": bool(block.get("bridge_api_key"))}
+
+
+@router.get("/kag")
+async def get_kag_domain() -> dict[str, Any]:
+    _require_settings_admin()
+    from openkg_webui.services.kag import get_kag_settings
+
+    return _kag_domain_payload(get_kag_settings())
+
+
+@router.put("/kag")
+async def update_kag_domain(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    _require_settings_admin()
+    # same-origin guard：变更类端点防跨站 JSON POST 副作用（沿 identity 端点模式）
+    from openkg_webui.services.config.origins import origin_is_trusted, request_authority
+    from openkg_webui.services.config.runtime_settings import load_system_settings
+
+    system = load_system_settings()
+    allowed = [
+        str(system.get("cors_origin") or ""),
+        *(str(x) for x in (system.get("cors_origins") or [])),
+    ]
+    if not origin_is_trusted(
+        request.headers.get("origin"),
+        request_authority(
+            request.headers.get("host"), request.headers.get("x-forwarded-host")
+        ),
+        allowed,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site request refused.")
+
+    from openkg_webui.services.kag import get_kag_settings
+
+    block = {k: v for k, v in payload.items() if k not in {"bridge_api_key_set"}}
+    # 空api_key = "保留已存值"（tri-state 写法，沿 agent-loop api_key 先例）
+    if not str(block.get("bridge_api_key") or "").strip():
+        block["bridge_api_key"] = str(get_kag_settings().get("bridge_api_key") or "")
+    # 评审 F1：与 agent-loop PUT 同款——用不含 process overrides 的文件态合并保存，
+    # 否则 env 覆盖（如 OPENKG_WEBUI_AGENT_LOOP_BACKEND）会被烘焙进 system.json
+    service = get_runtime_settings_service()
+    current = service.load_system(include_process_overrides=False)
+    saved = service.save_system({**current, "kag": block})
+    return _kag_domain_payload(saved.get("kag") or {})

@@ -1,0 +1,156 @@
+"""Materialize chat attachments into the session workspace.
+
+The manifest tells the agent backend what the user attached; the preview
+text alone (2,000 chars for fresh rows) is not the file. This module copies
+each stored attachment into ``<session workspace>/attachments/`` — the
+directory the CLI/ACP backend runs in — so the manifest can hand the agent
+an absolute path it can read with its own file tools.
+
+Ownership stays with the attachment store: these are copies, re-derivable
+from the store at any time, keyed by the stable ``attachment_id``.
+Materialization is idempotent (an existing same-size copy is reused) and
+fail-soft (a file that cannot be copied simply gets no path row; the turn
+proceeds). The executor gates the whole step on the configured backend
+family running in a filesystem workspace at all.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from pathlib import Path
+import shutil
+import time
+from typing import Any
+import uuid
+
+from openkg_webui.utils.filenames import coerce_filename
+
+logger = logging.getLogger(__name__)
+
+
+def _publish_copy(tmp: Path, dst: Path) -> None:
+    """Atomically move the finished tmp copy onto ``dst``.
+
+    ``os.replace`` transiently fails on Windows (access denied / sharing
+    violation) while a concurrent publisher of the same attachment — or an
+    antivirus/indexer scan — holds the destination for a few milliseconds.
+    The retry is a no-op cost on POSIX, where the first attempt always
+    succeeds; exhausting it re-raises into the caller's fail-soft path.
+    """
+    for attempt in range(5):
+        try:
+            os.replace(tmp, dst)
+            return
+        except OSError:
+            if attempt == 4:
+                raise
+            time.sleep(0.01 * (attempt + 1))
+
+
+def _workspace_attachments_dir(session_id: str):
+    from openkg_webui.services.path_service import get_path_service
+
+    return get_path_service().get_task_workspace("chat", session_id) / "attachments"
+
+
+def _copy_one(store, session_id: str, rec: dict[str, Any]) -> str | None:  # noqa: ANN001
+    """Copy one attachment record into the workspace; ``None`` = skip."""
+    att_id = str(rec.get("id") or "").strip()
+    filename = str(rec.get("filename") or "").strip()
+    if not att_id or not filename:
+        return None
+    src = store.resolve_path(session_id=session_id, attachment_id=att_id, filename=filename)
+    if src is None:
+        return None
+    try:
+        dst_dir = _workspace_attachments_dir(session_id)
+        # The id comes from the turn payload (client-controllable) and the
+        # store's own containment check deliberately tolerates ids that stay
+        # inside the store root — so both components of the copy's name must
+        # be coerced with the store's rules, or a crafted id ("../x",
+        # newlines) escapes this directory or forges manifest lines. Coerce
+        # separately, not the joined string: basename-ing the join would let
+        # distinct ids collapse onto one copy name.
+        dst = dst_dir / f"{coerce_filename(att_id)}_{coerce_filename(filename)}"
+        if dst.is_file() and dst.stat().st_size == src.stat().st_size:
+            return str(dst)
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        # Unique per invocation: concurrent materializations of the same
+        # attachment (parallel turns of one session) must not interleave on
+        # a shared tmp path and publish a corrupt copy.
+        tmp = dst.with_name(f"{dst.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+        shutil.copyfile(src, tmp)
+        _publish_copy(tmp, dst)
+        return str(dst)
+    except OSError as exc:
+        logger.warning(
+            "attachment workspace copy failed for %s (%s): %s",
+            att_id,
+            filename,
+            exc,
+        )
+        return None
+
+
+async def write_session_transcript(
+    session_id: str, content: str, *, filename: str = "session-transcript.md"
+) -> str:
+    """Write a conversation transcript into the workspace; return its path.
+
+    The L0 history channel (agent-loop history design): a plain file every
+    workspace-running backend can read. The current session's transcript is
+    refreshed each turn under the default name; referenced sessions get one
+    file per source session. Fail-soft like the attachment copies — a
+    transcript that cannot be written simply yields no manifest row.
+    """
+    from openkg_webui.services.path_service import get_path_service
+
+    target = get_path_service().get_task_workspace("chat", session_id) / filename
+
+    def _write() -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # pid + uuid4: concurrent writes of the SAME file (a referenced
+        # transcript re-resolved by two turns) must not share a tmp name.
+        tmp = target.with_name(f".{target.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        _publish_copy(tmp, target)
+
+    await asyncio.to_thread(_write)
+    return str(target)
+
+
+async def materialize_attachments(
+    session_id: str,
+    records: list[dict[str, Any]],
+    *,
+    store: Any = None,
+) -> dict[str, str]:
+    """Copy ``records`` (attachment record dicts) into the session workspace.
+
+    Returns ``{attachment_id: absolute path}`` for every record that was
+    copied (or already present). Records without an id/filename, and files
+    the store can no longer resolve, are silently left out.
+    """
+    if not records:
+        return {}
+    if store is None:
+        from openkg_webui.services.storage.attachment_store import get_attachment_store
+
+        store = get_attachment_store()
+
+    def _all() -> dict[str, str]:
+        out: dict[str, str] = {}
+        seen: set[str] = set()
+        for rec in records:
+            att_id = str(rec.get("id") or "").strip()
+            if not att_id or att_id in seen:
+                continue
+            seen.add(att_id)
+            path = _copy_one(store, session_id, rec)
+            if path:
+                out[att_id] = path
+        return out
+
+    return await asyncio.to_thread(_all)

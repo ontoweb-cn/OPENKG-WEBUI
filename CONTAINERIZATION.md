@@ -1,0 +1,573 @@
+# OPENKG-WebUI Containerization
+
+This document covers deploying OPENKG-WebUI from a container image: the
+recommended `docker run` path, the hardened rootless-Podman path with a
+read-only root filesystem, runtime configuration, the optional PocketBase
+sidecar, and the security notes that motivate the default posture.
+
+For PyPI / source installs, see the main [README.md](../README.md). This
+file is only about running the published image.
+
+---
+
+## Overview
+
+The published `ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui` image runs both the FastAPI
+backend (`:8082`) and the Next.js frontend (`:8092`) under `supervisord`
+inside a single container, on top of `python:3.11-slim`. There is one
+data tree (`/app/data` inside the container) that holds settings,
+workspaces, memory, knowledge bases, and logs. Bind-mount that tree to
+the host to make state survive container restarts.
+
+The image is built so it works under three deployment shapes:
+
+1. **`docker run`** — the easy path. Rootful, writable rootfs, single
+   bind mount on `/app/data`.
+2. **`docker compose`** (`docker-compose.yml`) — same image plus the
+   optional PocketBase and redis sidecars. Still rootful,
+   writable rootfs.
+3. **`podman compose -f compose.yaml`** — the hardened path. Rootless
+   (`userns_mode: keep-id`), read-only rootfs, tmpfs in place of writable
+   system dirs, bind mount on `./data`.
+
+The architectural change that makes shape 3 work is that URL knowledge
+no longer lives in the frontend bundle. Concretely:
+
+- The bundle is built with no `NEXT_PUBLIC_API_BASE` placeholder and no
+  `sed -i` of the build output. `web/lib/api.ts` exports `apiUrl` and
+  `wsUrl` as one-line pass-throughs, so the browser fetches relative
+  paths through the frontend (`:8092/api/...`).
+- `web/proxy.ts` catches `/api/*` and `/ws/*` and rewrites them to
+  `OPENKG_WEBUI_API_BASE_URL` at request time. That env var is set by the
+  container entrypoint on every start, read from
+  `data/user/settings/system.json`.
+- `start-frontend.sh` is now 12 lines: it sets `PORT`/`HOSTNAME` and
+  `exec`s `node /app/web/server.js`. No mutations of the bundle.
+- `supervisord` runs as root (PID 1) and drops each program (backend,
+  frontend) to a non-root `openkg-webui` user (UID 1000) via its per-program
+  `user=` directive, so the app processes stay non-root. With
+  `userns_mode: keep-id` on the host that UID maps to your host UID; with a
+  regular `docker run` it's a normal unprivileged user inside the container.
+
+The full per-installation guide follows.
+
+---
+
+## Docker (default)
+
+The simplest possible deployment. One container, one volume, two port
+mappings.
+
+```bash
+docker run --rm --name openkg-webui \
+  -p 127.0.0.1:8092:8092 \
+  -v openkg-webui-data:/app/data \
+  ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui:latest
+```
+
+Open <http://127.0.0.1:8092>. The container creates
+`/app/data/user/settings/*.json` on first boot; configure model providers
+from the Web Settings page. Config, API keys, logs, workspace files,
+memory, and knowledge bases persist in the `openkg-webui-data` named volume.
+
+Notes:
+
+- **Only `8092` needs to be published.** The browser talks exclusively to
+  the frontend origin (`:8092`); all `/api/*` and `/ws/*` traffic is
+  forwarded to the FastAPI backend **inside the container** by the Next.js
+  middleware (`web/proxy.ts`), which reads `OPENKG_WEBUI_API_BASE_URL`
+  (`http://localhost:8082` by default) at request time. You do **not** need
+  to expose `:8082` to the host for the UI to work. Publishing `:8082`
+  (`-p 127.0.0.1:8082:8082`) is optional — handy only for hitting the API
+  directly (curl, scripts) or debugging.
+- **Different host ports:** change the left side of each `-p host:container`
+  mapping (e.g. `-p 127.0.0.1:8088:8092`). If you change container-side
+  ports in `data/user/settings/system.json` (`backend_port`,
+  `frontend_port`), restart the container and update the right side of
+  each mapping to match.
+- **Detached:** add `-d`, then `docker logs -f openkg-webui` to follow,
+  `docker stop openkg-webui` to stop, `docker rm openkg-webui` before reusing
+  the name. The `openkg-webui-data` volume keeps your settings and workspace
+  across restarts.
+
+### Temporary local Codex OAuth bridge
+
+OpenAI Codex redirects the browser to fixed loopback ports `1455` or `1457`.
+The default container network is separate from the host loopback, so publish
+both ports to the Web frontend only while signing in. Both host ports must be
+free before starting the temporary bridge.
+
+For `docker run`, stop the normal container and temporarily rerun the same
+image and data volume with two extra loopback-only mappings:
+
+```bash
+docker run --rm --name openkg-webui \
+  -p 127.0.0.1:8092:8092 \
+  -p 127.0.0.1:1455:8092 \
+  -p 127.0.0.1:1457:8092 \
+  -v openkg-webui-data:/app/data \
+  ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui:latest
+```
+
+For Compose, add the same temporary overlay to the base file you normally use:
+
+```bash
+# Source build with sidecars
+python scripts/docker_compose.py \
+  -f docker-compose.yml -f compose.codex-oauth.yaml \
+  up -d --force-recreate openkg-webui
+
+# Pre-built GHCR image
+python scripts/docker_compose.py \
+  -f docker-compose.ghcr.yml -f compose.codex-oauth.yaml \
+  up -d --force-recreate openkg-webui
+
+# Rootless Podman
+podman compose -f compose.yaml -f compose.codex-oauth.yaml \
+  up -d --force-recreate openkg-webui
+```
+
+Complete **Settings → Models → OpenAI Codex → Sign in with Codex**. After the
+status changes to **Connected**, stop the temporary `docker run` container and
+return to the normal command above. For Compose, rerun the same base command
+without `compose.codex-oauth.yaml`; keep `--force-recreate openkg-webui` so the
+temporary port bindings are removed.
+
+This releases host ports `1455` and `1457`; credentials remain in the persistent
+`/app/data/system` tree. Bind every callback mapping to `127.0.0.1` and never
+expose it on a LAN or public interface — the overlay publishes the **whole**
+frontend on those two ports, not just `/auth/callback`. For a manual
+`docker run` whose container-side frontend port is not `8092`, change the
+right-hand `8092` targets; `scripts/docker_compose.py` handles configured
+custom ports. Model-generated code execution was removed together with the
+sandbox layer; if you wire an agent-loop backend that executes code, run it
+as a separate service outside this container's trust boundary.
+
+### One-time migration: `docker-compose.ghcr.yml` now mounts all of `./data`
+
+`docker-compose.ghcr.yml` used to bind-mount only three subtrees
+(`data/user`, `data/memory`, `data/knowledge_bases`), so everything else —
+`data/system` (the JWT signing secret, accounts, grants, audit log, per-owner
+Codex tokens), `data/users` (per-user workspaces), `data/partners`,
+`data/cli-apps` — lived in the container's writable layer and was discarded
+on every recreate. It now mounts the whole tree, matching
+`docker-compose.yml` and `compose.yaml`.
+
+**Before your first `up -d` after upgrading**, copy that state out of the
+running container, or the empty host directories shadow it and OPENKG-WebUI
+regenerates the auth secret (logging everyone out) and starts with no
+non-admin accounts:
+
+```bash
+for tree in system users partners cli-apps; do
+  docker cp "openkg-webui:/app/data/$tree" "./data/$tree" 2>/dev/null || true
+done
+```
+
+Deployments using a named volume (`-v openkg-webui-data:/app/data`) or the
+source-build Compose file were never affected — they already persisted the
+whole tree.
+
+### Remote / reverse-proxy deployments
+
+For the common **single-container** case (this image), you do **not** need
+to configure an API base at all. The browser issues relative `/api/*` and
+`/ws/*` requests against whatever origin serves the UI
+(`https://openkg_webui.example.com`), and the in-container Next.js middleware
+forwards them to the backend on `localhost:8082`. Just point your reverse
+proxy / TLS terminator at the published `:8092` and you're done.
+
+You only need to set an API base for a **split deployment** where the
+backend runs in a separate container. Edit `data/user/settings/system.json`
+on the host (inside the `openkg-webui-data` volume — `docker volume inspect
+openkg-webui-data` to find its mountpoint) and set the in-network address the
+frontend container uses to reach the backend container:
+
+```json
+{
+  "next_public_api_base": "http://backend:8082"
+}
+```
+
+The entrypoint reads this on every start and exports
+`OPENKG_WEBUI_API_BASE_URL` for `proxy.ts` (precedence: `next_public_api_base`,
+then `next_public_api_base_external`, then `http://localhost:8082`). Note
+that because the proxy is **server-side**, `OPENKG_WEBUI_API_BASE_URL` is the
+address the frontend *server* uses to reach the backend — not a URL the
+browser ever sees. `public_api_base` is accepted as a compatibility alias
+and normalized into `next_public_api_base_external` on save.
+
+CORS uses frontend **origins**, not API URLs. With auth disabled,
+OPENKG-WebUI permits normal HTTP/HTTPS browser origins by default. With
+auth enabled, add exact frontend origins:
+
+```json
+{
+  "cors_origins": ["https://openkg_webui.example.com"]
+}
+```
+
+### Host LLM providers (Ollama / LM Studio / llama.cpp / vLLM / Lemonade)
+
+Inside Docker, `localhost` is the container itself, not your host
+machine. To reach a model service running on the host, use the host
+gateway (recommended):
+
+```bash
+docker run --rm --name openkg-webui \
+  -p 127.0.0.1:8092:8092 -p 127.0.0.1:8082:8082 \
+  --add-host=host.docker.internal:host-gateway \
+  -v openkg-webui-data:/app/data \
+  ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui:latest
+```
+
+Then in **Settings → Models**, point the provider Base URL at
+`host.docker.internal`:
+
+- Ollama LLM: `http://host.docker.internal:11434/v1`
+- Ollama embedding: `http://host.docker.internal:11434/api/embed`
+- LM Studio: `http://host.docker.internal:1234/v1`
+- llama.cpp: `http://host.docker.internal:8080/v1`
+- Lemonade: `http://host.docker.internal:13305/api/v1`
+
+Docker Desktop (macOS/Windows) usually resolves `host.docker.internal`
+without `--add-host`. On Linux, the flag is the portable way.
+
+**Linux alternative — host networking:** add `--network=host` and drop
+the `-p` flags. The container shares the host network directly, so open
+<http://127.0.0.1:8092> (or the `frontend_port` in `system.json`), and
+host services can be reached with normal localhost URLs.
+
+In host-network mode the processes bind directly on the host interfaces
+(there is no `-p 127.0.0.1:` prefix to scope them). To keep them off the
+LAN, set `BACKEND_HOST=127.0.0.1` and `FRONTEND_HOST=127.0.0.1` — they
+override uvicorn's `--host` and Next.js's `HOSTNAME` (both default to
+`0.0.0.0`). Only use these with `--network=host`: in bridge mode binding
+to loopback breaks the published `-p` port forward.
+
+---
+
+## Podman / rootless / read-only rootfs
+
+For users who want the strongest default posture — rootless, with a
+read-only root filesystem — `compose.yaml` is the supported starting
+point. It pulls the same `ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui:latest` image and
+relies on the entrypoint chown + supervisord's per-program privilege drop,
+the URL-forwarding `proxy.ts`, and host-side bind mounts to make it all work.
+
+```bash
+cp .env.example .env       # then edit if needed
+podman compose -f compose.yaml up -d
+podman compose -f compose.yaml ps
+podman compose -f compose.yaml logs -f openkg-webui
+```
+
+Verify rootless is active (`podman info | grep -i rootless` should
+report `true`).
+
+What `compose.yaml` does, and why:
+
+- **`read_only: true` on every service.** The container's rootfs is
+  read-only. The only writable surface is the `tmpfs:` mounts listed
+  per service plus the bind-mounted `./data` directory.
+- **`userns_mode: keep-id`.** The container's UID 0 maps to your host
+  UID; the container's UID 1000 (the `openkg-webui` user inside the image)
+  maps to your host UID 1000 (which most distros reserve for the first
+  human user). The `:U` suffix on every volume mount tells podman to
+  chown the bind-mount target to that mapped UID.
+- **`tmpfs:` mounts for the system dirs the runtime expects to write.**
+  `/tmp` (Python/Node scratch), `/run` and `/var/run` (pidfiles),
+  `/var/log`, `/root`, `/home`. Sizes are intentionally generous; trim
+  to taste.
+- **No named volumes.** Podman auto-creates named volumes with the
+  userns-mapped root (UID 100000), so 755 perms + wrong owner =
+  `PermissionError` on the first JSON write. Bind mounts on a host
+  directory you own work cleanly.
+- **Loopback-only port bindings.** `127.0.0.1:` prefix on every `ports:`
+  entry. Drop the prefix to expose on all interfaces.
+
+### Running outside `compose.yaml`
+
+`compose.yaml` is a starting point, not the only shape. The same
+invariants apply if you want to drive `podman run` directly:
+
+```bash
+mkdir -p data/user/settings
+echo '{}' > data/user/settings/system.json
+
+podman run --rm -d --name openkg-webui \
+  -p 127.0.0.1:8082:8082 \
+  -p 127.0.0.1:8092:8092 \
+  -v $(pwd)/data:/app/data:U \
+  --read-only \
+  --tmpfs /tmp:size=512m,mode=1777 \
+  --tmpfs /run:size=32m,mode=0755 \
+  --tmpfs /var/run:size=8m,mode=0755 \
+  --tmpfs /var/log:size=64m,mode=0755 \
+  --tmpfs /root:size=16m,mode=0700 \
+  --tmpfs /home:size=16m,mode=0755 \
+  --userns=keep-id \
+  ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui:latest
+```
+
+After the container is up, the backend and frontend always run as the
+non-root `openkg-webui` user (UID 1000) — `podman exec openkg-webui ps -o user,pid,comm`
+shows the `uvicorn`/`node` children as `openkg-webui`. `supervisord` itself
+(PID 1) runs as whatever UID the runtime started it with: root under rootful
+Docker/Podman, or the host user under rootless podman + `userns_mode: keep-id`.
+
+### Supervisord pidfile
+
+The `[supervisord]` section carries **no `user=` directive**, so supervisord
+runs as PID 1's UID and never tries to drop its own privilege; only its child
+programs are dropped to `openkg-webui` via the per-program `user=` directives.
+Pinning `user=root` here (an earlier design) broke rootless keep-id, where
+PID 1 is the non-root host user and lacks `CAP_SETUID`: supervisord refuses to
+drop privilege and exits at startup with `Can't drop privilege as nonroot
+user` (see supervisord's `options.py`).
+
+The pidfile is written to **`/tmp/supervisord.pid`**. `/tmp` is `mode=1777`
+(world-writable) in every run configuration above, so the pidfile is writable
+whether PID 1 is root or the host UID, and regardless of who owns `/var/run`.
+An earlier build pointed the pidfile at the root-owned `/var/run/supervisord.pid`;
+under rootless keep-id the non-root PID 1 couldn't write it and logged a
+cosmetic `CRIT could not write pidfile` on every start. Putting it in `/tmp`
+removes that dependency on the `/var/run` owner and mode entirely.
+
+---
+
+## Runtime configuration
+
+Almost everything you tune lives under `data/user/settings/` inside the
+data tree. The container entrypoint unsets a list of related env vars
+(`BACKEND_PORT`, `FRONTEND_PORT`, `NEXT_PUBLIC_API_BASE`,
+`NEXT_PUBLIC_API_BASE_EXTERNAL`, `AUTH_ENABLED`, `POCKETBASE_URL`, etc.)
+on every start and re-exports values from the JSONs. So: edit the JSONs,
+restart, do **not** try to drive these with compose env vars.
+
+| File | Purpose |
+|:---|:---|
+| `system.json` | Backend/frontend ports, public API base, CORS, SSL verification, attachment directory |
+| `auth.json` | Optional auth toggle, username, password hash, token/cookie settings |
+| `integrations.json` | Optional PocketBase and sidecar integration settings |
+| `model_catalog.json` | LLM, embedding, and search provider profiles; API keys; active models |
+| `interface.json` | UI language / theme / sidebar preferences |
+| `main.yaml` | Runtime behavior defaults and path injection |
+| `agents.yaml` | Capability/tool temperature and token settings |
+
+The two settings most relevant to a fresh install:
+
+- **`system.json` → `next_public_api_base`** (in-network) and
+  **`next_public_api_base_external`** (cloud/external override). The
+  entrypoint reads these and exports `OPENKG_WEBUI_API_BASE_URL`, which
+  `web/proxy.ts` consumes. `public_api_base` is accepted as a
+  compatibility alias and is normalized into
+  `next_public_api_base_external` on save.
+- **`system.json` → `backend_port` / `frontend_port`**. The container
+  ports the supervisor binds inside the container. If you change these,
+  update the right side of every `-p host:container` mapping (or the
+  `HOST_PORT_*` env var that `compose.yaml` reads) to match.
+
+Project-root `.env` files are intentionally ignored as application
+config. The Web **Settings** page is the recommended editor for the
+JSON/YAML files; deep links to each section live in the page sidebar.
+
+---
+
+## PocketBase
+
+PocketBase is an optional auth + storage sidecar. Activate it by setting
+`integrations.pocketbase_url` to `http://pocketbase:8090` in
+`data/user/settings/integrations.json` and bringing the `pocketbase`
+service up alongside the main `openkg-webui` service. With it running, the
+main app stores user accounts and sessions in PocketBase instead of
+falling back to the SQLite single-user layout.
+
+The `pocketbase` service in `compose.yaml` (and the corrected mount in
+`docker-compose.yml`) bind-mounts three subdirectories of `./data` —
+`/pb_data`, `/pb_public`, `/pb_hooks` — matching the upstream
+`ghcr.io/muchobien/pocketbase:latest` image's entrypoint, which uses
+absolute paths. The earlier `docker-compose.yml` example mounted
+`/pb/pb_data` and crashed on first start with
+`mkdir /pb_data: read-only file system`; this PR fixes that.
+
+PocketBase stays a single-user integration — keep
+`integrations.pocketbase_url` blank for multi-user deployments unless
+you've wired up an external user store.
+
+---
+
+## Troubleshooting
+
+**`CRIT could not write pidfile /var/run/supervisord.pid` on container start.**
+Only on images built before the pidfile moved to `/tmp/supervisord.pid`
+(`mode=1777`, always writable); current images don't emit it. The supervised
+children come up either way — the line was always cosmetic. Fix: pull a
+current image (or, on an old one, set the `/var/run` tmpfs to `mode=1777`).
+
+**Page loads but Settings says "Backend unreachable".** The UI reaches the
+backend through the in-container proxy, not a host port, so this is almost
+always a backend that failed to start (check `docker logs openkg-webui` for the
+`[program:backend]` lines) or a wrong `OPENKG_WEBUI_API_BASE_URL` in a split
+deployment — **not** a missing `:8082` host mapping (which the UI does not
+need).
+
+**`Cannot connect to the Docker daemon` on a podman host.** Run
+`systemctl --user start podman.socket` (rootless) or set
+`DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock` for the
+`docker-compose` CLI to use the podman socket.
+
+**`Permission denied` on first JSON write under a named volume.** This
+is the userns-mapped root problem; switch to a bind mount on a host
+directory you own, or use `:U` on the volume mount.
+
+**`sed -i` errors on a fresh image.** There shouldn't be any — the
+runtime no longer mutates the bundle. The URL is forwarded at request
+time. If you see one, you are probably on an older image; pull
+`ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui:latest` again.
+
+**Settings page won't accept the API base URL.** Open
+`data/user/settings/system.json` on the host and set
+`next_public_api_base_external` directly. The page UI is wired to
+`public_api_base` (the legacy alias) and the legacy field will be
+renormalized on save.
+
+---
+
+## Security notes
+
+- The image drops privileges to a non-root `openkg-webui` user (UID 1000)
+  before starting `supervisord`. Anything that runs as root is the
+  entrypoint, the chown, and the env-var export.
+- `read_only: true` plus `tmpfs:` for the expected writable system
+  directories means the container's root filesystem is immutable at
+  runtime. A process that tries to write outside the listed tmpfs
+  paths or the bind-mounted `./data` tree will fail.
+- `userns_mode: keep-id` on the host means a container escape lands
+  with your host user's permissions, not root.
+- Untrusted model-generated code has no execution path in the app any
+  more (the sandbox layer was removed with the RAG strip). If an
+  agent-loop backend reintroduces code execution, deploy it as its own
+  least-privileged service; keep it out of the app container, which holds
+  app secrets.
+- Auth (`data/user/settings/auth.json` → `auth_enabled = true`) gates
+  `/api/*` and `/ws/*` via the `dt_token` cookie. `web/proxy.ts` reads
+  `OPENKG_WEBUI_AUTH_ENABLED` (exported by the entrypoint on every start)
+  to decide whether to require the cookie.
+- CORS uses frontend **origins**, not API URLs. With auth enabled, set
+  `cors_origins` in `system.json` to the exact frontend origins the
+  deployment serves.
+
+---
+
+## Split deployments & Kubernetes
+
+The production image supports **component splitting** without a second image:
+set `OPENKG_WEBUI_COMPONENT=backend` or `frontend` and the entrypoint swaps the
+supervisord program set before hand-off (`all` is the default and runs both).
+The container keeps the full startup path — settings JSON loading, extras
+installation, env re-export — so compose, Kubernetes and bare `docker run`
+share one code path. (Note: the image-level HEALTHCHECK keeps probing the
+backend port; orchestrators define their own probes, so only plain
+`docker ps` may show "unhealthy" for a frontend-only container.)
+
+A known-good Kubernetes stack (backend + frontend containers from the one
+image, the backend probed on `/health/ready` and `/health/live`,
+non-root
+UID 1000 + fsGroup, initContainer for first-start data bootstrap) lives in
+`deploy/k8s/` — apply with `kubectl apply -k deploy/k8s`. See
+`deploy/k8s/README.md` for the shape rationale (RWO/SQLite keeps the stack
+at `replicas: 1` with `strategy: Recreate`; redis is only needed for
+`backend_workers > 1`).
+
+## Intellect in containers
+
+A containerized OPENKG-WebUI cannot spawn a host-side `intellect acp` child
+(ACP is stdio). Use the community preset's **HTTP** connection method
+instead: it speaks the api_server run endpoints that the gateway platform
+already exposes on `http://host.docker.internal:8642` (default port,
+`API_SERVER_KEY` auth). Add an `intellect` profile and pick "HTTP service
+(/v1/runs)", or set `OPENKG_WEBUI_AGENT_LOOP_BACKEND=intellect` together with
+`OPENKG_WEBUI_AGENT_LOOP_TRANSPORT=http`. Configure the profile URL to
+`http://host.docker.internal:8642` and set the profile `api_key` to the
+gateway's `API_SERVER_KEY`.
+
+For the **enterprise (team)** deployment use `intellect-team`, which
+targets the same run endpoints with the team edition's event vocabulary.
+It requires the **Rust** `api_server`: the legacy Python adapter names its
+tool and reasoning events differently, and those frames are dropped — a
+turn against it produces no text, which looks like a silent failure. Both
+presets carry thinking, tool, approval and clarify events, support
+mid-turn cancellation, and honour a per-turn `model`. A dropped event
+stream degrades to run-status polling, which still recovers the turn's
+final answer.
+
+**The gateway has to be serving the API at all.** `API_SERVER_ENABLED=1`
+plus a key is what starts it, and without a PostgreSQL connection the
+gateway logs `API Server enabled but no PostgreSQL connection — skipping`
+and never binds the port:
+
+```bash
+# ~/.intellect/.env (shell vars are read too; the file wins)
+API_SERVER_ENABLED=1
+API_SERVER_PORT=8642
+API_SERVER_KEY=<openssl rand -hex 32>
+```
+
+`GET {url}/health` answers without a credential and is the quickest way to
+confirm it is up. The Rust build binds `0.0.0.0` regardless of
+`API_SERVER_HOST` and ignores `INTELLECT_BASE_PATH` only if unset — when a
+base path *is* configured every route gains that prefix, so the profile URL
+has to carry it too.
+
+**A tenant-scoped gateway needs the profile's `tenant_id`.** Intellect
+validates the incoming tenant against its own `INTELLECT_TENANT_ID` and
+answers `400` (not 32 hex) or `403` (mismatch) before the turn starts; the
+value it expects is visible without credentials at `GET {url}/api/tenant/info`.
+Copy it into the profile's **Tenant id** field (settings refuse a malformed
+value at save time). Leaving it blank means "the service's default tenant",
+which is correct only when the gateway is not enforcing one.
+
+### Per-user identity against the gateway
+
+Turns against an Intellect HTTP profile are **attributed by default**
+(`identity_mode` empty), which sends `X-Intellect-User: mem_<account>` with
+the profile's `api_key` still doing the authentication — the same shape the
+sibling enterprise UI presents. Nothing reaches the gateway for other
+presets unless you ask. The explicit modes:
+
+- `header` — the default; see above. The gateway records each run's owner,
+  but the service key remains unrestricted, so this is *attribution only*;
+  OPENKG-WebUI's own session store stays the isolation boundary.
+- `token` — present the account's own linked member token, so the
+  gateway's roles and per-owner isolation apply. Users connect their
+  account under Settings → Models. Requires the gateway to run with
+  PostgreSQL and `members.enabled`.
+- `token_required` — as `token`, but a user without a link cannot start a
+  turn. Use this when the gateway is expected to enforce separation.
+- `off` — send nothing extra. Correct for a gateway whose users have no
+  accounts there, or when the deployment intentionally files every turn
+  under the service principal.
+
+Under `header`, a user who has connected their account is attributed to that
+account's real member id rather than to one derived from their OPENKG-WebUI id, so
+the gateway's records name the account they actually signed in as.
+
+**The sign-in card lives under Settings → Models** and is offered to
+administrators and ordinary users alike — it is the user's own credential,
+not deployment configuration. It hides itself when no agent service is
+configured, or after the gateway reports the feature unavailable. Password
+sign-in posts once to the gateway's `/api/members/login` and stores only the
+minted `imt_*` token; "connect with a token" accepts a member token someone
+was given out of band, verifying it with `GET /api/members/me` first. Linking
+requires the gateway's `members.enabled` and, for password sign-in, that the
+account already exists (`POST /api/members/register` is how the gateway
+creates one).
+
+A linked credential that expires or is revoked fails the turn; it never
+falls back to the shared key, because that fallback is the more privileged
+of the two. A link is also bound to the service URL it was created against,
+so repointing this profile requires users to reconnect — the token is never
+carried over to the new host. The password sign-in path additionally
+requires HTTPS (or loopback), since a password is a reusable user
+credential rather than a revocable service key.

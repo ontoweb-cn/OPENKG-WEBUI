@@ -1,0 +1,624 @@
+# -*- coding: utf-8 -*-
+"""KAG Bridge — MCP Server（M1 stdio + M3.1 streamable-http）。
+
+设计文档：docs/kag-integration-design.md §5.1 + 附录 A（D1：双 transport）。
+单项目 MVP：Bridge 实例经 KAG_PROJECT_DIR 绑定一个 KAG 项目；显式传入
+不同 project_id 返回结构化错误（多项目路由 M2 提供）。
+
+transport 选择（KAG_BRIDGE_TRANSPORT）：
+  - stdio（缺省）：Claude Code / Codex 子进程接入；
+  - http：FastMCP streamable-http（缺省 127.0.0.1:8890/mcp），供 Intellect
+    等带原生 MCP 客户端的 HTTP agent loop 接入；Bearer 鉴权强制——
+    未配置 KAG_BRIDGE_API_KEY 时拒绝启动（内网监听 + key 双防线）。
+
+内建的 M0/M3.0 实测结论（勿改）：
+  1. 配置唯一来源 = KAG_PROJECT_DIR/kag_config.yaml；禁止运行时执行
+     KAG_PROJECT_CONF.host_addr = <env>（会丢 all_config 的 llm 键）；
+  2. reporter 生命周期必须 try/finally 包 reporter.stop()（do_cycle_report
+     吞 CancelledError，异常路径不 stop 会死锁 asyncio 清理并掩盖 traceback）；
+  3. OpenSPGReporter(host_addr=None) 纯内存零网络，add_report_line 无副作用；
+  4. kag_config.yaml 必须含自定义 think_pipeline: 顶层键（do_qa_pipeline 用
+     kb 派生列表覆盖顶层 retrievers，模板路径检索恒空——M3.0 根因①）。
+"""
+
+import asyncio
+import base64
+import hashlib
+import hmac
+import json
+import os
+import sys
+import threading
+import time
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+
+KAG_PROJECT_DIR = os.environ.get("KAG_PROJECT_DIR", "").strip()
+
+# Host 头放行表：FastMCP 对 loopback 绑定自动开启 DNS-rebinding 防护（默认仅
+# 127.0.0.1/localhost/[::1]），容器化调用方（Intellect 等）以
+# host.docker.internal 访问宿主 Bridge 会被 421 拒绝。KAG_BRIDGE_EXTRA_HOSTS
+# 逗号分隔追加（如内网域名），绑定地址本身始终放行。
+_extra_hosts = [h.strip() for h in os.environ.get("KAG_BRIDGE_EXTRA_HOSTS", "").split(",") if h.strip()]
+_bind_host = os.environ.get("KAG_BRIDGE_HTTP_HOST", "127.0.0.1").strip()
+_allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*", "host.docker.internal:*", f"{_bind_host}:*"]
+_allowed_hosts += [h if ":*" in h else f"{h}:*" for h in _extra_hosts]
+
+mcp = FastMCP(
+    "kag-bridge",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_allowed_hosts,
+        allowed_origins=[
+            "http://127.0.0.1:*",
+            "http://localhost:*",
+            "http://[::1]:*",
+            "http://host.docker.internal:*",
+        ],
+    ),
+)
+
+# —— KAG 延迟加载（MCP 服务可先起，首个工具调用时加载 KAG）——
+_KAG_READY = False
+_MAIN_CONFIG: dict = {}
+_kag_init_lock = threading.Lock()
+
+# M1 单并发：KAGConfigAccessor 是进程级全局状态，并发 solve 需排队（§5.1 R3 的最小实现）
+_solve_semaphore = asyncio.Semaphore(1)
+
+# M3.3 kag_reason：工具级超时与返回行上限（DSL 查全图时防膨胀/防线程挂起）
+_REASON_TIMEOUT_SECONDS = 120
+_MAX_REASON_ROWS = 200
+
+# —— per-session token（M3.6，附录 A.3）——
+# HMAC 无状态短期 token：实例 key 只留在 KAGWeb 服务端与 bridge 部署配置，
+# 不进 session workdir（.mcp.json 只携带 token）——泄漏窗口 = TTL；bridge 重启
+# 不影响已签发 token（签名自包含）；实例 key 变更即全部 token 失效。token
+# payload 自带 session/project（归因审计；M2 多项目路由落地时用于 scope 校验）。
+_TOKEN_KEY_INFO = b"kag-bridge-token-v1"
+_TOKEN_PREFIX = "kagt."
+_TOKEN_DEFAULT_TTL = 900
+_TOKEN_MIN_TTL = 60
+_TOKEN_MAX_TTL = 3600
+
+
+def _token_sign_key(api_key: str) -> bytes:
+    # 派生密钥：泄漏的 token 无法反推实例 key（单向 HMAC）
+    return hmac.new(api_key.encode("utf-8"), _TOKEN_KEY_INFO, hashlib.sha256).digest()
+
+
+def issue_session_token(
+    api_key: str, *, session_id: str, project_id: str, ttl_seconds: int = _TOKEN_DEFAULT_TTL
+) -> tuple[str, int]:
+    """签发自包含短期 token，返回 ``(token, expires_at)``。"""
+    exp = int(time.time()) + ttl_seconds
+    payload = json.dumps(
+        {"sid": str(session_id), "pid": str(project_id), "exp": exp},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    b64 = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+    sig = hmac.new(_token_sign_key(api_key), b64.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{_TOKEN_PREFIX}{b64}.{sig}", exp
+
+
+def verify_session_token(api_key: str, token: str) -> dict[str, Any] | None:
+    """验证 token；有效返回 payload（sid/pid/exp），否则 ``None``。"""
+    if not token.startswith(_TOKEN_PREFIX):
+        return None
+    parts = token[len(_TOKEN_PREFIX):].split(".")
+    if len(parts) != 2:
+        return None
+    b64, sig = parts
+    expected = hmac.new(
+        _token_sign_key(api_key), b64.encode("ascii"), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(b64.encode("ascii")))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    exp = payload.get("exp")
+    if not isinstance(exp, int) or exp < int(time.time()):
+        return None
+    return payload
+
+
+def _ensure_kag() -> None:
+    global _KAG_READY, _MAIN_CONFIG
+    if _KAG_READY:
+        return
+    with _kag_init_lock:
+        if _KAG_READY:  # 双检：等锁期间可能已被并发首调完成
+            return
+        if not KAG_PROJECT_DIR or not Path(KAG_PROJECT_DIR, "kag_config.yaml").is_file():
+            raise RuntimeError(
+                "KAG_PROJECT_DIR 未设置或其下无 kag_config.yaml（Bridge 以项目目录的配置文件为唯一配置源）"
+            )
+        # KAGConfigAccessor 读取 cwd 下的 kag_config.yaml（M0-1 验证的加载方式）
+        os.chdir(KAG_PROJECT_DIR)
+        from kag.common.conf import KAGConfigAccessor
+
+        cfg = KAGConfigAccessor.get_config().all_config
+        if not cfg or "llm" not in cfg or "project" not in cfg:
+            raise RuntimeError("kag_config.yaml 缺少 llm / project 配置")
+        _MAIN_CONFIG = cfg
+        _KAG_READY = True
+
+
+def _project_info() -> dict:
+    p = _MAIN_CONFIG.get("project", {}) or {}
+    return {
+        "namespace": str(p.get("namespace", "")),
+        "project_id": str(p.get("id", "")),
+        "host_addr": str(p.get("host_addr", "")),
+    }
+
+
+def _build_reporter(task_id: str, project_id: str, on_event):
+    """继承 OpenSPGReporter 的事件桥接 reporter（host_addr=None 零网络）。
+
+    on_event(text) 为同步回调：状态变化时触发（粗粒度进度）。
+    """
+    from kag.solver.reporter.open_spg_reporter import OpenSPGReporter
+
+    class _BridgeReporter(OpenSPGReporter):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.last_status = {}
+
+        def add_report_line(self, segment, tag_name, content, status, **kwargs):
+            super().add_report_line(segment, tag_name, content, status, **kwargs)
+            key = f"{segment}/{tag_name}"
+            if self.last_status.get(key) != status:  # 仅状态变化上报，防刷屏
+                self.last_status[key] = status
+                try:
+                    on_event(f"[{segment}/{tag_name}] {status}")
+                except Exception:
+                    pass
+
+        def do_report(self):
+            pass  # 终态产物（StreamData）在 kag_solve 结束时统一组装
+
+    return _BridgeReporter(task_id=task_id, host_addr=None, project_id=project_id)
+
+
+def _schedule_info(ctx, loop, text: str) -> None:
+    """同步回调里异步发 ctx.info（fire-and-forget，失败静默）。"""
+
+    def _run():
+        try:
+            asyncio.ensure_future(ctx.info(text))
+        except Exception:
+            pass
+
+    try:
+        loop.call_soon_threadsafe(_run)
+    except Exception:
+        pass
+
+
+@mcp.tool()
+async def kag_solve(
+    question: str,
+    project_id: str = "",
+    use_pipeline: str = "think_pipeline",
+    ctx: Context = None,
+) -> str:
+    """对绑定的 KAG 项目执行 LLM 增强推理，返回答案与引用（含 subgraph 轨迹数据）。
+
+    无状态单问单答：多轮上下文由调用方（agent loop）负责拼装进 question，需携带前文。
+    project_id 可省略（缺省用 Bridge 绑定的项目；传入其他 id 会返回结构化错误——多项目路由 M2 提供）。
+    """
+    _ensure_kag()
+    info = _project_info()
+    if project_id and project_id != info["project_id"]:
+        return json.dumps(
+            {"error": f"Bridge 绑定项目 {info['project_id']}（namespace={info['namespace']}），"
+            f"project_id={project_id} 的多项目路由于 M2 提供"},
+            ensure_ascii=False,
+        )
+    if use_pipeline not in ("think_pipeline", "default_pipeline", "index_pipeline"):
+        return json.dumps({"error": f"未知 use_pipeline: {use_pipeline}"}, ensure_ascii=False)
+
+    from kag.solver.main_solver import do_qa_pipeline
+
+    async with _solve_semaphore:
+        task_id = f"bridge_{int(time.time() * 1000)}"
+        loop = asyncio.get_running_loop()
+        reporter = _build_reporter(
+            task_id, info["project_id"], lambda t: _schedule_info(ctx, loop, t)
+        )
+        if ctx:
+            await ctx.info(f"kag_solve 开始（namespace={info['namespace']}）")
+        t0 = time.time()
+        try:
+            answer = await do_qa_pipeline(
+                use_pipeline,
+                question,
+                _MAIN_CONFIG,
+                reporter,
+                task_id=task_id,
+                kb_project_ids=[],
+            )
+        finally:
+            # M0-1 陷阱 2：异常路径也必须 stop，否则 asyncio 清理死锁
+            await reporter.stop()
+        cost_ms = int((time.time() - t0) * 1000)
+
+        # 终态产物组装（StreamData：answer/think/reference/subgraph/metrics——附录 A.2 数据模型）
+        stream_data = {}
+        try:
+            content, _status, _metrics = reporter.generate_report_data()
+            stream_data = content.to_dict()
+        except Exception:
+            pass
+        if ctx:
+            await ctx.report_progress(1, 1)
+
+        # 任务摘要上报（A.3；异步放行，不阻塞工具返回）
+        loop.call_soon_threadsafe(
+            lambda: asyncio.ensure_future(
+                asyncio.to_thread(
+                    _report_task,
+                    {
+                        "task_id": task_id,
+                        "session_id": os.environ.get("KAG_SESSION_ID", ""),
+                        "project_id": info["project_id"],
+                        "namespace": info["namespace"],
+                        "question": question[:2000],
+                        "answer_digest": str(answer)[:2000],
+                        "cost_ms": cost_ms,
+                        "references": stream_data.get("reference", [])[:20],
+                    },
+                )
+            )
+        )
+        return json.dumps(
+            {
+                "answer": str(answer),
+                "reference": stream_data.get("reference", []),
+                "subgraph": stream_data.get("subgraph", []),
+                "cost_ms": cost_ms,
+                "namespace": info["namespace"],
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+
+
+@mcp.tool()
+async def kag_reason(
+    dsl: str,
+    params: dict[str, Any] | None = None,
+    project_id: str = "",
+    ctx: Context = None,
+) -> str:
+    """对绑定的 KAG 项目执行 reason DSL 图查询（只读），返回表格结果。
+
+    DSL 契约（M3.0/M3.3 实测，附录 A.1）：
+    - 节点类型必须用带 namespace 的全名（如 m0ProbeLive.Person，可先调
+      kag_schema 查类型清单）；短名（如 Person）报 Cannot find name；
+    - 关系 label 用裸名（如 workFor），前提 schema 关系已持久化；
+    - 对端不能用 :`Entity` 泛型配合 typed p（SchemaException）；
+    - 结果在 rows（二维数组，列序对应 header）；resultNodes/resultEdges 恒空；
+    - 占位符 $name 经 params 传入，值须字符串化列表——本工具自动归一，
+      list/dict 值会 JSON 序列化，直接传原始数组即可。
+    示例：MATCH (n:m0ProbeLive.Person)-[p:workFor]->(o:m0ProbeLive.Organization)
+    WHERE n.id in $ids RETURN n.id, o.id（params: {"ids": ["ZhangSan"]}）
+    """
+    _ensure_kag()
+    info = _project_info()
+    if project_id and project_id != info["project_id"]:
+        return json.dumps(
+            {"error": f"Bridge 绑定项目 {info['project_id']}（namespace={info['namespace']}），"
+            f"project_id={project_id} 的多项目路由于 M2 提供"},
+            ensure_ascii=False,
+        )
+
+    # params 值归一（M3.0 实测坑 4）：DSL 占位符替换要求字符串化列表
+    # （'["张三"]'）——agent 传真数组同样成立，非 str 值一律 JSON 序列化。
+    normalized: dict[str, str] = {}
+    for key, value in (params or {}).items():
+        normalized[str(key)] = (
+            value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+        )
+    if ctx:
+        await ctx.info(f"kag_reason 开始（namespace={info['namespace']}，dsl 长度 {len(dsl)}）")
+    t0 = time.time()
+
+    # 不经 knext ReasonerClient：其 ReasonTask 模型未映射 resultMessage 字段
+    # （M3.3 实测：ERROR 时的错误详情只在原始响应的 task.resultMessage 里），
+    # 且构造时会额外加载 schema。直调 /public/v1/reason/run（M3.0② 实测契约）。
+    url = f"{info['host_addr'].rstrip('/')}/public/v1/reason/run"
+    body = json.dumps(
+        {"projectId": int(info["project_id"]), "dsl": dsl, "params": normalized}
+    ).encode()
+
+    def _run() -> dict:
+        req = urllib.request.Request(
+            url, data=body, method="POST", headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=_REASON_TIMEOUT_SECONDS) as resp:
+            return json.loads(resp.read())
+
+    try:
+        # 同步阻塞（HTTP 往返 + 服务端同步推理）——放线程池避免卡死事件循环
+        # （http transport 单循环）；wait_for 兜底防线程挂起。
+        resp_json = await asyncio.wait_for(
+            asyncio.to_thread(_run), timeout=_REASON_TIMEOUT_SECONDS + 5
+        )
+    except asyncio.TimeoutError:
+        return json.dumps(
+            {"error": f"reason 超时（>{_REASON_TIMEOUT_SECONDS}s）"}, ensure_ascii=False
+        )
+    except Exception as exc:  # noqa: BLE001 - 工具结果需结构化错误而非崩流
+        return json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False, default=str)
+    cost_ms = int((time.time() - t0) * 1000)
+
+    task = (resp_json or {}).get("task") or {}
+    status = str(task.get("status") or "")
+    table = task.get("resultTableResult") or {}
+    header = list(table.get("header") or [])
+    rows = list(table.get("rows") or [])
+    out: dict[str, Any] = {
+        "status": status or "UNKNOWN",
+        "header": header,
+        "rows": rows[:_MAX_REASON_ROWS],
+        "row_count": int(table.get("total") or len(rows)),
+        "truncated": len(rows) > _MAX_REASON_ROWS,
+        "cost_ms": cost_ms,
+        "namespace": info["namespace"],
+    }
+    if status != "FINISH":
+        # resultMessage 携带完整服务端堆栈（Scala trace 数 KB）——截断到
+        # 首行错误语义，足够 agent 自纠 DSL，又不撑爆工具结果。
+        detail = str(task.get("resultMessage") or f"任务未完成：status={status or 'UNKNOWN'}")
+        if len(detail) > 600:
+            detail = detail[:600].rstrip() + "…"
+        out["error"] = detail
+    return json.dumps(out, ensure_ascii=False, default=str)
+
+
+@mcp.tool()
+async def kag_schema(project_id: str = "", ctx: Context = None) -> str:
+    """查询绑定 KAG 项目的 Schema 摘要（只读：SPG type 清单）。"""
+    _ensure_kag()
+    info = _project_info()
+    if project_id and project_id != info["project_id"]:
+        return json.dumps({"error": f"Bridge 绑定项目 {info['project_id']}，多项目路由于 M2 提供"}, ensure_ascii=False)
+
+    from knext.reasoner.client import ReasonerClient
+
+    rc = ReasonerClient(host_addr=info["host_addr"], project_id=int(info["project_id"]))
+    schema = rc.get_reason_schema()
+    return json.dumps(
+        {
+            "project_id": info["project_id"],
+            "namespace": info["namespace"],
+            "spg_types": {
+                name: {"spg_type_enum": str(getattr(v, "spg_type_enum", ""))}
+                for name, v in schema.items()
+            },
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@mcp.tool()
+async def kag_status(ctx: Context = None) -> str:
+    """Bridge 与 OpenSPG server 的健康/连通性检查（不回显任何凭据）。"""
+    _ensure_kag()
+    info = _project_info()
+
+    def _probe_server() -> tuple[bool, str]:
+        try:
+            req = urllib.request.Request(f"{info['host_addr'].rstrip('/')}/public/v1/project", method="GET")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status == 200, f"HTTP {resp.status}"
+        except Exception as exc:  # noqa: BLE001 - 健康探测需把任何失败转为状态
+            return False, repr(exc)[:200]
+
+    # 同步 urllib 放线程池，避免阻塞事件循环
+    server_ok, detail = await asyncio.to_thread(_probe_server)
+    return json.dumps(
+        {
+            "bridge": "ok",
+            "kag_project_dir": KAG_PROJECT_DIR,
+            "namespace": info["namespace"],
+            "project_id": info["project_id"],
+            "spg_server": {"url": info["host_addr"], "reachable": server_ok, "detail": detail},
+            "llm_configured": bool(_MAIN_CONFIG.get("llm")),
+            "vectorizer_configured": bool(_MAIN_CONFIG.get("vectorizer") or _MAIN_CONFIG.get("vectorize_model")),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _report_task(payload: dict) -> None:
+    """任务摘要上报（附录 A.3）：KAGWEB_API_URL + KAG_BRIDGE_API_KEY 均
+    配置时才启用；fire-and-forget，失败仅记 stderr（不影响答案返回）。"""
+    import urllib.error
+
+    url = os.environ.get("KAGWEB_API_URL", "").rstrip("/")
+    key = os.environ.get("KAG_BRIDGE_API_KEY", "")
+    if not url or not key:
+        return
+    try:
+        req = urllib.request.Request(
+            f"{url}/api/kag/bridge/tasks",
+            data=json.dumps(payload, ensure_ascii=False, default=str).encode(),
+            method="POST",
+            headers={"Content-Type": "application/json", "X-KAG-Bridge-Key": key},
+        )
+        urllib.request.urlopen(req, timeout=5).read()
+    except Exception as exc:  # noqa: BLE001 - 上报失败不阻塞工具结果
+        print(f"WARN: kag task report failed: {exc!r}", file=sys.stderr)
+
+
+class _BearerAuthMiddleware:
+    """纯 ASGI 中间件：http transport 全端点 Bearer 鉴权（/healthz 豁免）。
+
+    不用 Starlette BaseHTTPMiddleware——它对流式响应（streamable-http 的
+    POST 返回为 SSE/流式 JSON）有缓冲副作用；纯 ASGI 包装对任意响应安全。
+    hmac.compare_digest 防时序侧信道。
+
+    凭证两种（M3.6）：实例级 api_key（部署方/管理面全权）或 per-session
+    token（短期、签发自包含——session workdir 只落它，见 issue_session_token）。
+    单项目实例的"项目白名单"由实例物理隔离承担（§5.1 一项目一实例）。
+    """
+
+    #: 豁免路径精确匹配（评审 M-2）：startswith 前缀会放过 /healthzanything
+    #: 等未知路径；healthz 挂载为精确路由，这里同步精确（含尾斜杠变体）。
+    _HEALTHZ_PATHS = ("/healthz", "/healthz/")
+
+    def __init__(self, app, api_key: str):
+        self.app = app
+        self.api_key = api_key
+
+    def _authorized(self, auth: str) -> bool:
+        if hmac.compare_digest(auth, f"Bearer {self.api_key}"):
+            return True
+        token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+        return bool(token) and verify_session_token(self.api_key, token) is not None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            # 拒绝 websocket 升级（评审 M-3）：本服务只提供 streamable-http，
+            # 鉴权只覆盖 http scope——不显式拒绝的话，未来内层 app 若挂 WS
+            # 路由会绕过 Bearer。lifespan 等非 http scope 照常透传。
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        if scope["type"] == "http" and scope.get("path") not in self._HEALTHZ_PATHS:
+            auth = ""
+            for k, v in scope.get("headers", []):
+                if k.decode("latin-1").lower() == "authorization":
+                    auth = v.decode("latin-1")
+                    break
+            if not self._authorized(auth):
+                body = json.dumps(
+                    {"error": "unauthorized", "hint": "Authorization: Bearer <KAG_BRIDGE_API_KEY>"},
+                    ensure_ascii=False,
+                ).encode()
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"www-authenticate", b"Bearer"),
+                        ],
+                    }
+                )
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
+
+
+def _run_http() -> None:
+    """streamable-http transport（附录 A.2，D1）。"""
+    api_key = os.environ.get("KAG_BRIDGE_API_KEY", "").strip()
+    if not api_key:
+        raise SystemExit("KAG_BRIDGE_TRANSPORT=http 时必须设置 KAG_BRIDGE_API_KEY（拒绝无鉴权启动）")
+    host = os.environ.get("KAG_BRIDGE_HTTP_HOST", "127.0.0.1").strip()
+    raw_port = os.environ.get("KAG_BRIDGE_HTTP_PORT", "8890").strip()
+    # 配置校验（评审 N-5）：解析失败给可读的启动错误而非裸 traceback。
+    try:
+        port = int(raw_port)
+    except ValueError:
+        raise SystemExit(f"KAG_BRIDGE_HTTP_PORT 必须是数字端口号：{raw_port!r}")
+    path = os.environ.get("KAG_BRIDGE_HTTP_PATH", "/mcp").strip()
+    if not path.startswith("/"):
+        raise SystemExit(f"KAG_BRIDGE_HTTP_PATH 必须以 / 开头：{path!r}")
+    if host == "0.0.0.0":
+        # 评审 N-3：绑定全接口时客户端 Host 头（实际 IP）不在 DNS-rebinding
+        # 放行表，会被 421 拒——fail closed 是有意的，但值得显式提醒配置方。
+        print(
+            "WARN: KAG_BRIDGE_HTTP_HOST=0.0.0.0 时，客户端 Host 头（实际 IP）不在放行表，"
+            "需 KAG_BRIDGE_EXTRA_HOSTS 显式放行（如内网 IP/域名）",
+            file=sys.stderr,
+            flush=True,
+        )
+    mcp.settings.host = host
+    mcp.settings.port = port
+    mcp.settings.streamable_http_path = path
+    # 无状态单发工具服务（kag_solve 单问单答），不依赖服务端会话保持
+    mcp.settings.stateless_http = True
+
+    app = _BearerAuthMiddleware(mcp.streamable_http_app(), api_key)
+
+    async def _healthz(request):
+        from starlette.responses import JSONResponse
+
+        return JSONResponse({"status": "ok", "transport": "streamable-http"})
+
+    async def _issue_token(request):
+        """POST /tokens（M3.6，附录 A.3）：实例 key 鉴权下签发 per-session
+        短期 token——KAGWeb 生成 .mcp.json 时换取，实例 key 不进 workdir。"""
+        from starlette.responses import JSONResponse
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - 非法 body 统一按 400
+            body = None
+        if not isinstance(body, dict):
+            body = {}
+        session_id = str(body.get("session_id") or "").strip()
+        if not session_id:
+            return JSONResponse({"error": "session_id required"}, status_code=400)
+        raw_ttl = body.get("ttl_seconds")
+        try:
+            ttl = _TOKEN_DEFAULT_TTL if raw_ttl is None else int(raw_ttl)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "ttl_seconds must be an int"}, status_code=400)
+        ttl = min(max(ttl, _TOKEN_MIN_TTL), _TOKEN_MAX_TTL)
+        try:
+            _ensure_kag()
+            info = _project_info()
+        except Exception as exc:  # noqa: BLE001 - 项目未就绪给可读 503
+            return JSONResponse({"error": f"bridge project not ready: {exc!r}"}, status_code=503)
+        token, exp = issue_session_token(
+            api_key, session_id=session_id, project_id=info["project_id"], ttl_seconds=ttl
+        )
+        return JSONResponse(
+            {
+                "token": token,
+                "expires_at": exp,
+                "session_id": session_id,
+                "project_id": info["project_id"],
+            }
+        )
+
+    from starlette.routing import Route
+
+    # /tokens 在 Bearer 中间件之内且不豁免：token 不能换 token（防滚雪球），
+    # 只有实例 key（管理面/部署方）能签发。
+    app.app.routes.append(Route("/tokens", _issue_token, methods=["POST"]))
+    app.app.routes.append(Route("/healthz", _healthz, methods=["GET"]))
+
+    import uvicorn
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+def main() -> None:
+    if not KAG_PROJECT_DIR:
+        # stderr，绝不能 print 到 stdout——stdio transport 下 stdout 是协议通道
+        print("WARN: KAG_PROJECT_DIR 未设置，KAG 工具将在调用时报错", file=sys.stderr, flush=True)
+    transport = os.environ.get("KAG_BRIDGE_TRANSPORT", "stdio").strip().lower()
+    if transport == "http":
+        _run_http()
+    else:
+        mcp.run()  # stdio transport
+
+
+if __name__ == "__main__":
+    main()

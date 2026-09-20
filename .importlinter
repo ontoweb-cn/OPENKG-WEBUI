@@ -1,0 +1,32 @@
+[importlinter]
+root_package = openkg-webui
+
+[importlinter:contract:core-purity]
+name = Core contains values and protocols only
+type = forbidden
+source_modules =
+    openkg_webui.core
+forbidden_modules =
+    openkg_webui.app
+    openkg_webui.api
+    openkg_webui.runtime
+    openkg_webui.services
+
+[importlinter:contract:no-api-backimports]
+name = Runtime and service layers do not import API adapters
+type = forbidden
+source_modules =
+    openkg_webui.runtime
+    openkg_webui.services
+    openkg_webui.multi_user
+    openkg_webui.capabilities
+forbidden_modules =
+    openkg_webui.api
+
+[importlinter:contract:app-adapter-direction]
+name = Application does not import API adapters
+type = forbidden
+source_modules =
+    openkg_webui.app
+forbidden_modules =
+    openkg_webui.api

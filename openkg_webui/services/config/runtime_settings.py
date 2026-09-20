@@ -1,0 +1,1860 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+from typing import Any, Callable
+
+from openkg_webui.services.agent_loop.builtin import normalize_profile_models
+from openkg_webui.services.agent_loop.workdir import normalize_workdir_roots
+from openkg_webui.services.file_io import atomic_write_json as _atomic_write_json
+from openkg_webui.services.path_service import get_path_service
+
+from .origins import normalize_origins
+
+#: Root every deployment may write to, relative to the project root. Single
+#: source for the agent-loop workdir default: the system-settings default and
+#: the API payload default both read it.
+DEFAULT_WORKDIR_ROOT = "data/user"
+
+DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    # About → Updates performs at most one release lookup per process/day.
+    # Operators may disable even that explicit network boundary for offline or
+    # audited deployments; OPENKG_WEBUI_VERSION_CHECK_ENABLED is the deployment
+    # override. Defaults OFF in OPENKG-WebUI: the upstream release URL is a
+    # placeholder until a real release channel is configured.
+    # override for read-only settings volumes.
+    "version_check_enabled": False,
+    "backend_port": 8082,
+    "backend_workers": 1,
+    "frontend_port": 8092,
+    "next_public_api_base_external": "",
+    "next_public_api_base": "",
+    "cors_origin": "",
+    "cors_origins": [],
+    "disable_ssl_verify": False,
+    "chat_attachment_dir": "",
+    # Reference policy applied after every web-search provider. This belongs in
+    # runtime JSON so packaged installs and the settings service share one
+    # source of truth; project main.yaml is intentionally not an operator
+    # configuration surface.
+    "web_search_source_filtering": {
+        "enabled": True,
+        "blocked_domains": [],
+        "trusted_domains": [],
+    },
+    # Chat attachment policy. Size caps gate what the composer accepts and
+    # what the turn runtime / partner upload endpoints extract; the char
+    # budgets bound how much extracted text is inlined into the LLM context
+    # per document / per turn. Enforcement reads these at call time, so
+    # changes apply to the next message — but uploads whose base64 payload
+    # exceeds the WebSocket frame ceiling need a restart (see
+    # ``compute_ws_max_size``, wired at every uvicorn launch point).
+    "chat_attachment_max_file_mb": 20,
+    "chat_attachment_max_total_mb": 25,
+    "chat_attachment_max_chars_per_doc": 200_000,
+    "chat_attachment_max_chars_total": 150_000,
+    # Conversation backend: external agent loops (Claude Code / Codex /
+    # OpenCode CLIs, or Intellect / Hermes / AgentScope services) instead of
+    # a plain LLM call. v2 shape: a list of named profiles plus a primary
+    # pointer — the primary drives the turn, the other enabled profiles can
+    # be consulted by it (see ARCHITECTURE.md). ``primary == ""`` keeps the
+    # framework-shell stub; a missing/null primary auto-resolves (local
+    # Intellect first). v1 flat blocks are migrated into one "default"
+    # profile on load. CLI-family profiles spawn subprocesses with the
+    # server's privileges — single-operator shape; multi-user deployments
+    # should use HTTP-family profiles so the loop runs in its own service.
+    "agent_loop": {
+        "version": 2,
+        "profiles": [],
+        "primary": "",
+        "consult_budget": 3,
+        # Roots a CLI profile's ``workdir`` may point into. Defaults to the
+        # workspace tree the app already owns; widen deliberately, since a CLI
+        # loop runs with the server's privileges. An explicitly empty list is
+        # honoured — that is how an operator forbids per-profile workdirs.
+        "allowed_workdir_roots": [DEFAULT_WORKDIR_ROOT],
+    },
+    # KAG 集成（M1，设计 docs/kag-integration-design.md §6.3 T1 单租户子集）：
+    # Bridge 以 MCP 服务接入 agent loop（CLI 后端经 session workdir 的
+    # .mcp.json 发现）。kag_project_dir 指向含 kag_config.yaml 的项目目录
+    # ——Bridge 以该文件为唯一配置源（M0-1 实测：运行时覆盖会丢 llm 键）。
+    # bridge_http_url（M3.6）：bridge **根 URL**（无路径，如
+    # http://127.0.0.1:8890）——.mcp.json 生成 http 形态并拼默认 /mcp 端点，
+    # 生成时经实例 key 向 bridge POST /tokens 换 per-session 短期 token——
+    # 实例 key 不进 session workdir（附录 A.3）。bridge 侧自定义
+    # KAG_BRIDGE_HTTP_PATH（非默认 /mcp）时需两侧同步配置。
+    "kag": {
+        "version": 1,
+        "bridge_command": "",
+        "bridge_args": ["-m", "kag_bridge"],
+        "kag_project_dir": "",
+        "namespace": "",
+        "project_id": "",
+        "spg_server_url": "",
+        "service_user_no": "",
+        "bridge_api_key": "",
+        "bridge_http_url": "",
+    },
+}
+
+# Clamp bounds for the chat attachment knobs. The MB ceilings are deliberately
+# generous (local deployments parse in-process; the WS frame cap is derived
+# from the total) while still refusing nonsense like 0 or 10^9.
+CHAT_ATTACHMENT_MAX_FILE_MB_RANGE = (1, 1024)
+CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE = (1, 2048)
+CHAT_ATTACHMENT_CHARS_RANGE = (10_000, 5_000_000)
+
+AGENT_LOOP_TIMEOUT_RANGE = (30, 86_400)
+
+#: Per-turn cap on how many times the primary loop may consult the other
+#: enabled profiles (0 disables consultation entirely).
+AGENT_LOOP_CONSULT_BUDGET_RANGE = (0, 12)
+
+#: Bounds for a profile's declared context window. The ceiling mirrors
+#: ``MAX_EFFECTIVE_CONTEXT_WINDOW`` (the budget planner refuses to plan past it
+#: even if a backend claims more); the floor is a small-but-plausible window, so
+#: a typo like ``200`` is refused rather than silently starving the turn.
+#: ``0`` is not clamped — it means "not configured" (see the profile normalizer).
+AGENT_LOOP_CONTEXT_WINDOW_RANGE = (1_024, 1_000_000)
+
+# The Intellect preset family is identified by `is_intellect_preset` and
+# `llm_settings_apply` in `agent_loop.builtin`, which match by prefix. The
+# enumerated set that used to live here was a second source of truth and had
+# already drifted (it never learned about `intellect-runs`).
+
+DEFAULT_AUTH_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "enabled": False,
+    "username": "admin",
+    "password_hash": "",
+    "token_expire_hours": 24,
+    "cookie_secure": False,
+}
+
+DEFAULT_INTEGRATIONS_SETTINGS: dict[str, Any] = {
+    "version": 2,
+    "pocketbase_url": "",
+    "pocketbase_port": 8090,
+    "pocketbase_external_url": "",
+    "pocketbase_admin_email": "",
+    "pocketbase_admin_password": "",
+    "turn_coordination": {
+        "backend": "memory",
+        "redis_url": "",
+        "key_prefix": "openkg-webui",
+        "lease_ttl_seconds": 30,
+        "renew_interval_seconds": 10,
+        "recovery_interval_seconds": 10,
+        "stream_retention_seconds": 86_400,
+    },
+}
+
+# Document parsing settings. The parse layer (openkg_webui/services/parsing)
+# supports several pluggable engines; one is active at a time. The persisted
+# shape is v2::
+#
+#   {"version": 2, "engine": "<name>", "engines": {"text_only": {...},
+#    "mineru": {...}, "docling": {...}, "markitdown": {...}}}
+#
+# Persisted as ``document_parsing.json``. It originally held only MinerU config
+# and was named ``mineru.json``; the file is renamed in place on first load (see
+# ``_migrate_legacy_document_parsing_file``) so existing installs keep their
+# settings. ``load_mineru`` returns the MinerU engine *slice* (flat) so legacy
+# readers keep working; ``load_document_parsing`` returns the whole structure
+# for the multi-engine settings UI. A v1 flat file is migrated into
+# ``engines.mineru`` on first load (and the active engine pinned to "mineru" so
+# existing installs keep their behavior).
+DOCUMENT_PARSING_SETTINGS_NAME = "document_parsing"
+_LEGACY_DOCUMENT_PARSING_SETTINGS_NAME = "mineru"
+
+MINERU_MODE_LOCAL = "local"
+MINERU_MODE_CLOUD = "cloud"
+_MINERU_MODES = frozenset({MINERU_MODE_LOCAL, MINERU_MODE_CLOUD})
+
+DOCLING_MODE_LOCAL = "local"
+DOCLING_MODE_REMOTE = "remote"
+_DOCLING_MODES = frozenset({DOCLING_MODE_LOCAL, DOCLING_MODE_REMOTE})
+_MINERU_MODEL_VERSIONS = frozenset({"pipeline", "vlm"})
+_MINERU_DOWNLOAD_SOURCES = frozenset({"huggingface", "modelscope"})
+
+DOCUMENT_PARSING_ENGINE_TEXT_ONLY = "text_only"
+DOCUMENT_PARSING_ENGINE_MINERU = "mineru"
+DOCUMENT_PARSING_ENGINE_DOCLING = "docling"
+DOCUMENT_PARSING_ENGINE_MARKITDOWN = "markitdown"
+DOCUMENT_PARSING_ENGINE_PYMUPDF4LLM = "pymupdf4llm"
+DOCUMENT_PARSING_ENGINE_LITEPARSE = "liteparse"
+DOCUMENT_PARSING_ENGINE_TIKA = "tika"
+_DOCUMENT_PARSING_ENGINES = frozenset(
+    {
+        DOCUMENT_PARSING_ENGINE_TEXT_ONLY,
+        DOCUMENT_PARSING_ENGINE_MINERU,
+        DOCUMENT_PARSING_ENGINE_DOCLING,
+        DOCUMENT_PARSING_ENGINE_MARKITDOWN,
+        DOCUMENT_PARSING_ENGINE_PYMUPDF4LLM,
+        DOCUMENT_PARSING_ENGINE_LITEPARSE,
+        DOCUMENT_PARSING_ENGINE_TIKA,
+    }
+)
+# Image formats PyMuPDF4LLM can write extracted page images as.
+_PYMUPDF4LLM_IMAGE_FORMATS = frozenset({"png", "jpg", "jpeg", "webp"})
+# How LiteParse presents images in its Markdown. Independent of whether the
+# image bytes are extracted (that is the engine's ``extract_images`` knob).
+LITEPARSE_IMAGE_MODES = frozenset({"off", "placeholder", "embed"})
+# Fresh installs default to the built-in text extractor so parsing works out of
+# the box without optional parser packages or model weights.
+# Migrated v1 installs keep MinerU (see ``_normalize_document_parsing``).
+_DEFAULT_DOCUMENT_PARSING_ENGINE = DOCUMENT_PARSING_ENGINE_TEXT_ONLY
+
+# MinerU engine slice. ``mode`` selects a locally-installed MinerU CLI ("local")
+# vs the hosted mineru.net cloud API ("cloud"); cloud needs ``api_token``. Every
+# other field is a parsing knob both backends understand. ``allow_local_model_download``
+# gates the first-parse model pull (default off → no silent multi-GB download).
+_DEFAULT_MINERU_ENGINE: dict[str, Any] = {
+    "mode": MINERU_MODE_LOCAL,
+    "api_base_url": "https://mineru.net",
+    "api_token": "",
+    # Optional explicit path to a local MinerU executable. Empty = auto-detect
+    # from PATH. Lets users install MinerU in an isolated env (uv tool / pipx /
+    # separate conda) so its heavy deps never conflict with OPENKG-WebUI's.
+    "local_cli_path": "",
+    # Where local-mode model weights download from. ``model_download_endpoint``
+    # is a custom HuggingFace mirror (HF_ENDPOINT, e.g. https://hf-mirror.com);
+    # empty = the source's official address.
+    "model_download_source": "huggingface",
+    "model_download_endpoint": "",
+    "model_version": "pipeline",
+    # "auto" lets MinerU auto-detect; any other value is forwarded verbatim
+    # as the API ``language`` hint (e.g. "ch", "en").
+    "language": "auto",
+    "enable_formula": True,
+    "enable_table": True,
+    "is_ocr": False,
+    "allow_local_model_download": False,
+}
+
+# Docling engine slice. ``mode`` selects the in-process ``docling`` package
+# ("local") or a Docling Serve HTTP server ("remote"; needs ``api_base_url`` and
+# optionally ``api_token``). Local downloads layout/table models on first run,
+# hence the same ``allow_local_model_download`` gate as MinerU local.
+_DEFAULT_DOCLING_ENGINE: dict[str, Any] = {
+    "mode": DOCLING_MODE_LOCAL,
+    "api_base_url": "http://localhost:5001",
+    "api_token": "",
+    "do_ocr": False,
+    "do_table_structure": True,
+    "allow_local_model_download": False,
+}
+
+# markitdown engine slice. Pure-Python, no model downloads. Optionally uses
+# OPENKG-WebUI's VLM to describe images.
+_DEFAULT_MARKITDOWN_ENGINE: dict[str, Any] = {
+    "enable_llm_image_description": False,
+}
+
+# PyMuPDF4LLM engine slice. Pure-Python on top of PyMuPDF — no model downloads,
+# no CUDA, runs on low-end / GPU-less machines. Unlike text-only/markitdown it
+# can also extract embedded images and rendered vector graphics into the parse's
+# images/ dir. ``image_dpi`` is the render resolution for those images.
+_DEFAULT_PYMUPDF4LLM_ENGINE: dict[str, Any] = {
+    "write_images": True,
+    "image_format": "png",
+    "image_dpi": 150,
+}
+
+# LiteParse engine slice. Rust-backed, no model downloads. Like PyMuPDF4LLM it
+# can extract embedded images into the parse's images/ dir. Output format and
+# image directory are fixed by the workdir contract, so neither is a knob here
+# (see engines/liteparse/engine.py). ``max_pages`` 0 means the whole document.
+_DEFAULT_LITEPARSE_ENGINE: dict[str, Any] = {
+    "image_mode": "placeholder",
+    "extract_links": True,
+    "extract_images": False,
+    "max_pages": 0,
+}
+
+# Tika engine slice. Remote-only Apache Tika server; no local package or models.
+_DEFAULT_TIKA_ENGINE: dict[str, Any] = {
+    "server_url": "http://localhost:9998",
+}
+
+# Built-in text-only engine slice. It deliberately has no knobs: it reuses
+# OPENKG-WebUI's legacy text extractors for PDF / Office / text-like files.
+_DEFAULT_TEXT_ONLY_ENGINE: dict[str, Any] = {}
+
+# Legacy flat keys that mark a v1 ``mineru.json`` (these live only at the top
+# level in v1; v2 never writes them there).
+_MINERU_ENGINE_KEYS = frozenset(_DEFAULT_MINERU_ENGINE.keys())
+
+DEFAULT_DOCUMENT_PARSING_SETTINGS: dict[str, Any] = {
+    "version": 2,
+    "engine": _DEFAULT_DOCUMENT_PARSING_ENGINE,
+    "engines": {
+        DOCUMENT_PARSING_ENGINE_TEXT_ONLY: _DEFAULT_TEXT_ONLY_ENGINE,
+        DOCUMENT_PARSING_ENGINE_MINERU: _DEFAULT_MINERU_ENGINE,
+        DOCUMENT_PARSING_ENGINE_DOCLING: _DEFAULT_DOCLING_ENGINE,
+        DOCUMENT_PARSING_ENGINE_MARKITDOWN: _DEFAULT_MARKITDOWN_ENGINE,
+        DOCUMENT_PARSING_ENGINE_PYMUPDF4LLM: _DEFAULT_PYMUPDF4LLM_ENGINE,
+        DOCUMENT_PARSING_ENGINE_LITEPARSE: _DEFAULT_LITEPARSE_ENGINE,
+        DOCUMENT_PARSING_ENGINE_TIKA: _DEFAULT_TIKA_ENGINE,
+    },
+}
+
+# Backward-compatible alias: the MinerU engine slice. Several call-sites and
+# tests reference ``DEFAULT_MINERU_SETTINGS``; it now denotes the engine slice.
+DEFAULT_MINERU_SETTINGS: dict[str, Any] = _DEFAULT_MINERU_ENGINE
+
+# PageIndex cloud RAG engine. A KB indexed with the ``pageindex`` provider
+# ships its documents to the hosted PageIndex service for tree building and
+# reasoning-based retrieval. The SDK owns the official endpoint; the same
+# deployment-level credential is reused by every ``pageindex`` KB.
+# Kept in its own JSON file so the credential lives beside other per-feature
+# settings and never leaks into model/network config.
+DEFAULT_PAGEINDEX_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "api_key": "",
+}
+
+# Tencent IMA. The credential pair (``client_id`` + ``api_key``, issued at
+# https://ima.qq.com/agent-interface) identifies one IMA account, and every
+# library in that account is reachable with it — so it belongs here, beside the
+# other engine credentials, rather than being retyped for each connected KB.
+# A KB may still carry its own pair to reach a *different* IMA account; that
+# per-KB binding wins (see ``pipelines/ima/config.py``).
+DEFAULT_IMA_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "client_id": "",
+    "api_key": "",
+}
+
+# LlamaIndex local RAG engine. These are the retrieval + chunking knobs the
+# default engine exposes; they were previously hardcoded / env-only. Kept in
+# their own JSON file so the engine's detail page can read/write them.
+#
+# * ``retrieval_profile`` — "hybrid" (BM25 + vector fusion) or "vector" only.
+# * ``top_k`` — default number of chunks a query returns.
+# * ``vector_top_k_multiplier`` / ``bm25_top_k_multiplier`` — how many extra
+#   candidates each child retriever fetches before fusion re-ranks to ``top_k``.
+# * ``reranker_model`` / ``rerank_top_k`` — optional cross-encoder refinement.
+#   An empty model keeps the existing embedding-only ranking.
+# * ``vector_index_type`` — FAISS index type for the next full index build.
+#   HNSW is opt-in and trades exact recall for sub-linear search at scale.
+# * ``chunk_size`` / ``chunk_overlap`` — indexing chunk geometry; changes apply
+#   on the next (re-)index, not retroactively.
+# * ``image_description_concurrency`` / ``image_description_timeout_seconds`` —
+#   bounded multimodal LLM work while indexing image-heavy documents.
+#
+# ``fusion_num_queries`` is intentionally NOT exposed: query generation needs a
+# real LLM, but the fusion retriever runs on a MockLLM, so any value > 1 would
+# silently degrade results. It stays pinned to the dataclass default.
+LLAMAINDEX_VECTOR_PROFILE = "vector"
+LLAMAINDEX_HYBRID_PROFILE = "hybrid"
+_LLAMAINDEX_PROFILES = frozenset({LLAMAINDEX_VECTOR_PROFILE, LLAMAINDEX_HYBRID_PROFILE})
+LLAMAINDEX_FLAT_VECTOR_INDEX = "flat"
+LLAMAINDEX_HNSW_VECTOR_INDEX = "hnsw"
+_LLAMAINDEX_VECTOR_INDEX_TYPES = frozenset(
+    {LLAMAINDEX_FLAT_VECTOR_INDEX, LLAMAINDEX_HNSW_VECTOR_INDEX}
+)
+
+DEFAULT_LLAMAINDEX_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "retrieval_profile": LLAMAINDEX_HYBRID_PROFILE,
+    "top_k": 5,
+    "vector_top_k_multiplier": 2,
+    "bm25_top_k_multiplier": 2,
+    "reranker_model": "",
+    "rerank_top_k": 50,
+    "vector_index_type": LLAMAINDEX_FLAT_VECTOR_INDEX,
+    "hnsw_m": 32,
+    "hnsw_ef_construction": 200,
+    "hnsw_ef_search": 64,
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "image_description_concurrency": 4,
+    "image_description_timeout_seconds": 60,
+}
+
+# GraphRAG retrieval knobs (microsoft/graphrag). Only query-time params that the
+# engine passes explicitly (engine.py) are exposed; indexing knobs are left to
+# GraphRAG's auto-config on purpose (the settings.yaml bridge is deliberately
+# minimal). ``response_type`` is a free-form GraphRAG answer style; the UI offers
+# presets but any string is accepted. ``community_level`` controls graph
+# traversal granularity (local/drift). ``dynamic_community_selection`` only
+# affects global search.
+DEFAULT_GRAPHRAG_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "response_type": "Multiple Paragraphs",
+    "community_level": 2,
+    "dynamic_community_selection": False,
+}
+
+# LightRAG retrieval + indexing knobs (LightRAG native SDK). ``top_k``
+# is the number of entities/relations the query pulls; ``response_type`` mirrors
+# GraphRAG's. These ride into ``QueryParam`` and the pinned SDK constructor.
+# ``max_concurrent_files`` sizes the native parser worker pool after OPENKG-WebUI
+# has frozen each ParseService result; pre-parsing itself remains serial.
+# Stable catalog references let LightRAG use a dedicated LLM while the global
+# active chat model remains unchanged for ordinary chat.
+DEFAULT_LIGHTRAG_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "top_k": 60,
+    "response_type": "Multiple Paragraphs",
+    "max_concurrent_files": 1,
+    "llm_model_max_async": 4,
+    "entity_extract_max_gleaning": 1,
+    "llm_profile_id": "",
+    "llm_model_id": "",
+}
+
+# LightRAG Server connection defaults. Individual knowledge bases remain free
+# to override the URL/key when they are connected; this account-level slice is
+# the reusable starting point shown on the engine page and in the create flow.
+DEFAULT_LIGHTRAG_SERVER_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "server_url": "",
+    "api_key": "",
+}
+
+IGNORE_PROCESS_OVERRIDES_ENV = "OPENKG_WEBUI_IGNORE_PROCESS_ENV_OVERRIDES"
+TRUTHY = {"1", "true", "yes", "on"}
+FALSY = {"0", "false", "no", "off"}
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in TRUTHY:
+        return True
+    if text in FALSY:
+        return False
+    return default
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_clamped_int(value: Any, default: int, low: int, high: int) -> int:
+    coerced = _coerce_int(value, default)
+    return max(low, min(high, coerced))
+
+
+#: Legal ``approval_default`` values for agent-loop profiles — the policy
+#: choice that answers an approval request when no user does (timeout or a
+#: headless entry point). Kept in sync with protocol.APPROVAL_CHOICES by
+#: construction: "deny" must always be legal, the rest are pass-through.
+_APPROVAL_DEFAULT_CHOICES = ("deny", "once", "session", "always")
+
+
+def _approval_default(value: Any) -> str:
+    choice = _string(value).lower()
+    return choice if choice in _APPROVAL_DEFAULT_CHOICES else "deny"
+
+
+#: Legal ``identity_mode`` values — how a turn is attributed to (or delegated
+#: to) a remote agent service. Mirrors identity.IDENTITY_MODES; kept as a local
+#: literal because the settings layer must not import the backend layer (the
+#: backend imports settings).
+_IDENTITY_MODES = ("off", "header", "token", "token_required")
+
+
+def _identity_mode(value: Any) -> str:
+    """One profile's identity bridge, defaulting to sending nothing extra.
+
+    An unrecognized value must not become the most permissive option, so a typo
+    lands on ``off`` — the same direction the resolver takes if it is ever
+    handed something unexpected.
+    """
+    mode = _string(value).strip().lower()
+    return mode if mode in _IDENTITY_MODES else "off"
+
+
+def _agent_loop_context_window(value: Any) -> int:
+    """One profile's declared context window, or ``0`` for "not configured".
+
+    Zero is meaningful here and must survive normalization: it is how an
+    operator says "I don't know this backend's window", leaving the budget
+    planner on its own fallback. So this cannot go through
+    ``_coerce_clamped_int``, whose clamp would turn an absent value into the
+    floor and silently claim a 1,024-token window.
+    """
+    raw = _coerce_int(value, 0)
+    if raw <= 0:
+        return 0
+    low, high = AGENT_LOOP_CONTEXT_WINDOW_RANGE
+    return max(low, min(high, raw))
+
+
+def _coerce_port(value: Any, default: int) -> int:
+    port = _coerce_int(value, default)
+    return port if 1 <= port <= 65535 else default
+
+
+def _coerce_origins(value: Any) -> list[str]:
+    return normalize_origins(value)
+
+
+def _deepcopy_default(defaults: dict[str, Any]) -> dict[str, Any]:
+    return deepcopy(defaults)
+
+
+def _json_object(path: Path) -> dict[str, Any]:
+    if not path.exists() or path.stat().st_size == 0:
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _string(value: Any) -> str:
+    return "" if value is None else str(value).strip()
+
+
+#: The primary-loop picker uses these strings as mode sentinels, so a profile
+#: must not carry one as its id: its radio would collide with the sentinel
+#: (two siblings checked, duplicate React key) and saving that mode would map
+#: the id back to ``null``/``""``.
+_RESERVED_AGENT_LOOP_IDS = frozenset({"__auto__", "__none__"})
+
+
+def _agent_loop_profile_id(value: Any, index: int) -> str:
+    """A profile id that can never collide with a picker sentinel."""
+    candidate = _string(value).strip()
+    if not candidate or candidate in _RESERVED_AGENT_LOOP_IDS:
+        return f"profile-{index + 1}"
+    return candidate
+
+
+def _agent_loop_transport(preset: str, transport: str) -> str:
+    """One profile's transport selector: "" unless the preset offers several.
+
+    Imported function-locally: the preset registry is the backend layer and
+    this is the settings layer it reads from (same reason
+    ``_auto_primary_agent_loop`` imports ``PRESETS`` inside the function).
+    """
+    if not preset:
+        return ""
+    try:
+        from openkg_webui.services.agent_loop.builtin import profile_transport_id
+    except Exception:
+        return ""
+    return profile_transport_id(preset, transport)
+
+
+def _agent_loop_turn_path(preset: str, transport: str) -> str:
+    """The turn path a preset's transport defaults to, or ``""``.
+
+    A profile that names no path must inherit the **transport's** default, not
+    the generic one: ``/agent/turn`` is a contract several services never
+    implement, and the Intellect presets speak ``/v1/runs``. Storing the
+    generic fallback here used to mask the preset and turn every deployment of
+    those presets into a guaranteed 404 — the preset layer was fixed first, but
+    this normalizer overwrote it on the way to disk, so the resolved value has
+    to come from the same place the turn path resolves it.
+    """
+    if not preset:
+        return ""
+    try:
+        from openkg_webui.services.agent_loop.builtin import resolve_transport
+    except Exception:
+        return ""
+    resolved = resolve_transport(preset, transport)
+    return resolved.turn_path if resolved is not None else ""
+
+
+def _agent_loop_default_identity_mode(preset: str, transport: str) -> str:
+    """The identity bridge a preset gets when the profile names none."""
+    if not preset:
+        return "off"
+    try:
+        from openkg_webui.services.agent_loop.builtin import default_identity_mode
+    except Exception:
+        return "off"
+    return default_identity_mode(preset, transport)
+
+
+def _string_or_list(value: Any) -> str | list[str]:
+    if isinstance(value, list):
+        return [item for raw in value if (item := _string(raw))]
+    return _string(value)
+
+
+class RuntimeSettingsService:
+    """JSON-backed runtime settings rooted in data/user/settings.
+
+    Process environment values are explicit deployment overrides and are applied
+    centrally here rather than scattered through the application. Project-root
+    ``.env`` files are intentionally ignored.
+    """
+
+    _instances: dict[str, "RuntimeSettingsService"] = {}
+
+    def __init__(
+        self,
+        settings_dir: Path,
+        *,
+        process_env: dict[str, str] | None = None,
+    ) -> None:
+        self.settings_dir = settings_dir
+        self.process_env = process_env if process_env is not None else os.environ
+        self._external_process_keys: set[str] = set()
+        self._internal_exported_values: dict[str, str] = {}
+
+    @classmethod
+    def get_instance(
+        cls,
+        settings_dir: Path | None = None,
+        *,
+        process_env: dict[str, str] | None = None,
+    ) -> "RuntimeSettingsService":
+        resolved = (settings_dir or _global_settings_dir()).resolve()
+        key = str(resolved)
+        if process_env is not None:
+            return cls(resolved, process_env=process_env)
+        if key not in cls._instances:
+            cls._instances[key] = cls(resolved)
+        return cls._instances[key]
+
+    def path_for(self, name: str) -> Path:
+        if not name.endswith(".json"):
+            name = f"{name}.json"
+        return self.settings_dir / name
+
+    def load_system(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "system",
+            DEFAULT_SYSTEM_SETTINGS,
+            self._normalize_system,
+        )
+        if include_process_overrides:
+            payload = self._apply_system_process_overrides(payload)
+        return payload
+
+    def save_system(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_system({**DEFAULT_SYSTEM_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("system"), payload)
+        return payload
+
+    def load_auth(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "auth",
+            DEFAULT_AUTH_SETTINGS,
+            self._normalize_auth,
+        )
+        if include_process_overrides:
+            payload = self._apply_auth_process_overrides(payload)
+        return payload
+
+    def save_auth(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_auth({**DEFAULT_AUTH_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("auth"), payload)
+        return payload
+
+    def load_integrations(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "integrations",
+            DEFAULT_INTEGRATIONS_SETTINGS,
+            self._normalize_integrations,
+        )
+        if include_process_overrides:
+            payload = self._apply_integrations_process_overrides(payload)
+        return payload
+
+    def save_integrations(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_integrations({**DEFAULT_INTEGRATIONS_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("integrations"), payload)
+        return payload
+
+    def load_document_parsing(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        """Return the full v2 document-parsing structure (all engines)."""
+        self._migrate_legacy_document_parsing_file()
+        payload = self._load_or_create(
+            DOCUMENT_PARSING_SETTINGS_NAME,
+            DEFAULT_DOCUMENT_PARSING_SETTINGS,
+            self._normalize_document_parsing,
+        )
+        if include_process_overrides:
+            engines = dict(payload["engines"])
+            engines[DOCUMENT_PARSING_ENGINE_MINERU] = self._apply_mineru_process_overrides(
+                dict(engines[DOCUMENT_PARSING_ENGINE_MINERU])
+            )
+            engines[DOCUMENT_PARSING_ENGINE_DOCLING] = self._apply_docling_process_overrides(
+                dict(engines[DOCUMENT_PARSING_ENGINE_DOCLING])
+            )
+            engines[DOCUMENT_PARSING_ENGINE_TIKA] = self._apply_tika_process_overrides(
+                dict(engines[DOCUMENT_PARSING_ENGINE_TIKA])
+            )
+            payload = {**payload, "engines": engines}
+        return payload
+
+    def save_document_parsing(self, settings: dict[str, Any]) -> dict[str, Any]:
+        self._migrate_legacy_document_parsing_file()
+        payload = self._normalize_document_parsing(
+            {**DEFAULT_DOCUMENT_PARSING_SETTINGS, **settings}
+        )
+        _atomic_write_json(self.path_for(DOCUMENT_PARSING_SETTINGS_NAME), payload)
+        return payload
+
+    def load_mineru(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        """Return the MinerU engine slice (flat) for legacy readers.
+
+        Backed by the v2 structure on disk; env overrides apply to the slice.
+        """
+        slice_ = dict(
+            self.load_document_parsing(include_process_overrides=False)["engines"][
+                DOCUMENT_PARSING_ENGINE_MINERU
+            ]
+        )
+        if include_process_overrides:
+            slice_ = self._apply_mineru_process_overrides(slice_)
+        return slice_
+
+    def save_mineru(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Persist only the MinerU engine slice, preserving the other engines."""
+        full = self.load_document_parsing(include_process_overrides=False)
+        engines = dict(full["engines"])
+        engines[DOCUMENT_PARSING_ENGINE_MINERU] = self._normalize_mineru_engine(
+            {**_DEFAULT_MINERU_ENGINE, **settings}
+        )
+        payload = self._normalize_document_parsing({**full, "engines": engines})
+        _atomic_write_json(self.path_for(DOCUMENT_PARSING_SETTINGS_NAME), payload)
+        return payload["engines"][DOCUMENT_PARSING_ENGINE_MINERU]
+
+    def load_pageindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "pageindex",
+            DEFAULT_PAGEINDEX_SETTINGS,
+            self._normalize_pageindex,
+        )
+        if include_process_overrides:
+            payload = self._apply_pageindex_process_overrides(payload)
+        return payload
+
+    def save_pageindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_pageindex({**DEFAULT_PAGEINDEX_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("pageindex"), payload)
+        return payload
+
+    def load_ima(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create("ima", DEFAULT_IMA_SETTINGS, self._normalize_ima)
+        if include_process_overrides:
+            payload = self._apply_ima_process_overrides(payload)
+        return payload
+
+    def save_ima(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_ima({**DEFAULT_IMA_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("ima"), payload)
+        return payload
+
+    def load_llamaindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "llamaindex",
+            DEFAULT_LLAMAINDEX_SETTINGS,
+            self._normalize_llamaindex,
+        )
+        if include_process_overrides:
+            payload = self._apply_llamaindex_process_overrides(payload)
+        return payload
+
+    def save_llamaindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_llamaindex({**DEFAULT_LLAMAINDEX_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("llamaindex"), payload)
+        return payload
+
+    def load_graphrag(self) -> dict[str, Any]:
+        return self._load_or_create("graphrag", DEFAULT_GRAPHRAG_SETTINGS, self._normalize_graphrag)
+
+    def save_graphrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_graphrag({**DEFAULT_GRAPHRAG_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("graphrag"), payload)
+        return payload
+
+    def load_lightrag(self) -> dict[str, Any]:
+        return self._load_or_create("lightrag", DEFAULT_LIGHTRAG_SETTINGS, self._normalize_lightrag)
+
+    def save_lightrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_lightrag({**DEFAULT_LIGHTRAG_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("lightrag"), payload)
+        return payload
+
+    def load_lightrag_server(self) -> dict[str, Any]:
+        return self._load_or_create(
+            "lightrag_server",
+            DEFAULT_LIGHTRAG_SERVER_SETTINGS,
+            self._normalize_lightrag_server,
+        )
+
+    def save_lightrag_server(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_lightrag_server({**DEFAULT_LIGHTRAG_SERVER_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("lightrag_server"), payload)
+        return payload
+
+    def ensure_defaults(self) -> None:
+        self.load_system(include_process_overrides=False)
+        self.load_auth(include_process_overrides=False)
+        self.load_integrations(include_process_overrides=False)
+        self.load_mineru(include_process_overrides=False)
+        self.load_pageindex(include_process_overrides=False)
+        self.load_ima(include_process_overrides=False)
+        self.load_llamaindex(include_process_overrides=False)
+        self.load_graphrag()
+        self.load_lightrag()
+        self.load_lightrag_server()
+
+    def render_environment(self) -> dict[str, str]:
+        """Render non-model settings into process env names for subprocesses."""
+        system = self.load_system()
+        auth = self.load_auth()
+        integrations = self.load_integrations()
+        return {
+            "OPENKG_WEBUI_VERSION_CHECK_ENABLED": _bool_env(system["version_check_enabled"]),
+            "BACKEND_PORT": str(system["backend_port"]),
+            "BACKEND_WORKERS": str(system["backend_workers"]),
+            "FRONTEND_PORT": str(system["frontend_port"]),
+            "NEXT_PUBLIC_API_BASE_EXTERNAL": system["next_public_api_base_external"],
+            "NEXT_PUBLIC_API_BASE": system["next_public_api_base"],
+            "CORS_ORIGIN": system["cors_origin"],
+            "CORS_ORIGINS": ",".join(system["cors_origins"]),
+            "DISABLE_SSL_VERIFY": _bool_env(system["disable_ssl_verify"]),
+            "CHAT_ATTACHMENT_DIR": system["chat_attachment_dir"],
+            "AUTH_ENABLED": _bool_env(auth["enabled"]),
+            "AUTH_USERNAME": auth["username"],
+            "AUTH_PASSWORD_HASH": auth["password_hash"],
+            "AUTH_TOKEN_EXPIRE_HOURS": str(auth["token_expire_hours"]),
+            "AUTH_COOKIE_SECURE": _bool_env(auth["cookie_secure"]),
+            "NEXT_PUBLIC_AUTH_ENABLED": _bool_env(auth["enabled"]),
+            # Consumed server-side by the Next.js middleware (web/proxy.ts) at
+            # request time — NOT inlined into the browser bundle. The proxy
+            # rewrites /api/* and /ws/* to OPENKG_WEBUI_API_BASE_URL and uses
+            # OPENKG_WEBUI_AUTH_ENABLED to gate the login redirect. The launcher and
+            # the Docker entrypoint both export these through render_environment,
+            # so the two deployment paths stay in sync. OPENKG_WEBUI_API_BASE_URL is
+            # the address the frontend *server* uses to reach the backend; the
+            # browser itself only ever talks to the frontend origin.
+            #
+            # The fallback is the IPv4 loopback, not "localhost": on a dual-stack
+            # host that name resolves to ::1 first, while uvicorn binds 0.0.0.0
+            # (IPv4 only), so every rewritten /api/* request fails to connect.
+            # The launcher passes the same literal (see runtime/launcher.py), so
+            # both deployment paths agree.
+            "OPENKG_WEBUI_API_BASE_URL": (
+                system["next_public_api_base"]
+                or system["next_public_api_base_external"]
+                or f"http://127.0.0.1:{system['backend_port']}"
+            ),
+            "OPENKG_WEBUI_AUTH_ENABLED": _bool_env(auth["enabled"]),
+            "POCKETBASE_URL": integrations["pocketbase_url"],
+            "POCKETBASE_PORT": str(integrations["pocketbase_port"]),
+            "POCKETBASE_EXTERNAL_URL": integrations["pocketbase_external_url"],
+            "POCKETBASE_ADMIN_EMAIL": integrations["pocketbase_admin_email"],
+            "POCKETBASE_ADMIN_PASSWORD": integrations["pocketbase_admin_password"],
+        }
+
+    def export_environment(self, *, overwrite: bool = True) -> dict[str, str]:
+        env = self.render_environment()
+        for key, value in env.items():
+            current = os.environ.get(key)
+            if current and self._internal_exported_values.get(key) != current:
+                self._external_process_keys.add(key)
+            if overwrite or key not in os.environ:
+                os.environ[key] = value
+                if key not in self._external_process_keys:
+                    self._internal_exported_values[key] = value
+        return env
+
+    def _process_env_value(self, key: str) -> str:
+        if self._ignore_process_overrides():
+            return ""
+        value = self.process_env.get(key, "")
+        if not value:
+            return ""
+        if key in self._external_process_keys:
+            return value
+        internal_value = self._internal_exported_values.get(key)
+        if internal_value is not None and value == internal_value:
+            return ""
+        return value
+
+    def _load_or_create(
+        self,
+        name: str,
+        defaults: dict[str, Any],
+        normalizer: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> dict[str, Any]:
+        path = self.path_for(name)
+        loaded = _json_object(path)
+        if loaded:
+            normalized = normalizer({**defaults, **loaded})
+            if normalized != loaded:
+                _atomic_write_json(path, normalized)
+            return normalized
+
+        normalized = normalizer(_deepcopy_default(defaults))
+        _atomic_write_json(path, normalized)
+        return normalized
+
+    def _migrate_legacy_document_parsing_file(self) -> None:
+        """Rename the legacy ``mineru.json`` to ``document_parsing.json``.
+
+        The file holds the full multi-engine parsing config; the MinerU-specific
+        name predates the other engines. Move it in place on first access so
+        existing installs keep their settings (content migration to v2 happens in
+        ``_normalize_document_parsing``). Idempotent: a no-op once migrated.
+        """
+        new_path = self.path_for(DOCUMENT_PARSING_SETTINGS_NAME)
+        legacy_path = self.path_for(_LEGACY_DOCUMENT_PARSING_SETTINGS_NAME)
+        if not legacy_path.exists():
+            return
+        if new_path.exists():
+            # New file is authoritative; drop the stale legacy copy.
+            legacy_path.unlink(missing_ok=True)
+            return
+        legacy_path.rename(new_path)
+
+    def _ignore_process_overrides(self) -> bool:
+        return _coerce_bool(self.process_env.get(IGNORE_PROCESS_OVERRIDES_ENV), False)
+
+    def _apply_system_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("OPENKG_WEBUI_VERSION_CHECK_ENABLED"):
+            payload["version_check_enabled"] = value
+        if value := self._process_env_value("BACKEND_PORT"):
+            payload["backend_port"] = value
+        if value := self._process_env_value("FRONTEND_PORT"):
+            payload["frontend_port"] = value
+        if value := self._process_env_value("NEXT_PUBLIC_API_BASE_EXTERNAL"):
+            payload["next_public_api_base_external"] = value
+        if value := self._process_env_value("PUBLIC_API_BASE"):
+            payload["next_public_api_base_external"] = value
+        if value := self._process_env_value("NEXT_PUBLIC_API_BASE"):
+            payload["next_public_api_base"] = value
+        if value := self._process_env_value("CORS_ORIGIN"):
+            payload["cors_origin"] = value
+        if value := self._process_env_value("CORS_ORIGINS"):
+            payload["cors_origins"] = value
+        if value := self._process_env_value("DISABLE_SSL_VERIFY"):
+            payload["disable_ssl_verify"] = value
+        if value := self._process_env_value("CHAT_ATTACHMENT_DIR"):
+            payload["chat_attachment_dir"] = value
+        if value := (
+            self._process_env_value("OPENKG_WEBUI_BACKEND_WORKERS")
+            or self._process_env_value("BACKEND_WORKERS")
+        ):
+            payload["backend_workers"] = value
+        if value := self._process_env_value("CHAT_ATTACHMENT_MAX_FILE_MB"):
+            payload["chat_attachment_max_file_mb"] = value
+        if value := self._process_env_value("CHAT_ATTACHMENT_MAX_TOTAL_MB"):
+            payload["chat_attachment_max_total_mb"] = value
+        if value := self._process_env_value("CHAT_ATTACHMENT_MAX_CHARS_PER_DOC"):
+            payload["chat_attachment_max_chars_per_doc"] = value
+        if value := self._process_env_value("CHAT_ATTACHMENT_MAX_CHARS_TOTAL"):
+            payload["chat_attachment_max_chars_total"] = value
+        agent_loop = self._apply_agent_loop_env_overrides(payload.get("agent_loop"))
+        if agent_loop is not None:
+            payload["agent_loop"] = agent_loop
+        return self._normalize_system(payload)
+
+    def _apply_agent_loop_env_overrides(self, block: Any) -> dict[str, Any] | None:
+        """Pin the primary profile through process env (containerized shape).
+
+        The overrides land on the primary profile (creating a synthetic
+        ``env-override`` profile when the file configures none), so single-
+        backend deployments keep working with ``OPENKG_WEBUI_AGENT_LOOP_BACKEND``
+        alone while profile-based setups stay intact.
+        """
+        backend = self._process_env_value("OPENKG_WEBUI_AGENT_LOOP_BACKEND")
+        command = self._process_env_value("OPENKG_WEBUI_AGENT_LOOP_COMMAND")
+        url = self._process_env_value("OPENKG_WEBUI_AGENT_LOOP_URL")
+        # Which transport of a multi-transport preset the deployment uses.
+        # Needed for the containerized Intellect shape, which cannot spawn the
+        # CLI and therefore must reach the same preset over HTTP.
+        transport = self._process_env_value("OPENKG_WEBUI_AGENT_LOOP_TRANSPORT")
+        # The api_key override carries the KAG_ prefix, not OPENKG_WEBUI_: the
+        # credential belongs to the external agent-loop service, while the
+        # other four are OPENKG-WebUI deployment concerns.
+        api_key = self._process_env_value("KAG_AGENT_LOOP_API_KEY")
+        if not (backend or command or url or transport or api_key):
+            return None
+        normalized = self._normalize_agent_loop({"agent_loop": block or {}})
+        profiles = [dict(profile) for profile in normalized["profiles"]]
+        target = next(
+            (profile for profile in profiles if profile["id"] == normalized["primary"]),
+            None,
+        )
+        if target is None:
+            target = self._normalize_agent_loop_profile(
+                {"id": "env-override", "preset": backend or "custom-http"},
+                index=len(profiles),
+            )
+            profiles.append(target)
+        if backend:
+            target["preset"] = backend
+        if transport:
+            # Normalized through the same helper the file layer uses, so an id
+            # this build does not know degrades to the preset's default rather
+            # than becoming an unresolvable selector on the turn path.
+            target["transport"] = _agent_loop_transport(backend or target["preset"], transport)
+        if command:
+            target["command"] = str(command)
+        if url:
+            target["url"] = str(url)
+        if api_key:
+            target["api_key"] = str(api_key)
+        return self._normalize_agent_loop(
+            {
+                "agent_loop": {
+                    "version": 2,
+                    "profiles": profiles,
+                    "primary": target["id"],
+                    "consult_budget": normalized["consult_budget"],
+                    # Carried through: dropping it would silently re-default a
+                    # widened allowlist in every env-pinned deployment.
+                    "allowed_workdir_roots": list(normalized["allowed_workdir_roots"]),
+                }
+            }
+        )
+
+    def _apply_auth_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := (
+            self._process_env_value("AUTH_ENABLED")
+            or self._process_env_value("NEXT_PUBLIC_AUTH_ENABLED")
+        ):
+            payload["enabled"] = value
+        if value := self._process_env_value("AUTH_USERNAME"):
+            payload["username"] = value
+        if value := self._process_env_value("AUTH_PASSWORD_HASH"):
+            payload["password_hash"] = value
+        if value := self._process_env_value("AUTH_TOKEN_EXPIRE_HOURS"):
+            payload["token_expire_hours"] = value
+        if value := self._process_env_value("AUTH_COOKIE_SECURE"):
+            payload["cookie_secure"] = value
+        return self._normalize_auth(payload)
+
+    def _apply_integrations_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("POCKETBASE_URL"):
+            payload["pocketbase_url"] = value
+        if value := self._process_env_value("POCKETBASE_PORT"):
+            payload["pocketbase_port"] = value
+        if value := self._process_env_value("POCKETBASE_EXTERNAL_URL"):
+            payload["pocketbase_external_url"] = value
+        if value := self._process_env_value("POCKETBASE_ADMIN_EMAIL"):
+            payload["pocketbase_admin_email"] = value
+        if value := self._process_env_value("POCKETBASE_ADMIN_PASSWORD"):
+            payload["pocketbase_admin_password"] = value
+        coordination = dict(payload.get("turn_coordination") or {})
+        if value := self._process_env_value("OPENKG_WEBUI_TURN_COORDINATION_BACKEND"):
+            coordination["backend"] = value
+        if value := self._process_env_value("OPENKG_WEBUI_REDIS_URL"):
+            coordination["redis_url"] = value
+        if value := self._process_env_value("OPENKG_WEBUI_REDIS_KEY_PREFIX"):
+            coordination["key_prefix"] = value
+        payload["turn_coordination"] = coordination
+        return self._normalize_integrations(payload)
+
+    def _apply_mineru_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("MINERU_MODE"):
+            payload["mode"] = value
+        if value := self._process_env_value("MINERU_API_BASE_URL"):
+            payload["api_base_url"] = value
+        if value := self._process_env_value("MINERU_API_TOKEN"):
+            payload["api_token"] = value
+        if value := self._process_env_value("MINERU_LOCAL_CLI_PATH"):
+            payload["local_cli_path"] = value
+        if value := self._process_env_value("MINERU_MODEL_SOURCE"):
+            payload["model_download_source"] = value
+        if value := self._process_env_value("MINERU_MODEL_DOWNLOAD_ENDPOINT"):
+            payload["model_download_endpoint"] = value
+        if value := self._process_env_value("MINERU_MODEL_VERSION"):
+            payload["model_version"] = value
+        if value := self._process_env_value("MINERU_LANGUAGE"):
+            payload["language"] = value
+        if value := self._process_env_value("MINERU_ALLOW_LOCAL_MODEL_DOWNLOAD"):
+            payload["allow_local_model_download"] = _coerce_bool(value, False)
+        return self._normalize_mineru_engine(payload)
+
+    def _apply_pageindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("PAGEINDEX_API_KEY"):
+            payload["api_key"] = value
+        return self._normalize_pageindex(payload)
+
+    def _normalize_pageindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "api_key": _string(settings.get("api_key")),
+        }
+
+    def _apply_ima_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("IMA_CLIENT_ID"):
+            payload["client_id"] = value
+        if value := self._process_env_value("IMA_API_KEY"):
+            payload["api_key"] = value
+        return self._normalize_ima(payload)
+
+    def _normalize_ima(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "client_id": _string(settings.get("client_id")),
+            "api_key": _string(settings.get("api_key")),
+        }
+
+    def _apply_llamaindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        # Only the retrieval profile had an env override historically
+        # (OPENKG_WEBUI_RAG_RETRIEVAL_PROFILE / RAG_RETRIEVAL_PROFILE); preserve it.
+        payload = dict(settings)
+        if value := (
+            self._process_env_value("OPENKG_WEBUI_RAG_RETRIEVAL_PROFILE")
+            or self._process_env_value("RAG_RETRIEVAL_PROFILE")
+        ):
+            payload["retrieval_profile"] = value
+        return self._normalize_llamaindex(payload)
+
+    def _normalize_llamaindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        profile = _string(settings.get("retrieval_profile")).lower()
+        if profile not in _LLAMAINDEX_PROFILES:
+            profile = LLAMAINDEX_HYBRID_PROFILE
+        vector_index_type = _string(settings.get("vector_index_type")).lower()
+        if vector_index_type not in _LLAMAINDEX_VECTOR_INDEX_TYPES:
+            vector_index_type = LLAMAINDEX_FLAT_VECTOR_INDEX
+        chunk_size = _coerce_clamped_int(settings.get("chunk_size"), 512, 64, 8192)
+        # Overlap must stay below the chunk size or chunking degenerates.
+        chunk_overlap = _coerce_clamped_int(
+            settings.get("chunk_overlap"), 50, 0, max(0, chunk_size - 1)
+        )
+        return {
+            "version": 1,
+            "retrieval_profile": profile,
+            "top_k": _coerce_clamped_int(settings.get("top_k"), 5, 1, 50),
+            "vector_top_k_multiplier": _coerce_clamped_int(
+                settings.get("vector_top_k_multiplier"), 2, 1, 10
+            ),
+            "bm25_top_k_multiplier": _coerce_clamped_int(
+                settings.get("bm25_top_k_multiplier"), 2, 1, 10
+            ),
+            "reranker_model": _string(settings.get("reranker_model"))[:200],
+            "reranker_endpoint": _string(settings.get("reranker_endpoint")).rstrip("/")[:200],
+            "rerank_top_k": _coerce_clamped_int(settings.get("rerank_top_k"), 50, 1, 100),
+            "vector_index_type": vector_index_type,
+            "hnsw_m": _coerce_clamped_int(settings.get("hnsw_m"), 32, 4, 64),
+            "hnsw_ef_construction": _coerce_clamped_int(
+                settings.get("hnsw_ef_construction"), 200, 16, 512
+            ),
+            "hnsw_ef_search": _coerce_clamped_int(settings.get("hnsw_ef_search"), 64, 1, 512),
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "image_description_concurrency": _coerce_clamped_int(
+                settings.get("image_description_concurrency"), 4, 1, 16
+            ),
+            "image_description_timeout_seconds": _coerce_clamped_int(
+                settings.get("image_description_timeout_seconds"), 60, 5, 600
+            ),
+        }
+
+    def _normalize_response_type(self, value: Any) -> str:
+        # GraphRAG/LightRAG accept any answer-style string; just trim + cap so a
+        # pathological value can't blow up a prompt.
+        text = _string(value) or "Multiple Paragraphs"
+        return text[:80]
+
+    def _normalize_graphrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "response_type": self._normalize_response_type(settings.get("response_type")),
+            "community_level": _coerce_clamped_int(settings.get("community_level"), 2, 0, 5),
+            "dynamic_community_selection": _coerce_bool(
+                settings.get("dynamic_community_selection"), False
+            ),
+        }
+
+    def _normalize_lightrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "top_k": _coerce_clamped_int(settings.get("top_k"), 60, 1, 200),
+            "response_type": self._normalize_response_type(settings.get("response_type")),
+            "max_concurrent_files": _coerce_clamped_int(
+                settings.get("max_concurrent_files"), 1, 1, 16
+            ),
+            "llm_model_max_async": _coerce_clamped_int(
+                settings.get("llm_model_max_async"), 4, 1, 32
+            ),
+            "entity_extract_max_gleaning": _coerce_clamped_int(
+                settings.get("entity_extract_max_gleaning"), 1, 0, 5
+            ),
+            "llm_profile_id": _string(settings.get("llm_profile_id"))[:128],
+            "llm_model_id": _string(settings.get("llm_model_id"))[:128],
+        }
+
+    def _normalize_lightrag_server(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "server_url": _string(settings.get("server_url")).rstrip("/"),
+            "api_key": _string(settings.get("api_key")),
+        }
+
+    def _normalize_document_parsing(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Normalize the full v2 structure, migrating a v1 flat file in place.
+
+        v1 is detected by legacy flat MinerU keys at the top level (v2 never
+        writes them there). When migrating, those values seed ``engines.mineru``
+        and the active engine is pinned to MinerU so the install's behavior is
+        preserved. Each known engine is always present (defaults fill gaps).
+        """
+        settings = dict(settings)
+        legacy_flat = {key: settings[key] for key in _MINERU_ENGINE_KEYS if key in settings}
+        migrating = bool(legacy_flat)
+
+        raw_engines = settings.get("engines")
+        engines_in = dict(raw_engines) if isinstance(raw_engines, dict) else {}
+        if legacy_flat:
+            mineru_in = dict(engines_in.get(DOCUMENT_PARSING_ENGINE_MINERU) or {})
+            engines_in[DOCUMENT_PARSING_ENGINE_MINERU] = {**mineru_in, **legacy_flat}
+
+        engines_out = {
+            DOCUMENT_PARSING_ENGINE_TEXT_ONLY: self._normalize_text_only_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_TEXT_ONLY) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_MINERU: self._normalize_mineru_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_MINERU) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_DOCLING: self._normalize_docling_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_DOCLING) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_MARKITDOWN: self._normalize_markitdown_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_MARKITDOWN) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_PYMUPDF4LLM: self._normalize_pymupdf4llm_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_PYMUPDF4LLM) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_LITEPARSE: self._normalize_liteparse_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_LITEPARSE) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_TIKA: self._normalize_tika_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_TIKA) or {}
+            ),
+        }
+
+        engine = _string(settings.get("engine")).lower().replace("-", "_").replace(" ", "_")
+        if migrating:
+            engine = DOCUMENT_PARSING_ENGINE_MINERU
+        if engine not in _DOCUMENT_PARSING_ENGINES:
+            engine = _DEFAULT_DOCUMENT_PARSING_ENGINE
+
+        return {"version": 2, "engine": engine, "engines": engines_out}
+
+    def _normalize_mineru_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        mode = _string(settings.get("mode")).lower()
+        if mode not in _MINERU_MODES:
+            mode = MINERU_MODE_LOCAL
+        model_version = _string(settings.get("model_version")).lower()
+        if model_version not in _MINERU_MODEL_VERSIONS:
+            model_version = "pipeline"
+        download_source = _string(settings.get("model_download_source")).lower()
+        if download_source not in _MINERU_DOWNLOAD_SOURCES:
+            download_source = "huggingface"
+        language = _string(settings.get("language")) or "auto"
+        return {
+            "mode": mode,
+            "api_base_url": _string(settings.get("api_base_url")).rstrip("/")
+            or "https://mineru.net",
+            "api_token": _string_or_list(settings.get("api_token")),
+            "local_cli_path": _string(settings.get("local_cli_path")),
+            "model_download_source": download_source,
+            "model_download_endpoint": _string(settings.get("model_download_endpoint")).rstrip("/"),
+            "model_version": model_version,
+            "language": language,
+            "enable_formula": _coerce_bool(settings.get("enable_formula"), True),
+            "enable_table": _coerce_bool(settings.get("enable_table"), True),
+            "is_ocr": _coerce_bool(settings.get("is_ocr"), False),
+            "allow_local_model_download": _coerce_bool(
+                settings.get("allow_local_model_download"), False
+            ),
+        }
+
+    def _normalize_docling_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        mode = _string(settings.get("mode")).lower()
+        if mode not in _DOCLING_MODES:
+            mode = DOCLING_MODE_LOCAL
+        return {
+            "mode": mode,
+            "api_base_url": _string(settings.get("api_base_url")).rstrip("/")
+            or "http://localhost:5001",
+            "api_token": _string(settings.get("api_token")),
+            "do_ocr": _coerce_bool(settings.get("do_ocr"), False),
+            "do_table_structure": _coerce_bool(settings.get("do_table_structure"), True),
+            "allow_local_model_download": _coerce_bool(
+                settings.get("allow_local_model_download"), False
+            ),
+        }
+
+    def _apply_docling_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("DOCLING_MODE"):
+            payload["mode"] = value
+        if value := self._process_env_value("DOCLING_API_BASE_URL"):
+            payload["api_base_url"] = value
+        if value := self._process_env_value("DOCLING_API_TOKEN"):
+            payload["api_token"] = value
+        return self._normalize_docling_engine(payload)
+
+    def _normalize_tika_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "server_url": _string(settings.get("server_url")).rstrip("/")
+            or "http://localhost:9998",
+        }
+
+    def _apply_tika_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("TIKA_SERVER_URL"):
+            payload["server_url"] = value
+        return self._normalize_tika_engine(payload)
+
+    def _normalize_markitdown_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "enable_llm_image_description": _coerce_bool(
+                settings.get("enable_llm_image_description"), False
+            ),
+        }
+
+    def _normalize_liteparse_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        image_mode = _string(settings.get("image_mode")).lower() or "placeholder"
+        if image_mode not in LITEPARSE_IMAGE_MODES:
+            image_mode = "placeholder"
+        return {
+            "image_mode": image_mode,
+            "extract_links": _coerce_bool(settings.get("extract_links"), True),
+            "extract_images": _coerce_bool(settings.get("extract_images"), False),
+            "max_pages": _coerce_clamped_int(settings.get("max_pages"), 0, 0, 100_000),
+        }
+
+    def _normalize_pymupdf4llm_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        image_format = _string(settings.get("image_format")).lower() or "png"
+        if image_format not in _PYMUPDF4LLM_IMAGE_FORMATS:
+            image_format = "png"
+        return {
+            "write_images": _coerce_bool(settings.get("write_images"), True),
+            "image_format": image_format,
+            "image_dpi": _coerce_clamped_int(settings.get("image_dpi"), 150, 72, 600),
+        }
+
+    def _normalize_text_only_engine(self, _settings: dict[str, Any]) -> dict[str, Any]:
+        return {}
+
+    def _normalize_agent_loop(self, settings: dict[str, Any]) -> dict[str, Any]:
+        raw = settings.get("agent_loop")
+        block = raw if isinstance(raw, dict) else {}
+
+        if isinstance(block.get("profiles"), list):
+            raw_profiles = block["profiles"]
+        elif _string(block.get("backend")).strip():
+            # v1 migration: the flat single-backend block becomes one
+            # profile named "default", keeping its fields verbatim.
+            legacy = {**block, "preset": _string(block.get("backend")).strip(), "id": "default"}
+            raw_profiles = [legacy]
+        else:
+            raw_profiles = []
+
+        profiles = [
+            self._normalize_agent_loop_profile(item, index=index)
+            for index, item in enumerate(raw_profiles)
+            if isinstance(item, dict)
+        ]
+        self._dedupe_agent_loop_ids(profiles)
+
+        ids = {profile["id"] for profile in profiles}
+        if "profiles" in block:
+            primary = block.get("primary")
+        else:
+            # v1: configured → the migrated "default" profile; absent → auto.
+            primary = "default" if raw_profiles else None
+        if primary is None or (_string(primary) and _string(primary) not in ids):
+            # None = "let the default rule pick" (auto). A dangling id is a
+            # broken config — healed by the same rule rather than stubbing
+            # chat silently. An explicit "" stays "": that is the user's
+            # shell-stub choice.
+            primary = _auto_primary_agent_loop(profiles)
+        return {
+            "version": 2,
+            "profiles": profiles,
+            "primary": _string(primary),
+            "consult_budget": _coerce_clamped_int(
+                block.get("consult_budget"),
+                DEFAULT_SYSTEM_SETTINGS["agent_loop"]["consult_budget"],
+                *AGENT_LOOP_CONSULT_BUDGET_RANGE,
+            ),
+            # A missing key means "not configured" and takes the default; an
+            # explicitly empty list is honoured, because that is how an
+            # operator forbids every per-profile workdir.
+            "allowed_workdir_roots": normalize_workdir_roots(
+                block.get("allowed_workdir_roots"), default=DEFAULT_WORKDIR_ROOT
+            ),
+        }
+
+    def _normalize_agent_loop_profile(self, raw: dict[str, Any], *, index: int) -> dict[str, Any]:
+        def _env_map(value: Any) -> dict[str, str]:
+            if not isinstance(value, dict):
+                return {}
+            return {
+                str(key): str(item) for key, item in value.items() if str(key).strip() and str(item)
+            }
+
+        # CLI profiles: the ONLY credentials the agent subprocess receives —
+        # the child does not inherit the server environment (which holds
+        # exported deployment secrets), just an allowlisted process basics
+        # set plus these entries.
+        preset = _string(raw.get("preset") or raw.get("backend")).strip()
+        # The community `intellect` preset moved from the HTTP family to the
+        # ACP transport; a legacy profile that configured it as a URL service
+        # keeps working as a custom HTTP backend instead of silently turning
+        # into a CLI spawn. The guard on `transport` keeps a profile that
+        # deliberately selected the preset's own HTTP transport out of this
+        # rewrite — that one speaks the /v1/runs protocol, not /agent/turn.
+        if (
+            preset == "intellect"
+            and _string(raw.get("url")).strip()
+            and not _string(raw.get("transport")).strip()
+        ):
+            preset = "custom-http"
+        # Unknown transport ids are rewritten to the preset's default rather
+        # than stored: the file should not carry a selector that no build
+        # understands. A multi-transport preset only.
+        transport = _agent_loop_transport(preset, _string(raw.get("transport")).strip())
+        return {
+            "id": _agent_loop_profile_id(raw.get("id"), index),
+            "name": _string(raw.get("name")).strip() or preset or f"profile-{index + 1}",
+            "preset": preset,
+            "transport": transport,
+            "enabled": _coerce_bool(raw.get("enabled"), True),
+            "command": _string(raw.get("command")).strip(),
+            "args": (
+                [str(arg) for arg in (raw.get("args") or []) if str(arg).strip() != ""]
+                if isinstance(raw.get("args"), list)
+                else []
+            ),
+            "env": _env_map(raw.get("env")),
+            "url": _string(raw.get("url")).strip(),
+            # Empty = the preset transport's own default (see the helper): the
+            # generic "/agent/turn" applies only when the preset declares
+            # nothing either.
+            "turn_path": _string(raw.get("turn_path")).strip()
+            or _agent_loop_turn_path(preset, transport)
+            or "/agent/turn",
+            "headers": _env_map(raw.get("headers")),
+            "api_key": _string(raw.get("api_key")),
+            # The instance tenant the service runs as, when the deployment
+            # names one (Intellect: a 32-hex id, sent as X-Tenant-Id and
+            # validated by the service against its own INTELLECT_TENANT_ID).
+            # Empty = the service's default tenant. Kept verbatim — the value
+            # must match the service's configuration character for character,
+            # so this layer never re-cases it; the settings API refuses a
+            # malformed one at save time.
+            "tenant_id": _string(raw.get("tenant_id")).strip(),
+            "timeout_seconds": _coerce_clamped_int(
+                raw.get("timeout_seconds"), 900, *AGENT_LOOP_TIMEOUT_RANGE
+            ),
+            "session_workspace": _coerce_bool(raw.get("session_workspace"), True),
+            "consult_enabled": _coerce_bool(raw.get("consult_enabled"), True),
+            # Empty = the per-session workspace. A non-empty value is honoured
+            # only inside the block's allowed_workdir_roots (see workdir.py).
+            "workdir": _string(raw.get("workdir")).strip(),
+            # The model this backend should run. Empty = leave it to the
+            # backend's own default (the CLI's config file, the service's
+            # setting). CLI profiles reference it as `{model}` in `args`; HTTP
+            # profiles send it in the request body.
+            "model": _string(raw.get("model")).strip(),
+            # The operator-curated per-turn model vocabulary, normalized to
+            # [{id, name}] rows (plain strings accepted). Feeds the composer's
+            # option list and — for the HTTP-turn presets, where consumption
+            # of the body's `model` key is unknowable from here — doubles as
+            # the operator's opt-in that the service honors it.
+            "models": normalize_profile_models(raw.get("models")),
+            # The backend's real context window, used for history budgeting
+            # instead of the 16K fallback that applies when no model name is
+            # known. 0 = not configured (the window is guessed).
+            "context_window": _agent_loop_context_window(raw.get("context_window")),
+            # Approval policy for control-capable backends: how long a parked
+            # turn waits for a decision, and what answers for the user when
+            # nothing arrives (timeout, headless entry point).
+            "approval_timeout_seconds": _coerce_clamped_int(
+                raw.get("approval_timeout_seconds"), 60, 5, 600
+            ),
+            # SECURITY: `always`/`session` as the fallback policy makes
+            # headless entry points auto-approve tool runs for everyone —
+            # prefer `deny` unless unattended approval is understood.
+            "approval_default": _approval_default(raw.get("approval_default")),
+            # One-shot CLI profiles only: stdout is the final answer as plain
+            # text (`intellect chat -Q`-style backends) — no progress events.
+            "text_output": _coerce_bool(raw.get("text_output"), False),
+            # Who a turn runs as on an HTTP agent service: `off` sends nothing
+            # extra, `header` attributes the turn to the calling account, `token`
+            # presents the account's own linked member token when there is one,
+            # `token_required` refuses to run without one. Unknown values fall
+            # back to `off`, which is also the safe direction — see
+            # services/agent_loop/identity.py.
+            #
+            # An absent value means "whatever this preset does by default",
+            # which for the self-hosted Intellect services is attribution —
+            # the same shape the sibling enterprise UI ships. An explicit
+            # value is stored verbatim (including "off", which is how an
+            # operator turns attribution back off).
+            "identity_mode": _identity_mode(raw.get("identity_mode"))
+            if _string(raw.get("identity_mode")).strip()
+            else _agent_loop_default_identity_mode(preset, transport),
+        }
+
+    @staticmethod
+    def _dedupe_agent_loop_ids(profiles: list[dict[str, Any]]) -> None:
+        seen: set[str] = set()
+        for profile in profiles:
+            candidate = profile["id"]
+            suffix = 2
+            while candidate in seen:
+                candidate = f"{profile['id']}-{suffix}"
+                suffix += 1
+            profile["id"] = candidate
+            seen.add(candidate)
+
+    def _normalize_system(self, settings: dict[str, Any]) -> dict[str, Any]:
+        public_api_base = _string(settings.get("next_public_api_base_external")) or _string(
+            settings.get("public_api_base")
+        )
+        raw_source_filter = settings.get("web_search_source_filtering")
+        source_filter = raw_source_filter if isinstance(raw_source_filter, dict) else {}
+        max_file_mb = _coerce_clamped_int(
+            settings.get("chat_attachment_max_file_mb"),
+            DEFAULT_SYSTEM_SETTINGS["chat_attachment_max_file_mb"],
+            *CHAT_ATTACHMENT_MAX_FILE_MB_RANGE,
+        )
+        max_total_mb = _coerce_clamped_int(
+            settings.get("chat_attachment_max_total_mb"),
+            DEFAULT_SYSTEM_SETTINGS["chat_attachment_max_total_mb"],
+            *CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE,
+        )
+        # A per-message total below the per-file cap is contradictory; lift it.
+        max_total_mb = max(max_total_mb, max_file_mb)
+        return {
+            "version": 1,
+            "version_check_enabled": _coerce_bool(settings.get("version_check_enabled"), True),
+            "backend_port": _coerce_port(settings.get("backend_port"), 8082),
+            "backend_workers": _coerce_clamped_int(settings.get("backend_workers"), 1, 1, 64),
+            "frontend_port": _coerce_port(settings.get("frontend_port"), 8092),
+            "next_public_api_base_external": public_api_base,
+            "next_public_api_base": _string(settings.get("next_public_api_base")),
+            "cors_origin": _string(settings.get("cors_origin")),
+            "cors_origins": _coerce_origins(settings.get("cors_origins")),
+            "disable_ssl_verify": _coerce_bool(settings.get("disable_ssl_verify"), False),
+            "chat_attachment_dir": _string(settings.get("chat_attachment_dir")),
+            "web_search_source_filtering": {
+                "enabled": _coerce_bool(source_filter.get("enabled"), True),
+                "blocked_domains": _string_or_list(source_filter.get("blocked_domains")),
+                "trusted_domains": _string_or_list(source_filter.get("trusted_domains")),
+            },
+            "chat_attachment_max_file_mb": max_file_mb,
+            "chat_attachment_max_total_mb": max_total_mb,
+            "chat_attachment_max_chars_per_doc": _coerce_clamped_int(
+                settings.get("chat_attachment_max_chars_per_doc"),
+                DEFAULT_SYSTEM_SETTINGS["chat_attachment_max_chars_per_doc"],
+                *CHAT_ATTACHMENT_CHARS_RANGE,
+            ),
+            "chat_attachment_max_chars_total": _coerce_clamped_int(
+                settings.get("chat_attachment_max_chars_total"),
+                DEFAULT_SYSTEM_SETTINGS["chat_attachment_max_chars_total"],
+                *CHAT_ATTACHMENT_CHARS_RANGE,
+            ),
+            "agent_loop": self._normalize_agent_loop(settings),
+            "kag": self._normalize_kag(settings),
+        }
+
+    def _normalize_kag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """归一化 ``kag`` 集成块（设计 §6.3 T1 子集，字段见 DEFAULT_SYSTEM_SETTINGS 注释）。"""
+        raw = settings.get("kag")
+        block = raw if isinstance(raw, dict) else {}
+        args = block.get("bridge_args")
+        return {
+            "version": 1,
+            "bridge_command": _string(block.get("bridge_command")),
+            "bridge_args": (
+                [str(a).strip() for a in args if str(a).strip()]
+                if isinstance(args, list) and args
+                else ["-m", "kag_bridge"]
+            ),
+            "kag_project_dir": _string(block.get("kag_project_dir")),
+            "namespace": _string(block.get("namespace")),
+            "project_id": _string(block.get("project_id")),
+            "spg_server_url": _string(block.get("spg_server_url")),
+            # 系统调用/无用户上下文时的 OpenSPG 归因（create_project 回落），
+            # settings 域可配；与 create 请求体的 payload.service_user_no 二选一
+            "service_user_no": _string(block.get("service_user_no")),
+            "bridge_api_key": _string(block.get("bridge_api_key")),
+            "bridge_http_url": _string(block.get("bridge_http_url")),
+        }
+
+    def _normalize_auth(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "enabled": _coerce_bool(settings.get("enabled"), False),
+            "username": _string(settings.get("username")) or "admin",
+            "password_hash": _string(settings.get("password_hash")),
+            "token_expire_hours": max(1, _coerce_int(settings.get("token_expire_hours"), 24)),
+            "cookie_secure": _coerce_bool(settings.get("cookie_secure"), False),
+        }
+
+    def _normalize_integrations(self, settings: dict[str, Any]) -> dict[str, Any]:
+        raw_coordination = settings.get("turn_coordination")
+        coordination = raw_coordination if isinstance(raw_coordination, dict) else {}
+        backend = _string(coordination.get("backend")).lower()
+        if backend not in {"memory", "redis"}:
+            backend = "memory"
+        key_prefix = _string(coordination.get("key_prefix")).strip(":") or "openkg-webui"
+        return {
+            "version": 2,
+            "pocketbase_url": _string(settings.get("pocketbase_url")).rstrip("/"),
+            "pocketbase_port": _coerce_port(settings.get("pocketbase_port"), 8090),
+            "pocketbase_external_url": _string(settings.get("pocketbase_external_url")).rstrip("/"),
+            "pocketbase_admin_email": _string(settings.get("pocketbase_admin_email")),
+            "pocketbase_admin_password": _string(settings.get("pocketbase_admin_password")),
+            "turn_coordination": {
+                "backend": backend,
+                "redis_url": _string(coordination.get("redis_url")),
+                "key_prefix": key_prefix,
+                "lease_ttl_seconds": _coerce_clamped_int(
+                    coordination.get("lease_ttl_seconds"), 30, 10, 300
+                ),
+                "renew_interval_seconds": _coerce_clamped_int(
+                    coordination.get("renew_interval_seconds"), 10, 1, 100
+                ),
+                "recovery_interval_seconds": _coerce_clamped_int(
+                    coordination.get("recovery_interval_seconds"), 10, 1, 300
+                ),
+                "stream_retention_seconds": _coerce_clamped_int(
+                    coordination.get("stream_retention_seconds"), 86_400, 60, 2_592_000
+                ),
+            },
+        }
+
+
+def _bool_env(value: Any) -> str:
+    return "true" if _coerce_bool(value, False) else "false"
+
+
+def _global_settings_dir() -> Path:
+    try:
+        from openkg_webui.multi_user.paths import get_admin_path_service
+
+        return get_admin_path_service().get_settings_dir()
+    except Exception:
+        return get_path_service().get_settings_dir()
+
+
+def get_runtime_settings_service() -> RuntimeSettingsService:
+    return RuntimeSettingsService.get_instance(_global_settings_dir())
+
+
+def ensure_runtime_settings_files() -> None:
+    """Create missing JSON settings files using migration/default rules.
+
+    Startup callers use this as the single "settings bootstrap" hook:
+    missing runtime files are created with safe defaults. Process
+    environment variables remain deployment overrides and are intentionally
+    not persisted into the JSON files.
+    """
+    get_runtime_settings_service().ensure_defaults()
+    from .model_catalog import get_model_catalog_service
+
+    get_model_catalog_service().load()
+
+
+def _auto_primary_agent_loop(profiles: list[dict[str, Any]]) -> str:
+    """Pick the default primary profile: a local Intellect (community or
+    enterprise) first, then any local profile, then the first enabled one.
+    ``""`` when nothing is enabled — the shell stub."""
+    enabled = [profile for profile in profiles if profile.get("enabled")]
+    if not enabled:
+        return ""
+    from openkg_webui.services.agent_loop.builtin import PRESETS, is_intellect_preset, preset_family
+
+    def _is_local(profile: dict[str, Any]) -> bool:
+        preset = PRESETS.get(str(profile.get("preset") or ""))
+        if preset is not None:
+            # Transport-aware: the community Intellect preset is local as an
+            # ACP child but remote as an HTTP service, so a profile pointing
+            # at a remote api_server must not win the "local first" rule.
+            return (
+                preset_family(str(profile.get("preset") or ""), str(profile.get("transport") or ""))
+                == "cli"
+            )
+        from urllib.parse import urlsplit
+
+        host = (urlsplit(str(profile.get("url") or "")).hostname or "").lower()
+        return host in {"localhost", "::1", "0.0.0.0"} or host.startswith("127.")
+
+    for wanted in (
+        [profile for profile in enabled if is_intellect_preset(str(profile.get("preset") or ""))],
+        [profile for profile in enabled if _is_local(profile)],
+        enabled,
+    ):
+        if wanted:
+            return str(wanted[0]["id"])
+    return ""
+
+
+def load_system_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_system()
+
+
+@dataclass(frozen=True)
+class ChatAttachmentLimits:
+    """Effective chat-attachment policy, in enforcement-ready units."""
+
+    max_file_bytes: int
+    max_total_bytes: int
+    max_chars_per_doc: int
+    max_chars_total: int
+
+
+def get_chat_attachment_limits() -> ChatAttachmentLimits:
+    """Resolve the chat attachment policy from system.json (+ env overrides).
+
+    Read at call time by every enforcement site (turn runtime extraction,
+    partner uploads, the composer via the settings API) so edits apply to the
+    next message without a restart.
+    """
+    system = load_system_settings()
+    return ChatAttachmentLimits(
+        max_file_bytes=int(system["chat_attachment_max_file_mb"]) * 1024 * 1024,
+        max_total_bytes=int(system["chat_attachment_max_total_mb"]) * 1024 * 1024,
+        max_chars_per_doc=int(system["chat_attachment_max_chars_per_doc"]),
+        max_chars_total=int(system["chat_attachment_max_chars_total"]),
+    )
+
+
+# uvicorn's default WebSocket frame ceiling. Never derive below it so chat
+# behaves identically to older builds even if the configured totals are tiny.
+_WS_MAX_SIZE_FLOOR = 16 * 1024 * 1024
+
+
+def compute_ws_max_size(max_total_bytes: int) -> int:
+    """WebSocket message ceiling that fits a full attachment batch.
+
+    Chat attachments ride the unified WS as base64 inside one JSON message
+    (×4/3 inflation), so uvicorn's frame cap — not the policy above — is the
+    binding constraint for large uploads. Add slack for the JSON envelope
+    (message text, metadata, quoting) on top of the inflated payload.
+    """
+    inflated = (max_total_bytes * 4) // 3
+    return max(_WS_MAX_SIZE_FLOOR, inflated + 8 * 1024 * 1024)
+
+
+def get_ws_max_size() -> int:
+    """Frame ceiling for the current settings — wire into every uvicorn launch."""
+    return compute_ws_max_size(get_chat_attachment_limits().max_total_bytes)
+
+
+# Idle keep-alive window for backend HTTP connections — wire into every uvicorn
+# launch. The browser never reaches the backend directly: `web/proxy.ts` rewrites
+# `/api/*` and Next.js forwards over Node's `http.globalAgent`, which pools idle
+# sockets and reaps them on its own 5s `timeout`. uvicorn's `timeout_keep_alive`
+# also defaults to 5s, so both ends armed an identical idle timer on the same
+# socket and raced to close it: when the server's FIN landed on a socket the pool
+# was simultaneously handing to a new request, the request died with `ECONNRESET`
+# and the proxy turned it into a 500 ("Failed to proxy ... socket hang up" ->
+# "Failed to load sessions" in the UI). Any value comfortably above the proxy's
+# 5s reaper leaves the client as the only side that closes an idle connection,
+# which is the safe direction — a pool retiring its own socket removes it before
+# any request can be assigned to it, so the collision cannot happen at all.
+HTTP_KEEP_ALIVE_TIMEOUT = 300
+
+
+def load_auth_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_auth()
+
+
+def load_integrations_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_integrations()
+
+
+def load_mineru_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_mineru()
+
+
+def load_llamaindex_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_llamaindex()
+
+
+def load_graphrag_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_graphrag()
+
+
+def load_lightrag_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_lightrag()
+
+
+def load_lightrag_server_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_lightrag_server()
+
+
+def load_document_parsing_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_document_parsing()
+
+
+def export_runtime_settings_to_env(*, overwrite: bool = True) -> dict[str, str]:
+    return get_runtime_settings_service().export_environment(overwrite=overwrite)
+
+
+__all__ = [
+    "CHAT_ATTACHMENT_CHARS_RANGE",
+    "CHAT_ATTACHMENT_MAX_FILE_MB_RANGE",
+    "CHAT_ATTACHMENT_MAX_TOTAL_MB_RANGE",
+    "DEFAULT_AUTH_SETTINGS",
+    "DEFAULT_DOCUMENT_PARSING_SETTINGS",
+    "DEFAULT_GRAPHRAG_SETTINGS",
+    "DEFAULT_IMA_SETTINGS",
+    "DEFAULT_INTEGRATIONS_SETTINGS",
+    "DEFAULT_LIGHTRAG_SETTINGS",
+    "DEFAULT_LIGHTRAG_SERVER_SETTINGS",
+    "DEFAULT_LLAMAINDEX_SETTINGS",
+    "DEFAULT_MINERU_SETTINGS",
+    "DEFAULT_PAGEINDEX_SETTINGS",
+    "DEFAULT_SYSTEM_SETTINGS",
+    "DOCUMENT_PARSING_ENGINE_DOCLING",
+    "DOCUMENT_PARSING_ENGINE_LITEPARSE",
+    "DOCUMENT_PARSING_ENGINE_MARKITDOWN",
+    "DOCUMENT_PARSING_ENGINE_MINERU",
+    "DOCUMENT_PARSING_ENGINE_PYMUPDF4LLM",
+    "DOCUMENT_PARSING_ENGINE_TEXT_ONLY",
+    "DOCUMENT_PARSING_ENGINE_TIKA",
+    "DOCLING_MODE_LOCAL",
+    "DOCLING_MODE_REMOTE",
+    "LITEPARSE_IMAGE_MODES",
+    "MINERU_MODE_CLOUD",
+    "MINERU_MODE_LOCAL",
+    "ChatAttachmentLimits",
+    "RuntimeSettingsService",
+    "compute_ws_max_size",
+    "ensure_runtime_settings_files",
+    "export_runtime_settings_to_env",
+    "get_chat_attachment_limits",
+    "get_runtime_settings_service",
+    "get_ws_max_size",
+    "load_auth_settings",
+    "load_document_parsing_settings",
+    "load_graphrag_settings",
+    "load_integrations_settings",
+    "load_lightrag_settings",
+    "load_lightrag_server_settings",
+    "load_llamaindex_settings",
+    "load_mineru_settings",
+    "load_system_settings",
+]

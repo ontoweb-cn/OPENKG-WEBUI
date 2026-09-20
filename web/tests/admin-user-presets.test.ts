@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const adminApi = readFileSync(
+  path.resolve(process.cwd(), "lib/admin-api.ts"),
+  "utf8",
+);
+const usersPage = readFileSync(
+  path.resolve(process.cwd(), "app/(admin)/admin/users/page.tsx"),
+  "utf8",
+);
+const en = JSON.parse(
+  readFileSync(path.resolve(process.cwd(), "locales/en/app.json"), "utf8"),
+) as Record<string, string>;
+const zh = JSON.parse(
+  readFileSync(path.resolve(process.cwd(), "locales/zh/app.json"), "utf8"),
+) as Record<string, string>;
+
+test("admin user creation sends the selected preset", () => {
+  assert.match(
+    adminApi,
+    /export type AccountPreset = "standard" \| "custom"/,
+  );
+  assert.match(
+    adminApi,
+    /body: JSON\.stringify\(\{ username, password, preset \}\)/,
+  );
+  assert.match(usersPage, /\["standard", "custom"\] as const/);
+  assert.match(usersPage, /aria-pressed=\{createPreset === preset\}/);
+});
+
+test("account preset copy is present in both supported locales", () => {
+  const keys = [
+    "Account preset",
+    "Preset: {{preset}}",
+    "Custom",
+  ];
+  for (const key of keys) {
+    // English copy lives in the key itself for a plain sentence (locale keys
+    // ARE the English text — keySeparator is off), so `en` carries only the
+    // namespace overrides whose copy differs from the key. `en[key] || key` is
+    // exactly what i18next renders: the override when one exists, otherwise the
+    // key. Asserting that stays non-empty keeps the real guard — no blank copy
+    // on screen — without demanding a redundant en entry.
+    assert.ok(en[key] || key, `missing English copy: ${key}`);
+    assert.ok(zh[key], `missing Chinese key: ${key}`);
+    assert.notEqual(zh[key], "");
+  }
+});

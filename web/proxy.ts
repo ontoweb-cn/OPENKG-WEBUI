@@ -1,0 +1,93 @@
+import { NextRequest, NextResponse } from "next/server";
+import { parseAuthEnabled } from "./lib/api";
+import { resolveBackendApiBase } from "./lib/backend-runtime-config";
+import { stripBasePath } from "./shared/base-path";
+import {
+  COOKIE_NAME,
+  LOGIN_PATH,
+  classifyToken,
+  isAuthExempt,
+  isBackendPath,
+  isRetiredPagePath,
+} from "./lib/proxy-policy";
+
+// Backend base URL for `/api/*` and `/ws/*` rewrites. The container entrypoint
+// exports `OPENKG_WEBUI_API_BASE_URL` from `data/user/settings/system.json`
+// (preferring `next_public_api_base`, then `next_public_api_base_external`,
+// then `http://127.0.0.1:${BACKEND_PORT}`). This last-resort default applies
+// only when nothing exported the variable at all.
+//
+// The loopback is spelled as the IPv4 literal, not `localhost`: on a dual-stack
+// host that name resolves to ::1 first, while uvicorn binds 0.0.0.0 (IPv4
+// only), so every rewrite would fail to connect.
+const API_BASE_URL = resolveBackendApiBase();
+
+const AUTH_ENABLED = parseAuthEnabled(
+  process.env.OPENKG_WEBUI_AUTH_ENABLED ?? process.env.NEXT_PUBLIC_AUTH_ENABLED,
+);
+
+// Redirect to the login page, preserving the intended destination in `next`.
+// A present-but-invalid cookie is cleared so the browser stops resending it;
+// when no cookie was sent there is nothing to clear. The `next` value is
+// APP-RELATIVE (prefix stripped) — the login page feeds it to router.replace,
+// which applies the basePath itself.
+function redirectToLogin(
+  req: NextRequest,
+  { clearCookie }: { clearCookie: boolean },
+): NextResponse {
+  const loginUrl = req.nextUrl.clone();
+  loginUrl.pathname = LOGIN_PATH;
+  loginUrl.search = "";
+  loginUrl.searchParams.set(
+    "next",
+    `${stripBasePath(req.nextUrl.pathname)}${req.nextUrl.search}`,
+  );
+  const response = NextResponse.redirect(loginUrl);
+  if (clearCookie) response.cookies.delete(COOKIE_NAME);
+  return response;
+}
+
+export function proxy(req: NextRequest): NextResponse {
+  // Normalize before any policy call: on middleware variants that hand the
+  // basePath-stripped path through, stripBasePath is a no-op; on ones that
+  // include it, this keeps every policy function app-relative either way.
+  const pathname = stripBasePath(req.nextUrl.pathname);
+  const { search } = req.nextUrl;
+
+  if (isRetiredPagePath(pathname)) {
+    return new NextResponse(null, { status: 404 });
+  }
+
+  // 1. Bridge the origin gap: forward backend-relative paths to the API server.
+  //    This keeps the URL knowledge in one place (the entrypoint + system.json)
+  //    rather than baked into the frontend bundle.
+  if (isBackendPath(pathname)) {
+    return NextResponse.rewrite(new URL(pathname + search, API_BASE_URL));
+  }
+
+  // 2. Auth gate — multi-user mode only. Disabled by default, and never blocks
+  //    auth pages, Next.js internals, or public static assets (see
+  //    isAuthExempt: that exemption is what keeps the logo/banner images
+  //    loading once login is enabled — issue #599).
+  if (!AUTH_ENABLED || isAuthExempt(pathname)) {
+    return NextResponse.next();
+  }
+
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  if (classifyToken(token, Date.now()) !== "valid") {
+    return redirectToLogin(req, { clearCookie: Boolean(token) });
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  // Run on every request except Next.js internals and the favicon. The /api/*
+  // and /ws/* paths are explicitly handled above (rewritten to the backend);
+  // the browser's /_next/image optimizer requests are excluded here, while the
+  // optimizer's loopback fetch for the source image (e.g. /logo.png) is let
+  // through the auth gate by isAuthExempt.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
+};

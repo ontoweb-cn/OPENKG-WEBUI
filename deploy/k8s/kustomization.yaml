@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - openkg_webui.yaml
+# Pin images for production instead of floating on :latest, e.g.:
+# images:
+#   - name: ghcr.io/YOUR_OPENKG_WEBUI_ORG/openkg-webui
+#     newTag: 1.2.3

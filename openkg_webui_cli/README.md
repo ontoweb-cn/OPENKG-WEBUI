@@ -1,0 +1,255 @@
+# OPENKG-WebUI CLI
+
+Agent-first 的命令行界面。两条核心路径：
+
+- **`run`** — 单次执行任意 capability（为 agent 调用设计）
+- **`chat`** — 交互式 REPL（为人类设计）
+
+## 命令一览
+
+| 命令 | 用途 |
+|------|------|
+| `run` | 单次执行任意 capability |
+| `chat` | 交互式 REPL |
+| `start` | 启动后端 + 前端（`--dev` / `--detach` / `--no-browser`） |
+| `serve` | 只启动 API 服务（`--host` / `--port` / `--reload`） |
+| `restart` | 重启后台 launcher（等价于 `stop` + `start --detach`） |
+| `stop` | 停止 `start --detach` 起的进程 |
+| `init` | 创建或更新 `data/user/settings`（`--cli` 只初始化 CLI 所需配置） |
+| `doctor` | 环境与配置自检 |
+| `session` | 会话管理（`list`/`show`/`open`/`rename`/`delete`/`trace`/`diff`） |
+| `provider` | 提供方认证与校验（`login <provider>`） |
+| `plugin` | 列出已注册的 capability（`list`/`info`） |
+| `config` | 查看配置（`show`） |
+
+## 安装
+
+```bash
+# 仅 CLI（本地源码安装，含 RAG / 文档解析 / 各家 LLM provider SDK）
+git clone https://gitee.com/wustbd/OPENKG-WebUI.git
+cd OPENKG-WebUI
+python3 -m venv .venv-cli
+source .venv-cli/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ./packaging/openkg-webui-cli
+openkg-webui init --cli
+
+# CLI + Web/API 服务
+pip install openkg-webui
+openkg-webui init
+
+# 源码开发
+pip install -e .
+openkg-webui init
+
+# 可选附加组件
+pip install -e ".[math-animator]"  # 数学动画（另需系统 LaTeX/ffmpeg）
+pip install -e ".[acp]"            # Intellect 社区版走 Agent Client Protocol
+pip install -e ".[all]"            # 全部依赖（含开发工具）
+```
+
+`openkg-webui init --cli` 和普通 `openkg-webui init` 使用同一套 `data/user/settings/` 配置目录；区别是 `--cli` 不询问 Web 后端/前端端口，仍会创建 `system.json`、`auth.json`、`integrations.json`、`model_catalog.json`、`main.yaml` 和 `agents.yaml`，并继续询问 LLM 配置。
+
+Windows PowerShell 可使用：
+
+```powershell
+py -3.11 -m venv .venv-cli
+.\.venv-cli\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ./packaging/openkg-webui-cli
+openkg-webui init --cli
+```
+
+---
+
+## `run` — 执行 Capability
+
+统一入口，单次执行任意 capability。Agent 只需掌握这一个命令。
+
+```bash
+openkg-webui run <capability> <message> [options]
+```
+
+### 内置 Capability
+
+| Capability | 说明 |
+|------------|------|
+| `chat` | 对话（唯一内置 capability；配置 agent-loop 后端后由其后端驱动，否则返回框架外壳提示） |
+
+### 选项
+
+| 选项 | 缩写 | 说明 |
+|------|------|------|
+| `--session` | | 继续已有会话 |
+| `--history-ref` | | 引用历史会话（可多次指定） |
+| `--language` | `-l` | 回复语言（默认 `en`） |
+| `--config` | | capability 配置 `key=value`（可多次指定） |
+| `--config-json` | | capability 配置（JSON 字符串） |
+| `--format` | `-f` | 输出格式：`rich`（默认）\| `json` |
+
+### 示例
+
+```bash
+# 对话
+openkg-webui run chat "什么是傅里叶变换？" -l zh
+
+# 引用历史会话
+openkg-webui run chat "继续上面的话题" --history-ref <session-id>
+
+# JSON 输出（适合 agent 解析）
+openkg-webui run chat "用一句话解释熵" -f json
+```
+
+---
+
+## `chat` — 交互式 REPL
+
+进入多轮对话界面，在 REPL 内通过 `/` 命令切换 capability、工具、知识库等。
+
+```bash
+openkg-webui chat [options]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--session` | 恢复已有会话 |
+| `--capability`, `-c` | 初始 capability（默认 `chat`） |
+| `--history-ref` | 引用历史会话（可多次指定） |
+| `--language`, `-l` | 回复语言 |
+| `--config` | 初始 config `key=value` |
+| `--config-json` | 初始 config（JSON 字符串） |
+
+### REPL 内置命令
+
+| 命令 | 说明 |
+|------|------|
+| `/quit` | 退出 |
+| `/session` | 显示当前 session ID |
+| `/new` | 新建会话 |
+| `/cap <name>` | 切换 capability |
+| `/clear` | 清屏 |
+| `/status` | 显示当前状态 |
+| `/history add <id>\|clear` | 管理历史引用 |
+| `/regenerate`（别名 `/retry`） | 重跑上一条用户消息 |
+| `/show last\|<n>` | 展开被截断的工具结果或折叠的思考过程 |
+| `/refs` | 查看当前设置 |
+| `/config show\|set\|clear` | 管理 capability 配置 |
+
+回答生成期间按 `Ctrl-C` 会取消当前 turn 并回到输入提示符;模型通过
+`ask_user` 提问时,会在终端内渲染选项卡片并等待输入(非交互式 stdin
+下自动提交空回复,turn 不会挂起)。
+
+---
+
+## `start` / `restart` / `stop` — 启动与停止
+
+`openkg-webui` 安装在虚拟环境里，先激活再执行（或直接调用 `.venv/bin/openkg-webui`）：
+
+```bash
+source .venv/bin/activate     # Windows: .venv\Scripts\activate
+openkg-webui start                  # 前台运行，Ctrl+C 停止
+```
+
+后台方式启动，用 `restart` / `stop` 管理：
+
+```bash
+openkg-webui start --detach         # 后台启动；日志：data/user/runtime/launcher.log
+openkg-webui restart                # 停止当前 launcher 后重新启动
+openkg-webui stop                   # 停止后台 launcher
+```
+
+`openkg-webui restart` 默认沿用当前 launcher 的前端模式（`--dev` 或生产构建），
+需要切换时显式传 `--dev` / `--prod`。若端口被占用，`openkg-webui start` 会列出
+占用进程并提示改端口或停止它们（仅交互式终端）。
+
+---
+
+## `serve` — 启动 API 服务
+
+```bash
+openkg-webui serve [--host 0.0.0.0] [--port 8082] [--reload]
+```
+
+`openkg-webui serve` 需要完整 Web/API 依赖；如果你是通过本地 `./packaging/openkg-webui-cli` 安装的 CLI-only 包，请先卸载本地 CLI 包并切换到 `pip install -U openkg-webui`。
+
+---
+
+## 资源管理命令
+
+### `session` — 会话
+
+```bash
+openkg-webui session list [--limit 20]
+openkg-webui session show <id>
+openkg-webui session open <id>                      # 进入 REPL 继续对话
+openkg-webui session rename <id> --title "新标题"
+openkg-webui session delete <id>
+openkg-webui session trace <id> [--format dsl|mermaid]   # 导出推理链
+openkg-webui session diff <a.json> <b.json> [--json]     # 比较两份导出
+```
+
+### `plugin` — 插件信息
+
+```bash
+openkg-webui plugin list                            # 查看所有已注册的 capability
+openkg-webui plugin info <name>                     # 查看详情
+```
+
+### `config` — 配置
+
+```bash
+openkg-webui config show
+```
+
+### `provider` — 提供方认证 / 校验
+
+```bash
+openkg-webui provider login openai-codex      # 执行 OpenAI Codex OAuth 登录
+openkg-webui provider login github-copilot    # 校验现有 GitHub Copilot 认证是否可用
+openkg-webui provider login codebuddy         # 校验 CodeBuddy SDK 登录；未登录时打开登录入口
+```
+
+`openai-codex` 使用 OPENKG-WebUI 自己的独立 OAuth 流程登录。它不需要 `OPENAI_API_KEY`，也不会读取或同步本机 `~/.codex`；凭据保存在 `data/system/user-secrets/<owner>/private/openai-codex/`（沙箱访问不到的目录），与 Web 设置页共用。
+
+远程部署时，浏览器的 `localhost` 和服务器的 `localhost` 不是同一台机器，仅有普通反向代理无法把浏览器的 localhost callback 送到服务器，必须用 SSH 隧道建立 callback 桥。隧道通向已发布的 Web 端口；Next.js 只把精确的 callback 路径改写到 public callback broker，broker 校验 `state` 后才路由到原 OAuth operation。callback listener 仍位于后端 loopback，不发布 `1455`/`1457`，并支持默认 Docker bridge 网络。
+
+```bash
+ssh -N -L 1455:127.0.0.1:8092 <ssh-user>@<server-host>
+```
+
+若 OPENKG-WebUI 显示 fallback callback 端口 `1457`，则使用：
+
+```bash
+ssh -N -L 1457:127.0.0.1:8092 <ssh-user>@<server-host>
+```
+
+只运行与实际 callback 端口对应的其中一条命令，不能两条都运行。`8092` 只是示例 Web 端口：它是 OPENKG-WebUI 配置并作为 `callback_forward_port` 显示的 frontend/container 端口，不保证 SSH 主机的 `127.0.0.1` 正在监听同一端口。若 Docker/Podman 映射到不同宿主机端口，或反向代理监听不同端口，只替换 SSH 命令右侧的目标端口（上例中的 `8092`）为 SSH 主机 `127.0.0.1` 实际监听的 Web 端口；左侧 callback 端口仍保持 `1455` 或 `1457`。`<server-host>` 是该 loopback 监听端口所在的 SSH 主机；若浏览器域名指向反向代理或负载均衡器，请替换为正确的 SSH 前端主机。
+
+CLI 会先打印隧道命令，随后立即尝试打开浏览器。远程用户应先保持授权页打开但不要完成授权，在另一终端建立所显示的隧道，然后再继续授权。
+
+localhost 检测存在边界：若 Web 本身已通过 SSH 或 IDE localhost 转发访问，浏览器无法判断服务器是远程的。对于当前 Web operation，应保持其授权页未完成，从该 operation 的 authorize URL 中读取 `redirect_uri`，确认 callback 是 `1455` 还是 `1457`，再把该本地端口通过第二条隧道转到实际 Web 端口。另一种方法是取消该 Web operation，再通过 CLI 启动一个新 operation；CLI 输出只属于新 operation，不能用于当前 Web operation。
+
+Codex 令牌授权的是**你本人**的 ChatGPT 套餐，因此凭据只归当前登录用户，不会通过模型授权共享给部署内的其他用户——每位用户各自登录。登录成功后，模型列表来自该账号的动态目录；仅当此前尚未配置任何 LLM 时，Codex 才会被自动设为活动模型，否则不改动你已选的模型。目录刷新失败、上游 `429` 或其他错误都会如实报告，不会回退到付费 API Provider。这条 Codex backend 兼容路径目前属于实验性能力。
+
+---
+
+## 典型工作流
+
+```bash
+# 1. 初始化配置
+openkg-webui init
+
+# 2. 单轮问答
+openkg-webui run chat "什么是傅里叶变换？" -l zh
+
+# 3. 进入交互式对话（多轮）
+openkg-webui chat --language zh
+
+# 4. 查看会话记录
+openkg-webui session list
+
+# 5. 导出某次会话的推理链
+openkg-webui session trace <session-id> --format mermaid
+```
+
+> 对话内容由 `agent_loop` 配置的后端产生；未配置后端时 `run`/`chat` 会返回框架外壳提示（见仓库根目录 `ARCHITECTURE.md`）。

@@ -1,0 +1,127 @@
+# ============================================
+# OPENKG-WebUI Docker Compose Configuration
+# ============================================
+# This file provides orchestration for OPENKG-WebUI services
+#
+# Usage:
+#   Production:  python scripts/docker_compose.py up -d
+#   Development: python scripts/docker_compose.py -f docker-compose.yml -f docker-compose.dev.yml up
+#   Build only:  python scripts/docker_compose.py build
+#
+# Prerequisites:
+#   1. Runtime settings are stored in ./data/user/settings (created automatically)
+#   2. Configure model providers from the web Settings page or model_catalog.json
+#   3. Use scripts/docker_compose.py so port mappings are rendered from system.json
+#
+# Local LLM (LM Studio / Ollama / vLLM):
+#   Use "host.docker.internal" instead of "localhost" in provider base_url fields.
+#   Configure provider endpoints in data/user/settings/model_catalog.json or the UI.
+# ============================================
+
+services:
+  # Redis is internal-only runtime coordination state. AOF keeps unflushed
+  # event/command streams available across a sidecar restart; business data
+  # remains in SQLite/PocketBase.
+  redis:
+    image: redis:7.4-alpine
+    container_name: openkg-webui-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - openkg-webui-network
+
+  # ============================================
+  # PocketBase — optional auth + storage sidecar
+  # Set integrations.pocketbase_url=http://pocketbase:8090 to activate.
+  # Leave integrations.pocketbase_url blank to run without PocketBase (SQLite fallback).
+  # ============================================
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:latest
+    container_name: pocketbase
+    restart: unless-stopped
+    ports:
+      # Loopback-only by default: the backend runs unauthenticated in
+      # single-user mode, so publishing on 0.0.0.0 would expose it to the
+      # whole LAN (same posture as compose.yaml). Drop the 127.0.0.1: prefix
+      # deliberately when you want the deployment reachable from other hosts.
+      - "127.0.0.1:${OPENKG_WEBUI_DOCKER_POCKETBASE_PORT:-8090}:8090"
+    volumes:
+      # The upstream pocketbase image's entrypoint uses absolute paths
+      # (no /pb/ prefix): --dir=/pb_data --publicDir=/pb_public
+      # --hooksDir=/pb_hooks. The previous example mounted at /pb/pb_data
+      # and crashed on first start with "mkdir /pb_data: read-only file
+      # system".
+      - ./data/pocketbase:/pb_data
+      - ./data/pocketbase/public:/pb_public
+      - ./data/pocketbase/hooks:/pb_hooks
+    networks:
+      - openkg-webui-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8090/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # All-in-One OPENKG-WebUI Service
+  # ============================================
+  openkg-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: openkg-webui
+    restart: unless-stopped
+    # A root process (supervisord as PID 1) dropping its own children to an
+    # unprivileged user is not a privilege gain, so this is safe with the
+    # per-program user= design — see the Dockerfile's supervisord notes.
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      # Loopback-only by default — see the note on the pocketbase service.
+      - "127.0.0.1:${OPENKG_WEBUI_DOCKER_BACKEND_PORT:-8082}:${OPENKG_WEBUI_DOCKER_BACKEND_PORT:-8082}"
+      - "127.0.0.1:${OPENKG_WEBUI_DOCKER_FRONTEND_PORT:-8092}:${OPENKG_WEBUI_DOCKER_FRONTEND_PORT:-8092}"
+
+    volumes:
+      # Everything OPENKG-WebUI persists lives under ./data — one tree to mount
+      # and back up: admin workspace + runtime settings (data/user), per-user
+      # workspaces (data/users), partners (data/partners), accounts/grants/
+      # audit (data/system).
+      - ./data:/app/data
+
+    environment:
+      # Optional dependencies, re-applied on every start (#762). Installing
+      # these with `docker exec` does not survive `compose down`, so declare
+      # them here instead. Both are idempotent and never fatal; the pip cache
+      # lives on the data volume, so a rebuild reuses what it already fetched.
+      # Extras come from pyproject.toml — preview one with
+      # `python scripts/install_extras.py --dry-run "<name>"`.
+      # - OPENKG_WEBUI_EXTRAS=math-animator,partners
+      # - OPENKG_WEBUI_APT_PACKAGES=ffmpeg
+
+    # No compose healthcheck override: the image's own HEALTHCHECK
+    # (/app/healthcheck.py) reads the backend port from
+    # data/user/settings/system.json, so it stays correct when the port is
+    # changed in settings without this file's ${OPENKG_WEBUI_DOCKER_*} vars
+    # being re-rendered by scripts/docker_compose.py.
+
+    depends_on:
+      redis:
+        condition: service_healthy
+      pocketbase:
+        condition: service_healthy
+
+    networks:
+      - openkg-webui-network
+
+networks:
+  openkg-webui-network:
+    driver: bridge
