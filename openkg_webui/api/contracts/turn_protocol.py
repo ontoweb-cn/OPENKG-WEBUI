@@ -252,6 +252,16 @@ class SessionDetail(SessionSummary):
     preferences: dict[str, Any] = Field(default_factory=dict)
 
 
+class CoordinationStatus(WireModel):
+    backend: Literal["memory", "redis"]
+    healthy: bool
+
+
+class RedisStatusDetail(WireModel):
+    configured: bool
+    healthy: bool
+
+
 class RuntimeStatus(WireModel):
     worker_id: str
     worker_count: int = Field(ge=1)
@@ -265,6 +275,10 @@ class RuntimeStatus(WireModel):
     lease_ttl_seconds: int = Field(ge=1)
     renew_interval_seconds: int = Field(ge=1)
     recovery_interval_seconds: int = Field(ge=1)
+    # Nested diagnostics consumed by the multi-worker browser fixture; the
+    # flat fields above remain authoritative for existing consumers.
+    coordination: CoordinationStatus | None = None
+    redis: RedisStatusDetail | None = None
     protocol_version: Literal["2.0"] = PROTOCOL_VERSION
     minimum_web_protocol_version: Literal["2.0"] = MINIMUM_WEB_PROTOCOL_VERSION
 

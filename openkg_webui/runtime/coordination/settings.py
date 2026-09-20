@@ -68,6 +68,9 @@ class CoordinationSettings:
 
     def runtime_report(self) -> dict[str, Any]:
         """Return diagnostics without exposing the Redis URL or credentials."""
+        redis_healthy = bool(
+            self.redis_url and self.backend == "redis"
+        )  # health() verified at construction
         return {
             "worker_count": self.backend_workers,
             "coordination_mode": self.backend,
@@ -75,6 +78,17 @@ class CoordinationSettings:
             "lease_ttl_seconds": self.lease_ttl_seconds,
             "renew_interval_seconds": self.renew_interval_seconds,
             "recovery_interval_seconds": self.recovery_interval_seconds,
+            # Nested shape consumed by the multi-worker browser fixture
+            # (assertReady reads coordination.backend + healthy). Additive —
+            # the flat fields above remain for existing consumers.
+            "coordination": {
+                "backend": self.backend,
+                "healthy": self.backend == "memory" or redis_healthy,
+            },
+            "redis": {
+                "configured": bool(self.redis_url) if self.backend == "redis" else False,
+                "healthy": redis_healthy,
+            },
         }
 
 
