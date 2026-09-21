@@ -331,6 +331,50 @@ async def test_http_backend_sse_events() -> None:
     assert [e.text for e in events] == ["hello", " world"]
 
 
+async def test_http_backend_sse_frames_surface_before_stream_end() -> None:
+    """Each SSE frame must surface while the response body is still open.
+
+    Regression: ``_capped_lines`` used to pull the body through
+    ``aiter_bytes(65536)``, and httpx's chunker holds bytes until the 64 KiB
+    quantum fills or the stream ends — so a live agent stream reached the UI
+    in late bursts (idle minutes, then everything at once). The producer here
+    parks after the first frame and only continues once that frame has been
+    observed by the consumer, which a buffer-until-EOF reader can never
+    satisfy while the body is open.
+    """
+    parked = asyncio.Event()
+    body_open = True
+    arrival_body_open: bool | None = None
+
+    async def body():
+        nonlocal body_open
+        try:
+            yield b'data: {"kind": "content", "text": "one"}\n\n'
+            # Park until the consumer surfaced frame one, then continue.
+            await asyncio.wait_for(parked.wait(), timeout=5.0)
+            yield b'data: {"kind": "content", "text": "two"}\n\n'
+        finally:
+            body_open = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=body(),
+        )
+
+    async def consume() -> None:
+        nonlocal arrival_body_open
+        backend = _http_backend(handler)
+        async for event in backend.run(_request()):
+            if event.text == "one":
+                arrival_body_open = body_open
+                parked.set()
+
+    await asyncio.wait_for(consume(), timeout=15.0)
+    assert arrival_body_open is True
+
+
 async def test_http_backend_discards_oversized_lines() -> None:
     """A runaway NDJSON line must be dropped without killing the stream."""
     from openkg_webui.services.agent_loop.protocol import MAX_LINE_BYTES

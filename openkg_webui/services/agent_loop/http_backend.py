@@ -539,13 +539,19 @@ class HttpAgentLoopBackend(AgentLoopBackend):
 async def _capped_lines(response: httpx.Response, backend_name: str) -> AsyncIterator[str]:
     """Yield decoded lines from the response body, bounding each line's size.
 
-    ``aiter_lines`` buffers an unbounded line in memory before yielding, so
-    the cap is enforced at the byte-buffer level: a runaway line is
-    discarded (with a warning) and iteration continues with the next one.
+    The size cap lives here, in our own buffer — ``aiter_lines`` buffers an
+    unbounded line before yielding, so a runaway line would grow without
+    bound. A runaway line is therefore discarded (with a warning) and
+    iteration continues with the next one.
+
+    ``aiter_bytes`` takes no size argument on purpose: with one, httpx's
+    chunker holds bytes until that quantum fills (or the stream ends), so a
+    live SSE/NDJSON stream would reach the turn in late 64 KiB bursts —
+    idle minutes, then the whole trace at once — instead of frame by frame.
     """
     buffer = bytearray()
     discarding = False
-    async for chunk in response.aiter_bytes(65536):
+    async for chunk in response.aiter_bytes():
         buffer.extend(chunk)
         while True:
             newline = buffer.find(b"\n")
