@@ -315,6 +315,7 @@ from openkg_webui.api.routers import (
     capabilities_settings,
     imports,
     kag,
+    knowledge,
     outputs,
     sessions,
     settings,
@@ -371,6 +372,9 @@ app.include_router(settings.router, prefix="/api/settings", tags=["settings"], d
 # bridge 任务上报子路由例外——服务间 api_key 鉴权（附录 A.3），不挂 _auth。
 app.include_router(kag.router, prefix="/api/kag", tags=["kag"], dependencies=_auth)
 app.include_router(kag.bridge_router, prefix="/api/kag/bridge", tags=["kag"])
+# 知识中心管理面（docs/knowledge-center-port-design.md §三）：会话鉴权 +
+# 薄代理 intellect-rag-app（身份经 agent-loop identity 同源解析，P1-1）。
+app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"], dependencies=_auth)
 app.include_router(system.router, prefix="/api/system", tags=["system"], dependencies=_auth)
 app.include_router(voice.router, prefix="/api/voice", tags=["voice"], dependencies=_auth)
 app.include_router(

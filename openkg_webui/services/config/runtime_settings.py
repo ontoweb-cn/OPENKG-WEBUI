@@ -99,6 +99,17 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
         "bridge_api_key": "",
         "bridge_http_url": "",
     },
+    # 知识中心（docs/knowledge-center-port-design.md §三/§九；Phase 1a T2）：
+    # rag-app 上游连接。api_key 与 intellect-team 部署的 INTELLECT_RAG_API_KEY
+    # 是同一把（设计 §十一-2）；身份归因 header 不在此配置——代理经 agent-loop
+    # identity（resolve_backend_identity）按当前用户解析，与 turn 检索同一
+    # 身份源（P1-1）。base_url 指向 rag-app（如 http://127.0.0.1:9380）。
+    "knowledge": {
+        "version": 1,
+        "enabled": False,
+        "base_url": "",
+        "api_key": "",
+    },
 }
 
 # Clamp bounds for the chat attachment knobs. The MB ceilings are deliberately
@@ -1575,6 +1586,7 @@ class RuntimeSettingsService:
             ),
             "agent_loop": self._normalize_agent_loop(settings),
             "kag": self._normalize_kag(settings),
+            "knowledge": self._normalize_knowledge(settings),
         }
 
     def _normalize_kag(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -1599,6 +1611,17 @@ class RuntimeSettingsService:
             "service_user_no": _string(block.get("service_user_no")),
             "bridge_api_key": _string(block.get("bridge_api_key")),
             "bridge_http_url": _string(block.get("bridge_http_url")),
+        }
+
+    def _normalize_knowledge(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """归一化 ``knowledge``（知识中心）集成块（Phase 1a：开关 + 上游连接）。"""
+        raw = settings.get("knowledge")
+        block = raw if isinstance(raw, dict) else {}
+        return {
+            "version": 1,
+            "enabled": _coerce_bool(block.get("enabled"), False),
+            "base_url": _string(block.get("base_url")).rstrip("/"),
+            "api_key": _string(block.get("api_key")),
         }
 
     def _normalize_auth(self, settings: dict[str, Any]) -> dict[str, Any]:

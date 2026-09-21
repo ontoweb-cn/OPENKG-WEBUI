@@ -2340,3 +2340,55 @@ async def update_kag_domain(request: Request, payload: dict[str, Any]) -> dict[s
     current = service.load_system(include_process_overrides=False)
     saved = service.save_system({**current, "kag": block})
     return _kag_domain_payload(saved.get("kag") or {})
+
+
+# ---------------------------------------------------------------------------
+# Knowledge center domain（docs/knowledge-center-port-design.md §三/§九；Phase 1a T2）
+# ---------------------------------------------------------------------------
+
+
+def _knowledge_domain_payload(block: dict[str, Any]) -> dict[str, Any]:
+    """api_key 为 write-only：GET/PUT 响应均不回显（沿 kag/agent-loop 先例）。"""
+    return {**block, "api_key": "", "api_key_set": bool(block.get("api_key"))}
+
+
+@router.get("/knowledge")
+async def get_knowledge_domain() -> dict[str, Any]:
+    _require_settings_admin()
+    from openkg_webui.services.knowledge import get_knowledge_settings
+
+    return _knowledge_domain_payload(get_knowledge_settings())
+
+
+@router.put("/knowledge")
+async def update_knowledge_domain(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+    _require_settings_admin()
+    # same-origin guard：变更类端点防跨站 JSON POST 副作用（沿 kag PUT 模式）
+    from openkg_webui.services.config.origins import origin_is_trusted, request_authority
+    from openkg_webui.services.config.runtime_settings import load_system_settings
+
+    system = load_system_settings()
+    allowed = [
+        str(system.get("cors_origin") or ""),
+        *(str(x) for x in (system.get("cors_origins") or [])),
+    ]
+    if not origin_is_trusted(
+        request.headers.get("origin"),
+        request_authority(
+            request.headers.get("host"), request.headers.get("x-forwarded-host")
+        ),
+        allowed,
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site request refused.")
+
+    from openkg_webui.services.knowledge import get_knowledge_settings
+
+    block = {k: v for k, v in payload.items() if k not in {"api_key_set"}}
+    # 空 api_key = "保留已存值"（tri-state 写法，沿 kag bridge_api_key 先例）
+    if not str(block.get("api_key") or "").strip():
+        block["api_key"] = str(get_knowledge_settings().get("api_key") or "")
+    # 与 kag PUT 同款——用不含 process overrides 的文件态合并保存
+    service = get_runtime_settings_service()
+    current = service.load_system(include_process_overrides=False)
+    saved = service.save_system({**current, "knowledge": block})
+    return _knowledge_domain_payload(saved.get("knowledge") or {})
