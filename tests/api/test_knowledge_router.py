@@ -146,6 +146,8 @@ def test_upload_forwards_multipart(proxy: TestClient) -> None:
     assert request.method == "POST"
     assert str(request.url) == "http://upstream.test/api/v1/datasets/ds1/documents"
     body = request.content.decode("utf-8", "replace")
+    # 上游读 getlist("file")——字段名必须单数（评审 R-1 回归守卫）
+    assert 'name="file"' in body
     assert "a.txt" in body and "hello" in body
     assert "parent_path" in body
 
@@ -211,8 +213,8 @@ def test_settings_roundtrip_and_masking(admin_client: TestClient) -> None:
     assert set(got) == {"version", "enabled", "base_url", "api_key", "api_key_set"}
 
 
-def test_settings_normalize_defaults() -> None:
+def test_settings_normalize_defaults(settings_dir: Path) -> None:
     from openkg_webui.services.config.runtime_settings import RuntimeSettingsService as S
 
-    block = S(Path("/nonexistent"), process_env={})._normalize_system({})["knowledge"]
+    block = S(settings_dir, process_env={})._normalize_system({})["knowledge"]
     assert block == {"version": 1, "enabled": False, "base_url": "", "api_key": ""}

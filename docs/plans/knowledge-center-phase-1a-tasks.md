@@ -7,6 +7,22 @@
 > 实施修订两条，均已记入 §三：① 前端路由/代理前缀改为 knowledge-center
 > （退役面字面量守卫）；② D1 细化为 base_url/api_key 必配（rag-app 与
 > agent-loop 目标服务是两个进程）。
+>
+> **代码评审（2026-09-22 二轮，已修复）**：
+> - R-1（P1，已修）上传 multipart 字段名：上游读 `getlist("file")`，代理/前端
+>   原发 `files` 会导致 400 "No file part"——已统一为 `file` 并加回归断言。
+> - R-2（P1，已修）parse/stop body 键：上游要求 `document_ids`（且必填非空），
+>   前端原发 `{ids}`——已改。
+> - R-3（P2，已修）代理 Authorization 头顺序：identity_headers（operator 为
+>   team 服务配置的定制头）展开在后会覆盖发往 rag-app 的 Bearer——改为
+>   Authorization 置后。
+> - R-4（P3，记录）GET /datasets 的 total 在信封顶层，unwrap 时被丢弃——
+>   Phase 1a 列表单页（30 条）可接受，Phase 2 做分页时需透传 total。
+> - R-5（P3，记录）设置页保存后 refreshKnowledgeStatus 更新模块缓存，但已
+>   挂载的 TopBanner 状态要到下次整页加载才刷新入口——Phase 1b 打磨。
+> - R-6（P3，记录）检索 chunk 的 `content`/`similarity`/`document_name` 字段
+>   名基于 service 层阅读（含 content_with_weight 回退），运行时验收时以
+>   实际响应为准。
 
 - 日期：2026-09-22
 - 分支：`feature/knowledge-center`
@@ -45,9 +61,9 @@
 | 创建 KB | POST `/api/knowledge/datasets` | POST `/api/v1/datasets`（:82） | body：`name`(必填)、`description?`、`permission: "me"\|"team"`（对应 §十一-5 可见范围）、`chunk_method?`(默认 naive)、`parser_config?`、`embedding_model?`；ownership 由上游按 X-Intellect-* 注入 |
 | KB 详情/删除 | GET/DELETE `/api/knowledge/datasets/{id}` | GET/DELETE `/api/v1/datasets/{id}`（:511/:234） | — |
 | 文档列表 | GET `/api/knowledge/datasets/{id}/documents` | GET `/api/v1/datasets/{id}/documents`（document_api.py:794） | query：`page/page_size/orderby/desc/keywords?/create_time_from?/create_time_to?`；data：`{docs:[{id/name/run/progress/chunk_count/token_count/size/type/...}], total}` |
-| 上传（多文件） | POST `/api/knowledge/datasets/{id}/documents` | POST `/api/v1/datasets/{id}/documents`（:371） | multipart：`files[]`（多文件）+ form `type=local`、可选 `parent_path`（存储前缀）；上传后自动触发解析 |
-| 文档删除（批量） | DELETE `/api/knowledge/datasets/{id}/documents` | DELETE `/api/v1/datasets/{id}/documents`（:1198） | body：`{ids: [...]}` |
-| 解析触发/停止 | POST `.../documents/parse`、`.../documents/stop` | POST `/api/v1/datasets/{id}/documents/parse`（:1611）、`.../stop`（:1725） | body：`{ids: [...]}` |
+| 上传（多文件） | POST `/api/knowledge/datasets/{id}/documents` | POST `/api/v1/datasets/{id}/documents`（:371） | multipart：**字段名 `file`**（单数，上游 `getlist("file")`，评审 R-1）+ form `type=local`、可选 `parent_path`（存储前缀）、`parser_config`（白名单键 JSON）；上传后自动触发解析 |
+| 文档删除（批量） | DELETE `/api/knowledge/datasets/{id}/documents` | DELETE `/api/v1/datasets/{id}/documents`（:1198） | body：`{ids: [...]}`（或 `{delete_all: true}`，二者互斥） |
+| 解析触发/停止 | POST `.../documents/parse`、`.../documents/stop` | POST `/api/v1/datasets/{id}/documents/parse`（:1611）、`.../stop`（:1725） | body：**`{document_ids: [...]}`**（必填非空，评审 R-2） |
 | 文档详情 | GET `/api/knowledge/datasets/{id}/documents/{doc_id}` | GET `/api/v1/datasets/{id}/documents/{document_id}`（:2150） | — |
 | 摄取记录/日志 | GET `/api/knowledge/datasets/{id}/ingestions[/{log_id}]` | GET `/api/v1/datasets/{id}/ingestions`（dataset_api.py:804，`log_type=dataset\|file`、`page/page_size≤100`）、`/ingestions/<log_id>`（:830，含 `dsl` 全量） | logs 项含 `progress/progress_msg/operation_status/process_duration/document_name/task_type` |
 | 文档预览/缩略图 | GET `/api/knowledge/documents/{doc_id}/preview`、GET `/api/knowledge/thumbnails` | GET `/api/v1/documents/{doc_id}/preview`（document_api.py:2106）、GET `/api/v1/thumbnails`（:1371，query `doc_id`） | 字节流透传 |

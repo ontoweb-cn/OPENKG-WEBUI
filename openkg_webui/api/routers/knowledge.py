@@ -101,7 +101,9 @@ async def _upstream(
         bearer, identity_headers = resolve_request_auth(_user_id())
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
         raise _service_error(exc) from exc
-    headers = {"Authorization": f"Bearer {bearer}", **identity_headers}
+    # Authorization 放最后：profile 自带 headers（operator 为 team 服务配置的
+    # 定制头，可能含 Authorization）不得覆盖发往 rag-app 的凭据（评审 R-4）。
+    headers = {**identity_headers, "Authorization": f"Bearer {bearer}"}
     try:
         async with httpx.AsyncClient(
             base_url=f"{base_url}/api/v1",
@@ -210,8 +212,9 @@ async def knowledge_upload_documents(
     httpx 在异步上下文中经线程池分块读取，不会整体载入内存（风险注记见任务清单 §七）。"""
     _require_enabled()
     _require_same_origin(request)
+    # 上游读 files.getlist("file")——字段名是单数 file（评审 R-1，T0 漏核）。
     payload = [
-        ("files", (f.filename or "file", f.file, f.content_type or "application/octet-stream"))
+        ("file", (f.filename or "file", f.file, f.content_type or "application/octet-stream"))
         for f in files
     ]
     data: dict[str, Any] = {"type": type_ or "local"}

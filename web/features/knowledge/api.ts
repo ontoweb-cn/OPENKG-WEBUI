@@ -132,7 +132,8 @@ export async function uploadDocuments(
   files: File[],
 ): Promise<void> {
   const form = new FormData();
-  for (const file of files) form.append("files", file, file.name);
+  // 上游 document_api 读 files.getlist("file")——字段名单数（评审 R-1）
+  for (const file of files) form.append("file", file, file.name);
   form.append("type", "local");
   const payload = await requestJson<unknown>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents`,
@@ -157,7 +158,8 @@ export async function parseDocuments(
 ): Promise<void> {
   await requestKnowledge<void>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/parse`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: documentIds }) },
+    // 上游 parse/stop 的 body 键是 document_ids（评审 R-2）
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document_ids: documentIds }) },
   );
 }
 
@@ -167,7 +169,7 @@ export async function stopParsing(
 ): Promise<void> {
   await requestKnowledge<void>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/stop`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: documentIds }) },
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document_ids: documentIds }) },
   );
 }
 
