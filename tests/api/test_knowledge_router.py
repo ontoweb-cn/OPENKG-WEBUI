@@ -52,13 +52,13 @@ def proxy(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         lambda user_id=None: ("svc-key", {"X-Intellect-User": "mem_u1"}),
     )
     app = FastAPI()
-    app.include_router(knowledge_router.router, prefix="/api/knowledge")
+    app.include_router(knowledge_router.router, prefix="/api/knowledge-center")
     client = TestClient(app)
     client.calls = calls  # type: ignore[attr-defined]
     return client
 
 
-_K = "/api/knowledge"
+_K = "/api/knowledge-center"
 
 
 def test_disabled_returns_403(proxy: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

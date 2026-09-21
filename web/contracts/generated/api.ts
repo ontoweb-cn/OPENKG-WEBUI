@@ -637,7 +637,7 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge": {
+  readonly "/api/knowledge-center": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -645,7 +645,7 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge Status */
-    readonly get: operations["knowledge_status_api_knowledge_get"];
+    readonly get: operations["knowledge_status_api_knowledge_center_get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -654,7 +654,7 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets": {
+  readonly "/api/knowledge-center/datasets": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -662,17 +662,17 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge List Datasets */
-    readonly get: operations["knowledge_list_datasets_api_knowledge_datasets_get"];
+    readonly get: operations["knowledge_list_datasets_api_knowledge_center_datasets_get"];
     readonly put?: never;
     /** Knowledge Create Dataset */
-    readonly post: operations["knowledge_create_dataset_api_knowledge_datasets_post"];
+    readonly post: operations["knowledge_create_dataset_api_knowledge_center_datasets_post"];
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -680,17 +680,17 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge Get Dataset */
-    readonly get: operations["knowledge_get_dataset_api_knowledge_datasets__dataset_id__get"];
+    readonly get: operations["knowledge_get_dataset_api_knowledge_center_datasets__dataset_id__get"];
     readonly put?: never;
     readonly post?: never;
     /** Knowledge Delete Dataset */
-    readonly delete: operations["knowledge_delete_dataset_api_knowledge_datasets__dataset_id__delete"];
+    readonly delete: operations["knowledge_delete_dataset_api_knowledge_center_datasets__dataset_id__delete"];
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/documents": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -698,22 +698,22 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge List Documents */
-    readonly get: operations["knowledge_list_documents_api_knowledge_datasets__dataset_id__documents_get"];
+    readonly get: operations["knowledge_list_documents_api_knowledge_center_datasets__dataset_id__documents_get"];
     readonly put?: never;
     /**
      * Knowledge Upload Documents
      * @description 多文件上传透传。``UploadFile.file`` 是磁盘回退的 SpooledTemporaryFile，
      *     httpx 在异步上下文中经线程池分块读取，不会整体载入内存（风险注记见任务清单 §七）。
      */
-    readonly post: operations["knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post"];
+    readonly post: operations["knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post"];
     /** Knowledge Delete Documents */
-    readonly delete: operations["knowledge_delete_documents_api_knowledge_datasets__dataset_id__documents_delete"];
+    readonly delete: operations["knowledge_delete_documents_api_knowledge_center_datasets__dataset_id__documents_delete"];
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/documents/{document_id}": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents/{document_id}": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -721,7 +721,7 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge Get Document */
-    readonly get: operations["knowledge_get_document_api_knowledge_datasets__dataset_id__documents__document_id__get"];
+    readonly get: operations["knowledge_get_document_api_knowledge_center_datasets__dataset_id__documents__document_id__get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -730,7 +730,7 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/documents/parse": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents/parse": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -740,14 +740,14 @@ export interface paths {
     readonly get?: never;
     readonly put?: never;
     /** Knowledge Parse Documents */
-    readonly post: operations["knowledge_parse_documents_api_knowledge_datasets__dataset_id__documents_parse_post"];
+    readonly post: operations["knowledge_parse_documents_api_knowledge_center_datasets__dataset_id__documents_parse_post"];
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/documents/stop": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents/stop": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -757,14 +757,14 @@ export interface paths {
     readonly get?: never;
     readonly put?: never;
     /** Knowledge Stop Documents */
-    readonly post: operations["knowledge_stop_documents_api_knowledge_datasets__dataset_id__documents_stop_post"];
+    readonly post: operations["knowledge_stop_documents_api_knowledge_center_datasets__dataset_id__documents_stop_post"];
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/ingestions": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/ingestions": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -772,7 +772,7 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge List Ingestions */
-    readonly get: operations["knowledge_list_ingestions_api_knowledge_datasets__dataset_id__ingestions_get"];
+    readonly get: operations["knowledge_list_ingestions_api_knowledge_center_datasets__dataset_id__ingestions_get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -781,7 +781,7 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/ingestions/{log_id}": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/ingestions/{log_id}": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -789,7 +789,7 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge Get Ingestion */
-    readonly get: operations["knowledge_get_ingestion_api_knowledge_datasets__dataset_id__ingestions__log_id__get"];
+    readonly get: operations["knowledge_get_ingestion_api_knowledge_center_datasets__dataset_id__ingestions__log_id__get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -798,7 +798,7 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/datasets/{dataset_id}/search": {
+  readonly "/api/knowledge-center/datasets/{dataset_id}/search": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -808,14 +808,14 @@ export interface paths {
     readonly get?: never;
     readonly put?: never;
     /** Knowledge Search Dataset */
-    readonly post: operations["knowledge_search_dataset_api_knowledge_datasets__dataset_id__search_post"];
+    readonly post: operations["knowledge_search_dataset_api_knowledge_center_datasets__dataset_id__search_post"];
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/documents/{document_id}/preview": {
+  readonly "/api/knowledge-center/documents/{document_id}/preview": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -823,7 +823,7 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge Preview Document */
-    readonly get: operations["knowledge_preview_document_api_knowledge_documents__document_id__preview_get"];
+    readonly get: operations["knowledge_preview_document_api_knowledge_center_documents__document_id__preview_get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -832,7 +832,7 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
-  readonly "/api/knowledge/thumbnails": {
+  readonly "/api/knowledge-center/thumbnails": {
     readonly parameters: {
       readonly query?: never;
       readonly header?: never;
@@ -840,7 +840,7 @@ export interface paths {
       readonly cookie?: never;
     };
     /** Knowledge Thumbnail */
-    readonly get: operations["knowledge_thumbnail_api_knowledge_thumbnails_get"];
+    readonly get: operations["knowledge_thumbnail_api_knowledge_center_thumbnails_get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -2489,8 +2489,8 @@ export interface components {
       /** Username */
       readonly username?: string | null;
     };
-    /** Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post */
-    readonly Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post: {
+    /** Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post */
+    readonly Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post: {
       /** Files */
       readonly files: readonly string[];
       /** Parent Path */
@@ -3702,8 +3702,8 @@ export type SchemaAgentLoopSettingsUpdate =
   components["schemas"]["AgentLoopSettingsUpdate"];
 export type SchemaAuthStatusResponse =
   components["schemas"]["AuthStatusResponse"];
-export type SchemaBodyKnowledgeUploadDocumentsApiKnowledgeDatasetsDatasetIdDocumentsPost =
-  components["schemas"]["Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post"];
+export type SchemaBodyKnowledgeUploadDocumentsApiKnowledgeCenterDatasetsDatasetIdDocumentsPost =
+  components["schemas"]["Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post"];
 export type SchemaBodySpeechToTextApiVoiceSttPost =
   components["schemas"]["Body_speech_to_text_api_voice_stt_post"];
 export type SchemaBodyUploadAvatarApiAuthProfileAvatarPut =
@@ -5115,7 +5115,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_status_api_knowledge_get: {
+  readonly knowledge_status_api_knowledge_center_get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5150,7 +5150,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_list_datasets_api_knowledge_datasets_get: {
+  readonly knowledge_list_datasets_api_knowledge_center_datasets_get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5183,7 +5183,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_create_dataset_api_knowledge_datasets_post: {
+  readonly knowledge_create_dataset_api_knowledge_center_datasets_post: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5216,7 +5216,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_get_dataset_api_knowledge_datasets__dataset_id__get: {
+  readonly knowledge_get_dataset_api_knowledge_center_datasets__dataset_id__get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5251,7 +5251,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_delete_dataset_api_knowledge_datasets__dataset_id__delete: {
+  readonly knowledge_delete_dataset_api_knowledge_center_datasets__dataset_id__delete: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5286,7 +5286,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_list_documents_api_knowledge_datasets__dataset_id__documents_get: {
+  readonly knowledge_list_documents_api_knowledge_center_datasets__dataset_id__documents_get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5321,7 +5321,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post: {
+  readonly knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5336,7 +5336,7 @@ export interface operations {
     };
     readonly requestBody: {
       readonly content: {
-        readonly "multipart/form-data": components["schemas"]["Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post"];
+        readonly "multipart/form-data": components["schemas"]["Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post"];
       };
     };
     readonly responses: {
@@ -5360,7 +5360,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_delete_documents_api_knowledge_datasets__dataset_id__documents_delete: {
+  readonly knowledge_delete_documents_api_knowledge_center_datasets__dataset_id__documents_delete: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5395,7 +5395,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_get_document_api_knowledge_datasets__dataset_id__documents__document_id__get: {
+  readonly knowledge_get_document_api_knowledge_center_datasets__dataset_id__documents__document_id__get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5431,7 +5431,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_parse_documents_api_knowledge_datasets__dataset_id__documents_parse_post: {
+  readonly knowledge_parse_documents_api_knowledge_center_datasets__dataset_id__documents_parse_post: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5466,7 +5466,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_stop_documents_api_knowledge_datasets__dataset_id__documents_stop_post: {
+  readonly knowledge_stop_documents_api_knowledge_center_datasets__dataset_id__documents_stop_post: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5501,7 +5501,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_list_ingestions_api_knowledge_datasets__dataset_id__ingestions_get: {
+  readonly knowledge_list_ingestions_api_knowledge_center_datasets__dataset_id__ingestions_get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5536,7 +5536,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_get_ingestion_api_knowledge_datasets__dataset_id__ingestions__log_id__get: {
+  readonly knowledge_get_ingestion_api_knowledge_center_datasets__dataset_id__ingestions__log_id__get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5572,7 +5572,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_search_dataset_api_knowledge_datasets__dataset_id__search_post: {
+  readonly knowledge_search_dataset_api_knowledge_center_datasets__dataset_id__search_post: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5607,7 +5607,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_preview_document_api_knowledge_documents__document_id__preview_get: {
+  readonly knowledge_preview_document_api_knowledge_center_documents__document_id__preview_get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {
@@ -5642,7 +5642,7 @@ export interface operations {
       };
     };
   };
-  readonly knowledge_thumbnail_api_knowledge_thumbnails_get: {
+  readonly knowledge_thumbnail_api_knowledge_center_thumbnails_get: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {

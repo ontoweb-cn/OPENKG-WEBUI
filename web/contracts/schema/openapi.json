@@ -292,7 +292,7 @@
         "title": "AuthStatusResponse",
         "type": "object"
       },
-      "Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post": {
+      "Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post": {
         "properties": {
           "files": {
             "items": {
@@ -328,7 +328,7 @@
         "required": [
           "files"
         ],
-        "title": "Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post",
+        "title": "Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post",
         "type": "object"
       },
       "Body_speech_to_text_api_voice_stt_post": {
@@ -5267,9 +5267,9 @@
         ]
       }
     },
-    "/api/knowledge": {
+    "/api/knowledge-center": {
       "get": {
-        "operationId": "knowledge_status_api_knowledge_get",
+        "operationId": "knowledge_status_api_knowledge_center_get",
         "parameters": [
           {
             "in": "header",
@@ -5310,7 +5310,7 @@
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
-                  "title": "Response Knowledge Status Api Knowledge Get",
+                  "title": "Response Knowledge Status Api Knowledge Center Get",
                   "type": "object"
                 }
               }
@@ -5334,9 +5334,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets": {
+    "/api/knowledge-center/datasets": {
       "get": {
-        "operationId": "knowledge_list_datasets_api_knowledge_datasets_get",
+        "operationId": "knowledge_list_datasets_api_knowledge_center_datasets_get",
         "parameters": [
           {
             "in": "header",
@@ -5397,7 +5397,7 @@
         ]
       },
       "post": {
-        "operationId": "knowledge_create_dataset_api_knowledge_datasets_post",
+        "operationId": "knowledge_create_dataset_api_knowledge_center_datasets_post",
         "parameters": [
           {
             "in": "header",
@@ -5458,9 +5458,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}": {
+    "/api/knowledge-center/datasets/{dataset_id}": {
       "delete": {
-        "operationId": "knowledge_delete_dataset_api_knowledge_datasets__dataset_id__delete",
+        "operationId": "knowledge_delete_dataset_api_knowledge_center_datasets__dataset_id__delete",
         "parameters": [
           {
             "in": "path",
@@ -5530,7 +5530,7 @@
         ]
       },
       "get": {
-        "operationId": "knowledge_get_dataset_api_knowledge_datasets__dataset_id__get",
+        "operationId": "knowledge_get_dataset_api_knowledge_center_datasets__dataset_id__get",
         "parameters": [
           {
             "in": "path",
@@ -5600,9 +5600,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/documents": {
+    "/api/knowledge-center/datasets/{dataset_id}/documents": {
       "delete": {
-        "operationId": "knowledge_delete_documents_api_knowledge_datasets__dataset_id__documents_delete",
+        "operationId": "knowledge_delete_documents_api_knowledge_center_datasets__dataset_id__documents_delete",
         "parameters": [
           {
             "in": "path",
@@ -5672,7 +5672,7 @@
         ]
       },
       "get": {
-        "operationId": "knowledge_list_documents_api_knowledge_datasets__dataset_id__documents_get",
+        "operationId": "knowledge_list_documents_api_knowledge_center_datasets__dataset_id__documents_get",
         "parameters": [
           {
             "in": "path",
@@ -5743,7 +5743,7 @@
       },
       "post": {
         "description": "多文件上传透传。``UploadFile.file`` 是磁盘回退的 SpooledTemporaryFile，\nhttpx 在异步上下文中经线程池分块读取，不会整体载入内存（风险注记见任务清单 §七）。",
-        "operationId": "knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post",
+        "operationId": "knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post",
         "parameters": [
           {
             "in": "path",
@@ -5791,7 +5791,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_knowledge_upload_documents_api_knowledge_datasets__dataset_id__documents_post"
+                "$ref": "#/components/schemas/Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post"
               }
             }
           },
@@ -5823,9 +5823,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/documents/parse": {
+    "/api/knowledge-center/datasets/{dataset_id}/documents/parse": {
       "post": {
-        "operationId": "knowledge_parse_documents_api_knowledge_datasets__dataset_id__documents_parse_post",
+        "operationId": "knowledge_parse_documents_api_knowledge_center_datasets__dataset_id__documents_parse_post",
         "parameters": [
           {
             "in": "path",
@@ -5895,9 +5895,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/documents/stop": {
+    "/api/knowledge-center/datasets/{dataset_id}/documents/stop": {
       "post": {
-        "operationId": "knowledge_stop_documents_api_knowledge_datasets__dataset_id__documents_stop_post",
+        "operationId": "knowledge_stop_documents_api_knowledge_center_datasets__dataset_id__documents_stop_post",
         "parameters": [
           {
             "in": "path",
@@ -5967,9 +5967,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/documents/{document_id}": {
+    "/api/knowledge-center/datasets/{dataset_id}/documents/{document_id}": {
       "get": {
-        "operationId": "knowledge_get_document_api_knowledge_datasets__dataset_id__documents__document_id__get",
+        "operationId": "knowledge_get_document_api_knowledge_center_datasets__dataset_id__documents__document_id__get",
         "parameters": [
           {
             "in": "path",
@@ -6048,9 +6048,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/ingestions": {
+    "/api/knowledge-center/datasets/{dataset_id}/ingestions": {
       "get": {
-        "operationId": "knowledge_list_ingestions_api_knowledge_datasets__dataset_id__ingestions_get",
+        "operationId": "knowledge_list_ingestions_api_knowledge_center_datasets__dataset_id__ingestions_get",
         "parameters": [
           {
             "in": "path",
@@ -6120,9 +6120,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/ingestions/{log_id}": {
+    "/api/knowledge-center/datasets/{dataset_id}/ingestions/{log_id}": {
       "get": {
-        "operationId": "knowledge_get_ingestion_api_knowledge_datasets__dataset_id__ingestions__log_id__get",
+        "operationId": "knowledge_get_ingestion_api_knowledge_center_datasets__dataset_id__ingestions__log_id__get",
         "parameters": [
           {
             "in": "path",
@@ -6201,9 +6201,9 @@
         ]
       }
     },
-    "/api/knowledge/datasets/{dataset_id}/search": {
+    "/api/knowledge-center/datasets/{dataset_id}/search": {
       "post": {
-        "operationId": "knowledge_search_dataset_api_knowledge_datasets__dataset_id__search_post",
+        "operationId": "knowledge_search_dataset_api_knowledge_center_datasets__dataset_id__search_post",
         "parameters": [
           {
             "in": "path",
@@ -6273,9 +6273,9 @@
         ]
       }
     },
-    "/api/knowledge/documents/{document_id}/preview": {
+    "/api/knowledge-center/documents/{document_id}/preview": {
       "get": {
-        "operationId": "knowledge_preview_document_api_knowledge_documents__document_id__preview_get",
+        "operationId": "knowledge_preview_document_api_knowledge_center_documents__document_id__preview_get",
         "parameters": [
           {
             "in": "path",
@@ -6345,9 +6345,9 @@
         ]
       }
     },
-    "/api/knowledge/thumbnails": {
+    "/api/knowledge-center/thumbnails": {
       "get": {
-        "operationId": "knowledge_thumbnail_api_knowledge_thumbnails_get",
+        "operationId": "knowledge_thumbnail_api_knowledge_center_thumbnails_get",
         "parameters": [
           {
             "in": "header",

@@ -4,13 +4,15 @@ const BASE_URL = process.env.WEB_BASE_URL || "http://127.0.0.1:3300";
 
 // The primary surfaces this fork actually serves. Mirrors PRIMARY_NAV +
 // SECONDARY_NAV in `components/sidebar/nav-entries.ts`. Reading, Mastery,
-// Knowledge and Co-Writer were dropped with their layers (see the retired
-// prefixes in tests/api/test_canonical_route_surface.py); auditing them here
-// only ever exercised the 404 page, which passes every assertion below and so
-// reported a false green.
+// Co-Writer and the retired /knowledge layer were dropped with their layers
+// (see the retired prefixes in tests/api/test_canonical_route_surface.py);
+// auditing them here only ever exercised the 404 page, which passes every
+// assertion below and so reported a false green. The knowledge center lives
+// at /knowledge-center (the /knowledge prefix stays retired).
 const surfaces = [
   ["Chat", "/chat"],
   ["Space", "/space"],
+  ["Knowledge", "/knowledge-center"],
   ["Settings", "/settings"],
 ] as const;
 

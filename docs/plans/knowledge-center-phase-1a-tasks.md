@@ -23,6 +23,12 @@
 
 ## 三、API 契约（T0 已核对，2026-09-22）
 
+> **实施修订（T3/T7）**：发布守卫 `web/tests/no-v1-chat-surface.test.ts` 把
+> `/knowledge` 与 `/api/knowledge` 列为退役 v1 面的禁用字面量（历史决策：
+> 旧知识层随其子系统一起退役）。因此前端路由采用 **`/knowledge-center`**、
+> 代理前缀采用 **`/api/knowledge-center`**——避免与退役面撞名，也免去对
+> 守卫的任何豁免。下表代理路径相应整体加 `-center` 后缀；其余不变。
+
 上游响应均为 RagFlow 派生信封 `{code, data, message}`（`code=0` 成功）；代理原样透传信封，前端 parse 层解包。
 
 | 用途 | openkg-webui 代理 | rag-app 上游（已核对路径） | 关键参数/返回 |
