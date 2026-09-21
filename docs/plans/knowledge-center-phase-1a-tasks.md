@@ -102,6 +102,15 @@ T7 内部可再按 列表/创建 → 详情/上传/进度 → 试玩 三次提�
 
 ## 六、Phase 1a 验收清单
 
+> **运行时验收结果（2026-09-22 联调）**：1-6 全部通过。
+> - ① 上传（multipart 字段 file）→ 自动解析 RUNNING→DONE（1 chunk，GPUStack qwen3-embedding）→ 检索试玩返回分块（UI 端到端，R-6 关闭：实际字段 chunk_id/content_with_weight/docnm_kwd，已对齐）；
+> - ② 用户隔离：testreview01 与 local-admin 的 datasets 列表互不可见；
+> - ③ 未启用：/api/knowledge-center 返回 enabled:false，路由拦截模拟下侧栏「知识库」入口隐藏（menuitem 角色判定）；
+> - ④ 子路径部署未单独演练（apiUrl 相对路径机制与 /space 等既有页一致）；
+> - ⑤ 门禁见执行状态注记；⑥ 署名已入库。
+>
+> 联调环境修复（部署侧，不入库）：rag-app `local-admin` 租户回填（tenant + embd_id + GPUStack provider/instance/model 三表克隆自 2d0b100f273a 租户）。根因：`ensure_team_user` 的租户补建依赖 X-Intellect-Tenant header / INTELLECT_TENANT_ID env，二者皆缺时只建用户不建租户 → 后续 create 报 102 "Tenant not found"。**遗留事项（rag-app 侧代码修复，待另提）**：ensure_team_user 无法解析 tenant_id 时应回落 member_id（per-user tenant），且 load_user 对已存在用户也应幂等补建——否则新部署复现同一问题。
+
 1. 上传（多文件）→ 进度轮询 → 文档状态更新 → 检索试玩出结果，全程同一浏览器会话。
 2. 用户隔离：用户 A 建的库对用户 B 不可见（P1-1 用例①的 UI 侧；turn 侧留给 1b）。
 3. 未启用/未链接身份：入口隐藏，设置页有引导，无失效入口。
