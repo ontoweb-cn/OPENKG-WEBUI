@@ -21,20 +21,26 @@
 | D4 | **代理路径镜像 rag-app REST（thin）** | 决策 Q1：`/api/knowledge/*` 与上游 `/api/v1/*` 一一对应，形状翻译在前端 parse 层（`web/features/knowledge/api.ts`），不在代理层做模型重组 |
 | D5 | **进度采用 DeepMentor 的列表快照轮询模式** | 活跃期每 4s 轮询 KB 列表 + 文档列表（文档状态含 `run/progress/chunk_count`），日志按需拉 `ingestions`；不做 WS/SSE（决策 Q4） |
 
-## 三、API 契约草案（T0 评审后定稿）
+## 三、API 契约（T0 已核对，2026-09-22）
 
-| 用途 | openkg-webui 代理 | rag-app 上游 | 状态 |
+上游响应均为 RagFlow 派生信封 `{code, data, message}`（`code=0` 成功）；代理原样透传信封，前端 parse 层解包。
+
+| 用途 | openkg-webui 代理 | rag-app 上游（已核对路径） | 关键参数/返回 |
 | --- | --- | --- | --- |
-| KB 列表 | GET `/api/knowledge/datasets` | GET `/api/v1/datasets` | 复用 |
-| 创建/删除 KB | POST/DELETE `/api/knowledge/datasets[/{id}]` | POST/DELETE `/api/v1/datasets[/{id}]` | 复用 |
-| 文档列表（含解析状态/进度） | GET `/api/knowledge/datasets/{id}/documents` | GET `/api/v1/datasets/{id}/documents` | 复用 |
-| 上传（多文件 multipart，流式转发） | POST `/api/knowledge/datasets/{id}/documents` | POST `/api/v1/datasets/{id}/documents` | 复用 |
-| 解析停止 | POST `/api/knowledge/datasets/{id}/documents/parse/stop` | 上游对应 stop 端点 | 复用 |
-| 摄取记录/日志 | GET `/api/knowledge/datasets/{id}/ingestions[/{log_id}]` | GET `/api/v1/datasets/{id}/ingestions…` | 复用 |
-| 文档删除/状态批量更新 | DELETE/PATCH `/api/knowledge/datasets/{id}/documents…` | 对应上游端点 | 复用 |
-| 文档预览/缩略图 | GET `/api/knowledge/documents/{doc_id}/preview`、`/api/knowledge/thumbnails` | GET `/api/v1/documents/{doc_id}/preview`、`/api/v1/thumbnails` | 复用 |
-| 检索试玩（单库） | POST `/api/knowledge/datasets/{id}/search` | POST `/api/v1/datasets/{id}/search` | 复用 |
-| 设置块 | GET/PUT `/api/settings/knowledge` | — | 新增 |
+| KB 列表 | GET `/api/knowledge/datasets` | GET `/api/v1/datasets`（dataset_api.py:367） | query：`page(1)/page_size(30)/orderby/desc/id/name`；data 为数组，项含 `id/name/description/document_count/chunk_count/token_count/permission/...` |
+| 创建 KB | POST `/api/knowledge/datasets` | POST `/api/v1/datasets`（:82） | body：`name`(必填)、`description?`、`permission: "me"\|"team"`（对应 §十一-5 可见范围）、`chunk_method?`(默认 naive)、`parser_config?`、`embedding_model?`；ownership 由上游按 X-Intellect-* 注入 |
+| KB 详情/删除 | GET/DELETE `/api/knowledge/datasets/{id}` | GET/DELETE `/api/v1/datasets/{id}`（:511/:234） | — |
+| 文档列表 | GET `/api/knowledge/datasets/{id}/documents` | GET `/api/v1/datasets/{id}/documents`（document_api.py:794） | query：`page/page_size/orderby/desc/keywords?/create_time_from?/create_time_to?`；data：`{docs:[{id/name/run/progress/chunk_count/token_count/size/type/...}], total}` |
+| 上传（多文件） | POST `/api/knowledge/datasets/{id}/documents` | POST `/api/v1/datasets/{id}/documents`（:371） | multipart：`files[]`（多文件）+ form `type=local`、可选 `parent_path`（存储前缀）；上传后自动触发解析 |
+| 文档删除（批量） | DELETE `/api/knowledge/datasets/{id}/documents` | DELETE `/api/v1/datasets/{id}/documents`（:1198） | body：`{ids: [...]}` |
+| 解析触发/停止 | POST `.../documents/parse`、`.../documents/stop` | POST `/api/v1/datasets/{id}/documents/parse`（:1611）、`.../stop`（:1725） | body：`{ids: [...]}` |
+| 文档详情 | GET `/api/knowledge/datasets/{id}/documents/{doc_id}` | GET `/api/v1/datasets/{id}/documents/{document_id}`（:2150） | — |
+| 摄取记录/日志 | GET `/api/knowledge/datasets/{id}/ingestions[/{log_id}]` | GET `/api/v1/datasets/{id}/ingestions`（dataset_api.py:804，`log_type=dataset\|file`、`page/page_size≤100`）、`/ingestions/<log_id>`（:830，含 `dsl` 全量） | logs 项含 `progress/progress_msg/operation_status/process_duration/document_name/task_type` |
+| 文档预览/缩略图 | GET `/api/knowledge/documents/{doc_id}/preview`、GET `/api/knowledge/thumbnails` | GET `/api/v1/documents/{doc_id}/preview`（document_api.py:2106）、GET `/api/v1/thumbnails`（:1371，query `doc_id`） | 字节流透传 |
+| 检索试玩（单库） | POST `/api/knowledge/datasets/{id}/search` | POST `/api/v1/datasets/{id}/search`（dataset_api.py:649） | body `SearchDatasetReq`：`question`(必填)、`page/size`、`top_k(≤1024)`、`similarity_threshold(0)`、`vector_similarity_weight(0.3)`、`use_kg`、`keyword`、`doc_ids?`、`rerank_id?`、`meta_data_filter?` |
+| 设置块 | GET/PUT `/api/settings/knowledge` | — | `{enabled, base_url, api_key(掩码三态)}`；见 D1 修订（下） |
+
+**D1 实施修订**（agent-loop profile 指向 intellect-team 服务而非 rag-app，故）：`base_url`/`api_key` 为**必配项**（api_key 取值 = team 部署的 `INTELLECT_RAG_API_KEY` 同一把，§十一-2）；身份 header 仍经 `resolve_backend_identity()` 按当前用户解析——token 模式下 Bearer 直接用该用户 member token（identity.api_key），header 模式下 Bearer 用知识设置的服务 key + `X-Intellect-User` 归因。
 
 rag-app 侧 1a **无新增业务端点**（A3 在 1b、A4 在 Phase 2），仅 T1 的 OpenAPI 登记。
 
