@@ -1,5 +1,13 @@
 # 知识中心 Phase 1a 实施任务清单（评审稿）
 
+> **执行状态（2026-09-22）**：T0-T10 全部实施完成并提交（两仓库）。
+> 门禁：后端 pytest 937 过（1 例 codebuddy 存量失败与本次无关，干净基线可复现），
+> web typecheck/lint(0 err)/contracts/architecture/i18n/test:node 690/vitest 51 全过。
+> 待办：运行时验收（§六 1-4 需启动 rag-app + openkg-webui 联调）。
+> 实施修订两条，均已记入 §三：① 前端路由/代理前缀改为 knowledge-center
+> （退役面字面量守卫）；② D1 细化为 base_url/api_key 必配（rag-app 与
+> agent-loop 目标服务是两个进程）。
+
 - 日期：2026-09-22
 - 分支：`feature/knowledge-center`
 - 依据：[../knowledge-center-port-design.md](../knowledge-center-port-design.md)（已定稿）§六 Phase 1 拆分后的 **1a 管理闭环**
