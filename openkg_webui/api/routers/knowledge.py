@@ -204,7 +204,9 @@ async def knowledge_list_documents(dataset_id: str, request: Request) -> Respons
 async def knowledge_upload_documents(
     dataset_id: str,
     request: Request,
-    files: list[UploadFile] = File(...),
+    # 字段名必须是 file：前端 FormData 与上游 getlist("file") 都用它
+    # （评审 R-1 + 联调修正——参数名即 multipart 字段名，不能叫 files）。
+    file: list[UploadFile] = File(...),
     type_: str | None = Form(None, alias="type"),
     parent_path: str | None = Form(None),
 ) -> Response:
@@ -212,10 +214,9 @@ async def knowledge_upload_documents(
     httpx 在异步上下文中经线程池分块读取，不会整体载入内存（风险注记见任务清单 §七）。"""
     _require_enabled()
     _require_same_origin(request)
-    # 上游读 files.getlist("file")——字段名是单数 file（评审 R-1，T0 漏核）。
     payload = [
         ("file", (f.filename or "file", f.file, f.content_type or "application/octet-stream"))
-        for f in files
+        for f in file
     ]
     data: dict[str, Any] = {"type": type_ or "local"}
     if parent_path:

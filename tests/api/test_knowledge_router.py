@@ -137,7 +137,7 @@ def test_identity_unavailable_maps_409(
 def test_upload_forwards_multipart(proxy: TestClient) -> None:
     response = proxy.post(
         f"{_K}/datasets/ds1/documents",
-        files={"files": ("a.txt", b"hello", "text/plain")},
+        files={"file": ("a.txt", b"hello", "text/plain")},
         data={"type": "local", "parent_path": "docs/sub"},
         headers={"origin": "http://testserver"},
     )

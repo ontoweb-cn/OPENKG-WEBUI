@@ -159,10 +159,12 @@ export function parseSearchChunks(payload: unknown): KnowledgeSearchChunk[] {
   return chunks.map((raw) => {
     const row = record(raw);
     return {
-      id: text(row.id),
-      content: text(row.content ?? row.content_with_weight),
+      // 运行时验收（R-6）确认的实际字段名：chunk_id / content_with_weight /
+      // docnm_kwd（RagFlow 派生口径）；保留通用回退。
+      id: text(row.chunk_id ?? row.id),
+      content: text(row.content_with_weight ?? row.content),
       similarity: num(row.similarity),
-      documentName: text(row.document_name),
+      documentName: text(row.docnm_kwd ?? row.document_name),
     };
   });
 }
