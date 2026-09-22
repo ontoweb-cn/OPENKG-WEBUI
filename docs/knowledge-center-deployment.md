@@ -86,7 +86,36 @@ POSTGRES_PASSWORD=<pwd> POSTGRES_DB=intellect_rag .venv/bin/python scripts/migra
 
 共 4 个 KB / 98 chunks。**注意**：迁移会把这些 KB 的 `tenant_id` 改为目标租户并重写 ES 索引；private 库迁移后仍不对他人可见，但**所属租户改变会影响租户级 scope 的可见集**。执行前确认影响面（尤其 `2d0b100f273a` 的 `AI技术` 是真实知识库），并停止 TE。
 
-#### 5.3 身份委托（D1=A）启用记录 + TEAM 端口坑
+##### 5.3.1 租户迁移回滚记录（2026-09-22，重要）
+
+**结论：本实例不做租户归一；已执行的迁移已回滚。**
+
+执行后发现的功能破坏（实测）：迁移把 KB 移到默认租户后，**上传路径**的
+`check_kb_team_permission`（`api/common/check_team_permission.py`）以登录租户
+严格匹配 KB 租户——token 身份下登录租户为 `local-admin`（personal-tenant 模型，
+tenant==user），与 KB 的新租户 `default` 不匹配 → 上传返回
+`109 No authorization`。列表/检索/删除不受影响（走 `can_access_resource` 的
+owner 短路与宽松检查）。
+
+回滚内容（PG 与 ES 同步，含 file / pipeline_operation_log 行）：
+- `AI技术` → `2d0b100f273a`
+- `联调测试库(1)` → `local-admin`
+
+**后续若确需归一租户**，前置条件是先修 `check_kb_team_permission`（改为按
+owner 归属或接受用户自租户），否则管理面上传会静默失效。迁移工具的
+`--grant-membership` 与 file/log 同步已实现（见 `scripts/migrate_kb_tenant.py`），
+但该权限语义问题使其在当前 personal-tenant 部署下不可用。
+
+### 5.3.2 解析日志流（T3）生产验证记录（2026-09-22）
+
+- 端点：`GET /api/knowledge-center/datasets/{id}/logs/stream?max_ticks=N`
+- 实测：订阅 60s 收到 2 个 `data:` 帧（含 `progress_msg` 逐行解析日志与
+  `progress=1.0`）+ 8 个 keepalive 保活帧；上传新文档后日志随 ingestions
+  快照变化推送。
+- 结论：SSE 日志流在生产实例工作正常；前端 `KnowledgeDetailPage` 在解析进行时
+  自动订阅（`EventSource(logsStreamUrl(id))`），闭环可用。
+
+## 5.3 身份委托（D1=A）启用记录 + TEAM 端口坑
 
 **已启用**（2026-09-22）：local-admin 已签发 `imt_` 成员令牌并完成身份链接
 （`data/system/user-secrets/local-admin/private/intellect-agent/credentials.v1.json`），
