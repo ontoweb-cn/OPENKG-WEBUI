@@ -117,8 +117,6 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     [datasetId],
   );
 
-  const running = documents ? anyDocumentRunning(documents) : false;
-
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
