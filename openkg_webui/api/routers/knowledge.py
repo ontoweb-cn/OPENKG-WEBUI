@@ -157,6 +157,37 @@ async def knowledge_status() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# per-user 默认知识库（A3，Phase 1.5 T4）
+# ---------------------------------------------------------------------------
+
+
+@router.get("/preferences")
+async def knowledge_get_preferences() -> dict[str, Any]:
+    _require_enabled()
+    from openkg_webui.services.knowledge import default_knowledge_kb_ids
+
+    ids = default_knowledge_kb_ids(_user_id())
+    return {"default_dataset_id": ids[0] if ids else None}
+
+
+@router.put("/preferences")
+async def knowledge_put_preferences(
+    request: Request, payload: dict[str, Any]
+) -> dict[str, Any]:
+    _require_enabled()
+    _require_same_origin(request)
+    from openkg_webui.services.knowledge import (
+        default_knowledge_kb_ids,
+        set_default_knowledge_dataset,
+    )
+
+    dataset_id = str((payload or {}).get("default_dataset_id") or "").strip() or None
+    set_default_knowledge_dataset(_user_id(), dataset_id)
+    ids = default_knowledge_kb_ids(_user_id())
+    return {"default_dataset_id": ids[0] if ids else None}
+
+
+# ---------------------------------------------------------------------------
 # Datasets（知识库）
 # ---------------------------------------------------------------------------
 

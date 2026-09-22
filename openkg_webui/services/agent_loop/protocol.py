@@ -92,6 +92,10 @@ class AgentLoopRequest:
     #: ``model`` key (consumed upstream where supported), and the ACP surface
     #: has no per-turn model field at all, so ``acp`` ignores it.
     model: str = ""
+    #: 知识中心勾选（Phase 1.5）：本 turn 限定召回的知识库（rag-app dataset
+    #: ids）。``None``/空 = 无显式勾选，runs 后端回落部署默认（chat_scope）；
+    #: 仅 runs 协议消费（``knowledge_base_ids``），其余后端忽略。
+    knowledge_kb_ids: list[str] | None = None
 
 
 class AgentLoopError(RuntimeError):

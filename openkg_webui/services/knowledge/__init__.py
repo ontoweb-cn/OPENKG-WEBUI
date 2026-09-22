@@ -41,6 +41,56 @@ def knowledge_enabled(block: dict[str, Any] | None = None) -> bool:
     return bool(block.get("enabled"))
 
 
+def _defaults_file() -> Any:
+    """per-user 默认知识库存储（A3）：``<user_data_dir>/knowledge_defaults.json``。
+
+    以 user_id 为键的映射（值为 dataset_id 列表）——dataset_id 跨身份模式
+    稳定，因此该偏好不受 header/token 归因切换影响（评审 R6/D4 修订）。
+    """
+    from pathlib import Path
+
+    from openkg_webui.services.path_service import get_path_service
+
+    return Path(get_path_service().user_data_dir()) / "knowledge_defaults.json"
+
+
+def default_knowledge_kb_ids(user_id: str) -> list[str]:
+    """该用户的默认知识库（A3，dataset ids）；未设置返回 ``[]``。"""
+    import json
+
+    try:
+        path = _defaults_file()
+        if not path.exists():
+            return []
+        data = json.loads(path.read_text("utf-8"))
+    except Exception:
+        return []
+    value = data.get(str(user_id or "")) or []
+    return [str(x) for x in value] if isinstance(value, list) else []
+
+
+def set_default_knowledge_dataset(user_id: str, dataset_id: str | None) -> None:
+    """设置/清除该用户的默认知识库（A3）。``dataset_id=None`` 清除。"""
+    import json
+
+    path = _defaults_file()
+    data: dict[str, Any] = {}
+    try:
+        if path.exists():
+            data = json.loads(path.read_text("utf-8")) or {}
+    except Exception:
+        data = {}
+    uid = str(user_id or "")
+    if not uid:
+        raise ValueError("user id is required")
+    if dataset_id:
+        data[uid] = [str(dataset_id)]
+    else:
+        data.pop(uid, None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+
+
 def chat_rag_block() -> dict[str, Any] | None:
     """runs 协议请求体的 ``rag`` 会话块（网关 ``build_session_config`` 契约）。
 

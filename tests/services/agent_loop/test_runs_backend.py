@@ -930,3 +930,73 @@ async def test_tool_failure_is_marked_as_error(monkeypatch) -> None:
     ]
     assert [r.name for r in results] == ["search_knowledge", "shell"]
     assert all(r.data.get("is_error") for r in results)
+
+
+async def test_runs_request_kb_ids_win_over_scope(monkeypatch) -> None:
+    """Phase 1.5：会话勾选的 kb_ids 优先于部署默认 chat_scope（D2 矩阵）。"""
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "get_knowledge_settings",
+        lambda: {"enabled": True, "chat_scope": "tenant"},
+    )
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/v1/runs") and request.method == "POST":
+            bodies.append(json.loads(request.content))
+            return httpx.Response(202, json={"run_id": "run_1"})
+        if request.url.path.endswith("/events"):
+            return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={"status": "completed", "output": "x"})
+
+    backend = RunsAgentLoopBackend(
+        name="intellect-runs",
+        url="http://gateway.test",
+        turn_path="/v1/runs",
+        api_key="k",
+        headers={},
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    )
+    request = AgentLoopRequest(prompt="hi", knowledge_kb_ids=["ds-1", "ds-2"])
+    [event async for event in backend.run(request)]
+    assert bodies[-1]["rag"] == {
+        "enabled": True,
+        "knowledge_base_ids": ["ds-1", "ds-2"],
+    }
+    assert "scope" not in bodies[-1]["rag"]
+
+
+async def test_runs_request_no_rag_block_when_knowledge_disabled(monkeypatch) -> None:
+    """知识中心关闭时即使带 kb_ids 也不发 rag 块（off=off）。"""
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "get_knowledge_settings",
+        lambda: {"enabled": False, "chat_scope": "tenant"},
+    )
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/v1/runs") and request.method == "POST":
+            bodies.append(json.loads(request.content))
+            return httpx.Response(202, json={"run_id": "run_1"})
+        if request.url.path.endswith("/events"):
+            return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={"status": "completed", "output": "x"})
+
+    backend = RunsAgentLoopBackend(
+        name="intellect-runs",
+        url="http://gateway.test",
+        turn_path="/v1/runs",
+        api_key="k",
+        headers={},
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    )
+    request = AgentLoopRequest(prompt="hi", knowledge_kb_ids=["ds-1"])
+    [event async for event in backend.run(request)]
+    assert "rag" not in bodies[-1]

@@ -109,6 +109,7 @@ export function buildStartTurnInput(input: StartTurnInput): StartTurnCommand {
     selection_tutor_context: input.selectionTutorContext ?? null,
     subagent_consult_budget: input.subagentConsultBudget ?? null,
     auto_route: input.autoRoute ?? null,
+    knowledge_bases: input.knowledgeBases ?? [],
   });
 }
 

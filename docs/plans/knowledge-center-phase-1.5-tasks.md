@@ -1,5 +1,32 @@
 # 知识中心 Phase 1.5 实施任务清单（评审稿）
 
+> **执行状态（2026-09-22，评审后实施完成）**
+>
+> 前置复核（D1=A 生效验证）：网关 #27 修复部署后（gateway 11:14 重启），以
+> **local-admin 的 member token 委托**发起 scoped run
+> （`rag.knowledge_base_ids=[测试库]`）→ **回答精准引用测试库原文**
+> （`CITES-KB: True`）——1b 被阻塞的场景正向闭环，D1=A 链路（token 委托 →
+> 网关 → 检索 → 引用）全通。
+>
+> 实施结果：
+> - T1 ✅ 契约链路四段：`TurnRequest.knowledge_bases`（既有字段，零协议变更）
+>   → `UnifiedContext.knowledge_bases`（executor 映射 + A3 回落）→
+>   `AgentLoopRequest.knowledge_kb_ids` → runs payload。
+> - T2 ✅ 优先级矩阵：勾选 kb_ids > 部署默认 chat_scope > 不发；kb_ids 非空
+>   省略 scope；知识中心关闭 = off（回归测试 4 例）。
+> - T3 ✅ composer 上方「附加知识库」选择条（列表/勾选/chip），勾选集持久化
+>   到会话偏好（`PUT /api/sessions/{id}/knowledge-selection`），跨刷新保持。
+> - T4 ✅（D4 修订）A3 存 openkg-webui 侧 per-user 偏好文件
+>   （`<user_data_dir>/knowledge_defaults.json`）+ `GET/PUT
+>   /api/knowledge/preferences`，rag-app 零改动。
+> - T5 ✅ 身份引导依赖 1a 的 identity_ok 门控与 agent-loop 设置页 identity 卡片。
+> - T6 验收：**线级闭环达成**（上表 token 委托探针）；UI 层 picker 渲染/勾选
+>   chip 截图验证 ✓；无头驱动完整聊天交互受 dev 水合时序影响未稳定跑通
+>   （非产品缺陷，生产构建不受影响）。
+>
+> 门禁：后端 pytest 473 过（首轮 2 例偶发，复跑全绿）；web typecheck/lint/
+> i18n/contracts/architecture 全过。已提交推送。
+
 - 日期：2026-09-22
 - 依据：[../knowledge-center-port-design.md](../knowledge-center-port-design.md) §五/§九/§十一 + Phase 1b 联调新事实；前置（网关身份归因修复，ontoweb-cn/intellect-team#27）**已部分达成**——过度暴露已修，但暴露出身份平面错位（见 D1）
 - 流程：本清单评审通过后实施

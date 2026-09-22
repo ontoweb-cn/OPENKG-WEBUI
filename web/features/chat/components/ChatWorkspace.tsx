@@ -13,6 +13,7 @@ import type { ContextBudget } from '@/components/chat/home/ContextBudgetChip'
 import { ChatMessageList } from '@/features/chat/messages'
 import { TurnNavigator } from '@/components/chat/home/TurnNavigator'
 import SessionLoadingView from '@/components/chat/home/SessionLoadingView'
+import KnowledgeSessionPicker from '@/features/knowledge/components/KnowledgeSessionPicker'
 import { SESSION_LOAD_TIMEOUT_MS, shouldSurfaceLoadFailure } from '@/lib/session-load'
 // Imported eagerly so the drawer shell is always mounted off-screen —
 // clicking a chip becomes a single CSS class flip, no chunk fetch + double
@@ -1452,6 +1453,11 @@ export default function ChatWorkspace() {
               />
             </div>
           )}
+
+          {/* 知识中心会话勾选（Phase 1.5）：挂载于 composer 上方，未启用时自隐藏 */}
+          {state.sessionId ? (
+            <KnowledgeSessionPicker sessionId={state.sessionId} />
+          ) : null}
 
           <ChatComposer
             composerRef={composerRef}

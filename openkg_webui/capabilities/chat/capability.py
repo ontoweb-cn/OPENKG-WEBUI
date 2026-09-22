@@ -797,6 +797,7 @@ async def _build_request(
         language=context.language or "en",
         workdir=resolved_workdir,
         model=turn_model,
+        knowledge_kb_ids=list(context.knowledge_bases or []) or None,
     )
 
 

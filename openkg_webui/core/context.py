@@ -99,6 +99,10 @@ class UnifiedContext:
     active_capability: str | None = None
     attachments: list[Attachment] = field(default_factory=list)
     config_overrides: dict[str, Any] = field(default_factory=dict)
+    #: Knowledge bases selected for this turn (rag-app dataset ids), from the
+    #: composer's ``knowledge_bases`` turn field. Empty = no explicit selection
+    #: (chat falls back to the deployment's default/recall-scope semantics).
+    knowledge_bases: list[str] = field(default_factory=list)
     language: str = "en"
     sidebar_context: str = ""
     source_manifest: str = ""

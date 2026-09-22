@@ -40,6 +40,16 @@ class BranchSelectionRequest(BaseModel):
     selected_branches: dict[str, int] = Field(default_factory=dict)
 
 
+class KnowledgeSelectionRequest(BaseModel):
+    """知识中心勾选（Phase 1.5）：会话级知识库 dataset ids。
+
+    Stored inside the session preferences blob so it survives reloads
+    without a dedicated column.
+    """
+
+    kb_ids: list[str] = Field(default_factory=list)
+
+
 class SessionOrganizationRequest(BaseModel):
     """User-controlled organization metadata stored with the conversation."""
 
@@ -251,6 +261,35 @@ async def update_branch_selection(session_id: str, payload: BranchSelectionReque
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"selected_branches": payload.selected_branches}
+
+
+@router.get("/{session_id}/knowledge-selection")
+async def get_knowledge_selection(session_id: str):
+    store = get_sqlite_session_store()
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    prefs = getattr(session, "preferences", None) or {}
+    kb_ids = prefs.get("knowledge_base_ids") if isinstance(prefs, dict) else None
+    return {"kb_ids": [str(x) for x in kb_ids] if isinstance(kb_ids, list) else []}
+
+
+@router.put("/{session_id}/knowledge-selection")
+async def update_knowledge_selection(
+    session_id: str, payload: KnowledgeSelectionRequest
+):
+    """知识中心勾选（Phase 1.5）：会话级知识库 dataset ids，存会话偏好。"""
+    store = get_sqlite_session_store()
+    session = await store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    kb_ids = [str(x) for x in payload.kb_ids if str(x).strip()]
+    updated = await store.update_session_preferences(
+        session_id, {"knowledge_base_ids": kb_ids}
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"kb_ids": kb_ids}
 
 
 @router.delete("/{session_id}/messages/{message_id}")
