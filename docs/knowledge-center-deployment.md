@@ -47,6 +47,54 @@ MCP :9382 / Admin :9381 / MEM :9383 / Task Executor（无端口，Redis 心跳�
 3. **/retrieval 401**：rag-app 的服务 token 路径要求 `X-Intellect-User` 头（缺失即 401）——直连 curl 不带头必然 401，属预期；调用方（网关/webui）必须携带成员身份。
 4. **上传字段名**：rag-app 文档上传 multipart 字段为 `file`（单数），另有可选 `type=local` 与 `parent_path`。
 
+## 5. 运维与迁移（2026-09-22 执行记录）
+
+### 5.1 标准启动 / 重启
+
+```bash
+# 全栈（推荐）：基础设施 + API/Admin/MCP/MEM/Task Executor
+cd ~/projects/intellect-rag-app && bash scripts/start-stack.sh start      # 或 restart --skip-infra
+bash scripts/start-stack.sh status                                        # 端口 + 进程 + 心跳
+
+# openkg-webui（生产形态，detached 常驻）
+cd ~/projects/openkg-webui && .venv/bin/openkg-webui start --detach --no-browser
+.venv/bin/openkg-webui stop    # 停止
+```
+生产形态端口：后端 **8082**、前端 **8092**（dev 模式为 3300）。前端首次为生产构建，需数分钟。
+
+### 5.2 存量知识库归属迁移（Phase 1.5 R1）
+
+工具：`intellect-rag-app/scripts/migrate_kb_tenant.py`（dry-run 默认）。本次已修复其 4 处与当前引擎 API 的漂移（`api.db.DB` → `api.db.db_models.DB`、`tenant_service` 与 `get_xor_fields` 不存在的导入、`DB.init_env()` 不存在）。
+
+**执行方式**（本仓库 `fix/team-user-tenant-fallback` 分支已含修复）：
+
+```bash
+cd ~/projects/intellect-rag-app
+PYTHONPATH=".:../intellect-rag:../intellect-mem:../intellect-dsl" DB_TYPE=postgres \
+POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_USER=intellect_rag \
+POSTGRES_PASSWORD=<pwd> POSTGRES_DB=intellect_rag .venv/bin/python scripts/migrate_kb_tenant.py
+# 加 --apply --to <目标租户> 才真正执行；执行前先停 task_executor
+```
+
+**2026-09-22 dry-run 影响报告**（本实例）：
+
+| legacy 租户 | KB | chunks | owner |
+| --- | --- | --- | --- |
+| `2d0b100f273a` | AI技术 | 91 | 2d0b100f273a |
+| `2d0b100f273a` | probe-no-tenant-header / probe-with-tenant-header | 0 / 0 | 2d0b100f273a |
+| `local-admin` | 联调测试库(1) | 7 | local-admin |
+
+共 4 个 KB / 98 chunks。**注意**：迁移会把这些 KB 的 `tenant_id` 改为目标租户并重写 ES 索引；private 库迁移后仍不对他人可见，但**所属租户改变会影响租户级 scope 的可见集**。执行前确认影响面（尤其 `2d0b100f273a` 的 `AI技术` 是真实知识库），并停止 TE。
+
+### 5.3 MCP server 归因限制（已知缺陷，2026-09-22 发现）
+
+**现象**：`mcp/server/server.py` host 模式下，服务 key + `X-Intellect-User` 的客户端在 `tools/list` / 工具调用时收到 **401**。
+**根因**：server 只提取 token（`_extract_token_from_headers`），不转发 `X-Intellect-*` 归因头；而 REST 侧服务 token 路径要求成员头（无头 401）。
+**影响**：以服务 key 认证的 MCP 客户端（含 openkg-webui 向 CLI 后端下发的 `.mcp.json` 注入）无法完成成员归因。
+**验证证据**：REST 直连带成员头 200 / 不带头 401；MCP 端点 initialize 200（Bearer 有效）但 tools/list 恒 401（即使客户端带成员头）。
+**修复方向**：(a) host 模式透传客户端 `X-Intellect-User/Team/Project` 头（最小改动）；(b) 启动参数固定成员；(c) 改用 `imt_` 令牌（依赖 TEAM 验证配置，本部署未启用）。
+**当前状态**：已记录待提 issue（Gitee `wustbd/intellect-rag-app` 的 issue API 对当前 token 返 404，GitHub org 无该仓库镜像）；A5 的**单元与端点级验收已完成**（`.mcp.json` 合并写入、权限放行、401 门 + initialize 200），工具调用级验收待该缺陷修复。
+
 ## 5. 验收速查
 
 ```bash
