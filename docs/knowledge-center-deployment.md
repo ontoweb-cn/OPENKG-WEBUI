@@ -86,7 +86,29 @@ POSTGRES_PASSWORD=<pwd> POSTGRES_DB=intellect_rag .venv/bin/python scripts/migra
 
 共 4 个 KB / 98 chunks。**注意**：迁移会把这些 KB 的 `tenant_id` 改为目标租户并重写 ES 索引；private 库迁移后仍不对他人可见，但**所属租户改变会影响租户级 scope 的可见集**。执行前确认影响面（尤其 `2d0b100f273a` 的 `AI技术` 是真实知识库），并停止 TE。
 
-### 5.3 MCP server 归因限制（已知缺陷，2026-09-22 发现）
+#### 5.3 身份委托（D1=A）启用记录 + TEAM 端口坑
+
+**已启用**（2026-09-22）：local-admin 已签发 `imt_` 成员令牌并完成身份链接
+（`data/system/user-secrets/local-admin/private/intellect-agent/credentials.v1.json`），
+profile 切至 `identity_mode: token`。**验证结论**：token 模式下管理面建的库
+owner=local-admin，聊天面经令牌委托可检索同一库——建/检同源成立。
+
+**关键坑（已修）**：`intellect-rag/docker/.env` 的 `INTELLECT_TEAM_API_URL`
+仍指向**旧端口 8642**，而 intellect-team 网关已迁至 **9091**（其仓库提交
+「API server 端口 8642 → 9091」）。后果：rag-app 无法验证任何 `imt_` 令牌
+（全部 401），token 委托链路整体不可用。修正为 `http://127.0.0.1:9091` 并重启
+rag-app 后恢复正常。**部署时务必核对两侧端口一致。**
+
+**令牌管理**：member API 令牌存 `intellect` 库的 `member_api_tokens` 表
+（sha256 哈希，无法反查明文）。重新签发：
+```sql
+INSERT INTO member_api_tokens (id, member_id, name, token_hash, scope_type, created_at)
+VALUES (substr(md5(random()::text),1,32), '<member_id>', 'openkg-webui',
+        encode(sha256('<imt_令牌>'::bytea), 'hex'), 'member', <epoch_ms>);
+```
+验证可用性：`curl -H "Authorization: Bearer <令牌>" http://127.0.0.1:9091/api/members/me`。
+
+## 5.3 MCP server 归因限制（已知缺陷，2026-09-22 发现）
 
 **现象**：`mcp/server/server.py` host 模式下，服务 key + `X-Intellect-User` 的客户端在 `tools/list` / 工具调用时收到 **401**。
 **根因**：server 只提取 token（`_extract_token_from_headers`），不转发 `X-Intellect-*` 归因头；而 REST 侧服务 token 路径要求成员头（无头 401）。
