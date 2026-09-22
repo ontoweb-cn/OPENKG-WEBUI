@@ -48,6 +48,8 @@ _transport: httpx.AsyncBaseTransport | None = None
 _ZIP_MAX_ENTRIES = 500
 _ZIP_MAX_TOTAL_BYTES = 200 * 1024 * 1024
 _ZIP_MAX_FILE_BYTES = 50 * 1024 * 1024
+#: 每个目录一次上游请求——目录数上限防止深目录结构放大成请求风暴。
+_ZIP_MAX_DIRS = 200
 
 
 def _current_user() -> Any:
@@ -299,16 +301,31 @@ def _safe_zip_entries(data: bytes) -> list[tuple[str, bytes]]:
             parts = [p for p in raw.split("/") if p]
             if any(p.startswith(".") for p in parts) or any(p == "__MACOSX" for p in parts):
                 continue
+            # 炸弹熔断必须在解压前完成：zip 头声明大小可伪造（
+            # 压缩比炸弹），但读入内存前先拒绝明显超限的条目已能挡住
+            # 绝大多数情况；读入后再以真实大小复核（双保险）。
+            declared = int(getattr(info, "file_size", 0) or 0)
+            if declared > _ZIP_MAX_FILE_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"zip: entry too large: {info.filename}",
+                )
+            if total + declared > _ZIP_MAX_TOTAL_BYTES:
+                raise HTTPException(status_code=413, detail="zip: total size exceeds limit")
             try:
-                content = zf.read(info)
+                # 按声明大小 + 1 字节读取上限，避免声明值被伪造时读爆内存
+                with zf.open(info) as handle:
+                    content = handle.read(_ZIP_MAX_FILE_BYTES + 1)
             except RuntimeError as exc:
                 # 加密条目等 zipfile 层错误——按不可用条目拒绝整个 zip
                 raise HTTPException(status_code=400, detail=f"zip entry unreadable: {info.filename}") from exc
+            if len(content) > _ZIP_MAX_FILE_BYTES:
+                raise HTTPException(
+                    status_code=413, detail=f"zip: entry too large: {info.filename}"
+                )
             total += len(content)
             if total > _ZIP_MAX_TOTAL_BYTES:
                 raise HTTPException(status_code=413, detail="zip: total size exceeds limit")
-            if len(content) > _ZIP_MAX_FILE_BYTES:
-                raise HTTPException(status_code=413, detail="zip: single file exceeds limit")
             out.append(("/".join(parts), content))
     if not out:
         raise HTTPException(status_code=400, detail="zip: no usable entries")
@@ -341,7 +358,6 @@ async def knowledge_upload_structured(
     _require_enabled()
     _require_same_origin(request)
 
-    entries: list[tuple[str, tuple[str, bytes, str]]] = []
     plain: list[tuple[str, UploadFile]] = []
     zips: list[UploadFile] = []
     rel_list: list[str] = []
@@ -358,6 +374,11 @@ async def knowledge_upload_structured(
             zips.append(f)
         else:
             rel = rel_list[index] if index < len(rel_list) else name
+            # rel_paths 来自浏览器（webkitRelativePath），必须与服务端 zip 条目
+            # 同等清洗：去首斜杠、拒绝 ``..`` 段（否则可写到 KB 目录之外）。
+            rel = rel.replace("\\", "/").lstrip("/")
+            if ".." in rel.split("/"):
+                raise HTTPException(status_code=400, detail="unsafe rel_path")
             plain.append((rel, f))
 
     expanded: list[tuple[str, bytes, str]] = []
@@ -373,6 +394,11 @@ async def knowledge_upload_structured(
         raise HTTPException(status_code=400, detail="no files to upload")
 
     groups = _group_by_dir(expanded)
+    if len(groups) > _ZIP_MAX_DIRS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"too many directories ({len(groups)} > {_ZIP_MAX_DIRS})",
+        )
     results: list[dict[str, Any]] = []
     for directory, items in sorted(groups.items()):
         files_payload = [
@@ -522,10 +548,17 @@ async def _run_github_sync(
                     if listed.status_code == 200
                     else []
                 )
+                # 上传写入的文档名是 basename（见上方 files_payload），
+                # 因此删除匹配也必须用 basename——否则远端删除的文档永远
+                # 删不掉（原实现按仓库全路径查 name，恒空）。
                 name_to_id = {
                     d.get("name"): d.get("id") for d in docs if isinstance(d, dict)
                 }
-                doomed = [name_to_id[p] for p in plan.removals if name_to_id.get(p)]
+                doomed = [
+                    name_to_id[posixpath.basename(p)]
+                    for p in plan.removals
+                    if name_to_id.get(posixpath.basename(p))
+                ]
                 if doomed:
                     resp = await client.delete(
                         f"/datasets/{dataset_id}/documents",
@@ -584,12 +617,9 @@ async def knowledge_sync_github_source(dataset_id: str, request: Request) -> dic
 
 
 def _slug_for_url(url: str) -> str:
-    import re as _re
+    from openkg_webui.services.knowledge.sources.web import url_slug
 
-    from openkg_webui.services.knowledge.sources.web import _content_hash
-
-    slug = _re.sub(r"[^A-Za-z0-9\u4e00-\u9fff]+", "-", url).strip("-")[:80]
-    return f"{slug or 'page'}-{_content_hash(url)[:8]}.md"
+    return url_slug(url)
 
 
 @router.put("/datasets/{dataset_id}/sources/web")

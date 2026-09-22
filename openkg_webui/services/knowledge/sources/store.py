@@ -35,9 +35,24 @@ def _load() -> dict[str, Any]:
 
 
 def _save(data: dict[str, Any]) -> None:
+    """原子写 + 0600 权限（文件含 GitHub PAT，与知识中心 api_key 同级敏感）。"""
+    import os
+    import tempfile
+
     path = _store_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".sources-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def get_source(user_id: str, dataset_id: str) -> dict[str, Any] | None:

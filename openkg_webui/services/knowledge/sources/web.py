@@ -63,6 +63,12 @@ def _content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def url_slug(url: str) -> str:
+    """公网 URL → 稳定文件名（抓取入库与删除匹配共用，避免私有名跨模块导入）。"""
+    slug = re.sub(r"[^A-Za-z0-9\u4e00-\u9fff]+", "-", url).strip("-")[:80]
+    return f"{slug or 'page'}-{_content_hash(url)[:8]}.md"
+
+
 def _same_site(candidate: str, base_host: str) -> bool:
     try:
         parsed = urlparse(candidate)
@@ -162,15 +168,27 @@ async def crawl_site(
     queue: deque[tuple[str, int]] = deque([(base, 0)])
     pages: list[CrawledPage] = []
 
-    factory = client_factory or (lambda: httpx.AsyncClient(timeout=timeout_s, follow_redirects=True))
+    # follow_redirects=True 会让「公网 URL → 302 内网」绕过 is_public_http_url
+    # 的字面量检查。这里保持手动跟随即逐跳校验 Location。
+    factory = client_factory or (lambda: httpx.AsyncClient(timeout=timeout_s, follow_redirects=False))
     async with factory() as client:
         while queue and len(pages) < max_pages:
             url, depth = queue.popleft()
             try:
                 resp = await client.get(url)
+                # 逐跳跟随重定向，每一跳都过 SSRF 校验（最多 5 跳）
+                hops = 0
+                while resp.is_redirect and hops < 5:
+                    location = resp.headers.get("location", "")
+                    target = urljoin(str(resp.url), location)
+                    if not is_public_http_url(target) or not _same_site(target, base_host):
+                        resp = None  # type: ignore[assignment]
+                        break
+                    hops += 1
+                    resp = await client.get(target)
             except httpx.HTTPError:
                 continue
-            if resp.status_code != 200:
+            if resp is None or resp.status_code != 200:
                 continue
             ctype = resp.headers.get("content-type", "")
             if "text/html" not in ctype:

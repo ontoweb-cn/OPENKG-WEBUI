@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -430,3 +431,104 @@ def test_knowledge_mcp_config_skips_when_disabled(tmp_path) -> None:
     finally:
         knowledge_service.get_knowledge_settings = orig_get
         knowledge_service.resolve_request_auth = orig_auth
+
+
+# ---------------------------------------------------------------------------
+# 质量与安全评审回归（2026-09-22）
+# ---------------------------------------------------------------------------
+
+
+def test_structured_rejects_unsafe_rel_path(proxy: TestClient) -> None:
+    """rel_paths 来自浏览器，必须与服务端 zip 条目同等清洗（防目录穿越）。"""
+    response = proxy.post(
+        f"{_K}/datasets/ds1/documents/structured",
+        files={"file": ("a.txt", b"x", "text/plain")},
+        data={"type": "local", "rel_paths": json.dumps(["../escape/a.txt"])},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 400
+    assert "unsafe rel_path" in response.text
+
+
+def test_structured_rejects_declared_oversize_entry(proxy: TestClient) -> None:
+    """炸弹熔断在解压前触发（声明大小超限即拒绝）。"""
+    import io as _io2
+    import zipfile as _zf2
+
+    from openkg_webui.api.routers import knowledge as _kr
+
+    buf = _io2.BytesIO()
+    with _zf2.ZipFile(buf, "w", compression=_zf2.ZIP_DEFLATED) as zf:
+        # 高度可压缩的大内容：声明大小远超单文件上限
+        zf.writestr("big.txt", b"0" * (_kr._ZIP_MAX_FILE_BYTES + 1024))
+    response = proxy.post(
+        f"{_K}/datasets/ds1/documents/structured",
+        files={"file": ("bomb.zip", buf.getvalue(), "application/zip")},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 413
+
+
+def test_structured_rejects_too_many_directories(proxy: TestClient) -> None:
+    """目录数上限防止每个目录一次上游请求的放大。"""
+    import io as _io3
+    import zipfile as _zf3
+
+    from openkg_webui.api.routers import knowledge as _kr
+
+    buf = _io3.BytesIO()
+    with _zf3.ZipFile(buf, "w") as zf:
+        for i in range(_kr._ZIP_MAX_DIRS + 1):
+            zf.writestr(f"d{i}/f.txt", b"x")
+    response = proxy.post(
+        f"{_K}/datasets/ds1/documents/structured",
+        files={"file": ("many.zip", buf.getvalue(), "application/zip")},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 413
+    assert "too many directories" in response.text
+
+
+def test_web_crawl_blocks_redirect_to_private_host() -> None:
+    """SSRF：公网 URL 302 到内网时不得跟随（原实现 follow_redirects=True 会绕过）。"""
+    import asyncio as _asyncio
+
+    import httpx as _httpx
+    from openkg_webui.services.knowledge.sources import web
+
+    def factory() -> _httpx.AsyncClient:
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            if str(request.url).endswith("/start"):
+                return _httpx.Response(
+                    302, headers={"location": "http://127.0.0.1:9380/api/v1/datasets"}
+                )
+            return _httpx.Response(200, text="<html><body><p>secret</p></body></html>",
+                                   headers={"content-type": "text/html"})
+
+        return _httpx.AsyncClient(transport=_httpx.MockTransport(handler))
+
+    # 同步测试中显式新建 loop（避免 pytest loop 复用告警）
+    pages = _asyncio.new_event_loop().run_until_complete(
+        web.crawl_site("http://docs.test/start", max_pages=3, client_factory=factory)
+    )
+    assert pages == []
+
+
+def test_knowledge_store_file_is_0600(tmp_path, monkeypatch) -> None:
+    """含 GitHub PAT 的 store 必须 0600 且原子写。"""
+    import os
+    import stat
+    from pathlib import Path
+
+    from openkg_webui.services import path_service
+    from openkg_webui.services.knowledge.sources import store
+
+    class _PS:
+        user_data_dir = tmp_path
+
+    monkeypatch.setattr(path_service, "get_path_service", lambda: _PS())
+    store.set_source("u1", "ds1", {"repo": "a/b", "token": "ghp_secret"})
+    path = Path(tmp_path) / "knowledge_sources.json"
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    assert mode == 0o600
+    assert "ghp_secret" not in store.get_source("u1", "ds1").values()

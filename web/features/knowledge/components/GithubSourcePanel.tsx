@@ -10,7 +10,6 @@ import {
   fetchGithubSource,
   saveGithubSource,
   syncGithubSource,
-  type GithubSource,
 } from "../api";
 
 /**
@@ -20,7 +19,6 @@ import {
 
 export default function GithubSourcePanel({ datasetId }: { datasetId: string }) {
   const { t } = useTranslation();
-  const [loaded, setLoaded] = useState<GithubSource | null>(null);
   const [exists, setExists] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -73,7 +71,6 @@ export default function GithubSourcePanel({ datasetId }: { datasetId: string }) 
       setExists(true);
       setToken("");
       setError(null);
-      setLoaded(source);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

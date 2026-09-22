@@ -88,7 +88,21 @@ def set_default_knowledge_dataset(user_id: str, dataset_id: str | None) -> None:
     else:
         data.pop(uid, None)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    import os
+    import tempfile
+
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".defaults-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def ensure_knowledge_mcp_config(workdir: str) -> None:
@@ -134,6 +148,13 @@ def ensure_knowledge_mcp_config(workdir: str) -> None:
     servers["intellect-knowledge"] = mcp_entry
     config["mcpServers"] = servers
     mcp_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    # .mcp.json 含 Bearer 凭据——收紧为仅属主可读（工作区在服务器侧）
+    try:
+        import os as _os
+
+        _os.chmod(mcp_path, 0o600)
+    except OSError:
+        pass
 
     claude_dir = workdir_path / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
