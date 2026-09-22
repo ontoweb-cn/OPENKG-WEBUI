@@ -23,6 +23,32 @@
 > 部署侧，未入库存。
 
 - 日期：2026-09-22
+
+## 执行状态补充（2026-09-22 未完项一/二/三）
+
+**一、部署运维**
+- ✅ 标准重启：`start-stack.sh restart --skip-infra` 已执行，全栈托管（TE 心跳正常）
+- ✅ `ensure_team_user` 修复 live 验证：全新用户首访自动建租户+成员（此前 102）
+- ✅ 生产化：`openkg-webui start --detach` 常驻（后端 8082 / 前端 8092），
+  页面与代理链路验证通过
+- ✅ 身份 onboarding（D1=A）：令牌签发 + 链接 + token 模式启用；
+  **建/检同源验证通过**（管理面建库 owner=local-admin，聊天面令牌委托可检索同库）
+
+**二、功能可选项**
+- ✅ T5 Web 爬取源：`sources/web.py`（同站 BFS + HTML→Markdown，SSRF 防护）
+  + 端点 + WebSourcePanel；live 验证 example.com 抓取入库解析 DONE
+- ✅ A5 MCP：单元验收（.mcp.json 合并/权限/禁用）+ 端点级验证
+  （401 门 + initialize 200 with service key）
+- ⚠️ A5 **工具调用级验收受阻**：MCP server 丢弃 `X-Intellect-*` 归因头导致
+  tools/list 恒 401（详见部署文档 §5.4；issue 因 Gitee API 受限未能提交，
+  已完整留档）
+
+**三、存量迁移**
+- ✅ 迁移工具 4 处 API 漂移修复（自引入后从未可运行）；dry-run 影响报告：
+  4 KB / 98 chunks（详见部署文档 §5.2）
+- ⚠️ **未执行 apply**：迁移会改变真实知识库（`AI技术` 91 chunks 等）的租户归属
+  与可见性，属数据面变更，需你确认目标租户后再执行
+
 - 分支：`feature/knowledge-center`（openkg-webui）；rag-app 视改动落点另立分支（预期：仅 intellect-rag 的 zip 语义不变——本阶段 rag-app 侧预期**零改动**，见 D1）
 - 依据：[../knowledge-center-port-design.md](../knowledge-center-port-design.md) §六 Phase 2（A4 结构化上传 / 进度日志流 / 外部源 / A5-A6 MCP）+ 1a/1b/1.5 交付后的现状
 - 流程：本清单评审通过后实施；每任务组独立提交
