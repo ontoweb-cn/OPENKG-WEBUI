@@ -579,6 +579,176 @@ async def knowledge_sync_github_source(dataset_id: str, request: Request) -> dic
 
 
 # ---------------------------------------------------------------------------
+# 外部源·Web 爬取（Phase 2 T5）：同站 BFS 抓取 → HTML 转 Markdown → 增量入库
+# ---------------------------------------------------------------------------
+
+
+def _slug_for_url(url: str) -> str:
+    import re as _re
+
+    from openkg_webui.services.knowledge.sources.web import _content_hash
+
+    slug = _re.sub(r"[^A-Za-z0-9\u4e00-\u9fff]+", "-", url).strip("-")[:80]
+    return f"{slug or 'page'}-{_content_hash(url)[:8]}.md"
+
+
+@router.put("/datasets/{dataset_id}/sources/web")
+async def knowledge_put_web_source(
+    dataset_id: str, request: Request, payload: dict[str, Any]
+) -> dict[str, Any]:
+    _require_enabled()
+    _require_same_origin(request)
+    from openkg_webui.services.knowledge.sources import store
+    from openkg_webui.services.knowledge.sources.web import is_public_http_url
+
+    base_url = str(payload.get("base_url") or "").strip()
+    if not is_public_http_url(base_url):
+        raise HTTPException(status_code=400, detail="base_url must be a public http(s) url")
+    cfg = {
+        "type": "web",
+        "base_url": base_url.rstrip("/"),
+        "max_pages": max(1, min(int(payload.get("max_pages") or 20), 100)),
+        "max_depth": max(1, min(int(payload.get("max_depth") or 2), 5)),
+    }
+    store.set_source(_user_id(), dataset_id, cfg)
+    return store.get_source(_user_id(), dataset_id) or {}
+
+
+@router.get("/datasets/{dataset_id}/sources/web")
+async def knowledge_get_web_source(dataset_id: str) -> dict[str, Any]:
+    _require_enabled()
+    from openkg_webui.services.knowledge.sources import store
+
+    source = store.get_source(_user_id(), dataset_id)
+    if source is None or (source.get("type") != "web"):
+        raise HTTPException(status_code=404, detail="web source not configured")
+    return source
+
+
+@router.delete("/datasets/{dataset_id}/sources/web")
+async def knowledge_delete_web_source(
+    dataset_id: str, request: Request
+) -> dict[str, Any]:
+    _require_enabled()
+    _require_same_origin(request)
+    from openkg_webui.services.knowledge.sources import store
+
+    deleted = store.delete_source(_user_id(), dataset_id)
+    return {"deleted": deleted}
+
+
+async def _run_web_sync(
+    user_id: str,
+    dataset_id: str,
+    base_url: str,
+    bearer: str,
+    identity_headers: dict,
+) -> None:
+    from openkg_webui.services.knowledge.sources import store, web
+
+    headers = {**identity_headers, "Authorization": f"Bearer {bearer}"}
+    cfg = store.get_source(user_id, dataset_id) or {}
+    try:
+        pages = await web.crawl_site(
+            cfg.get("base_url", ""),
+            max_pages=int(cfg.get("max_pages") or 20),
+            max_depth=int(cfg.get("max_depth") or 2),
+        )
+        prev = {
+            k: v for k, v in (store.get_state(user_id, dataset_id).get("pages") or {}).items()
+        }
+        current = {page.url: page.content_hash for page in pages}
+        uploads = [p for p in pages if prev.get(p.url) != p.content_hash]
+        removals = [u for u in prev if u not in current]
+
+        uploaded = 0
+        async with httpx.AsyncClient(
+            base_url=f"{base_url}/api/v1", timeout=_UPSTREAM_TIMEOUT, transport=_transport
+        ) as client:
+            for page in uploads:
+                name = _slug_for_url(page.url)
+                files_payload = [("file", (name, page.markdown.encode("utf-8"), "text/markdown"))]
+                resp = await client.post(
+                    f"/datasets/{dataset_id}/documents",
+                    files=files_payload,
+                    data={"type": "local", "parent_path": f"web/{web and _host_of(page.url)}"},
+                    headers=headers,
+                )
+                if resp.status_code < 400:
+                    uploaded += 1
+            if removals:
+                listed = await client.get(
+                    f"/datasets/{dataset_id}/documents",
+                    params={"page": 1, "page_size": 100},
+                    headers=headers,
+                )
+                docs = (
+                    (listed.json().get("data") or {}).get("docs") or []
+                    if listed.status_code == 200
+                    else []
+                )
+                name_to_id = {d.get("name"): d.get("id") for d in docs if isinstance(d, dict)}
+                doomed = []
+                for url in removals:
+                    doc_id = name_to_id.get(_slug_for_url(url))
+                    if doc_id:
+                        doomed.append(doc_id)
+                if doomed:
+                    await client.delete(
+                        f"/datasets/{dataset_id}/documents",
+                        json={"ids": doomed},
+                        headers=headers,
+                    )
+        store.update_state(
+            user_id,
+            dataset_id,
+            {
+                "sync_status": "done",
+                "pages": current,
+                "last_result": f"uploaded {uploaded}, removed {len(removals)}, crawled {len(pages)}",
+            },
+        )
+    except Exception as exc:
+        store.update_state(
+            user_id, dataset_id, {"sync_status": "error", "last_result": str(exc)[:300]}
+        )
+    finally:
+        state = store.get_state(user_id, dataset_id)
+        if state.get("sync_status") == "running":
+            store.set_status(user_id, dataset_id, "interrupted")
+
+
+def _host_of(url: str) -> str:
+    from urllib.parse import urlparse
+
+    return urlparse(url).hostname or "web"
+
+
+@router.post("/datasets/{dataset_id}/sources/web/sync")
+async def knowledge_sync_web_source(dataset_id: str, request: Request) -> dict[str, Any]:
+    _require_enabled()
+    _require_same_origin(request)
+    from openkg_webui.services.knowledge.sources import store
+
+    source = store.get_source(_user_id(), dataset_id)
+    if source is None or source.get("type") != "web":
+        raise HTTPException(status_code=404, detail="web source not configured")
+    if store.get_state(_user_id(), dataset_id).get("sync_status") == "running":
+        return {"started": False, "reason": "sync already running"}
+    try:
+        base_url, _ = resolve_upstream_connection()
+        bearer, identity_headers = resolve_request_auth(_user_id())
+    except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
+        raise _service_error(exc) from exc
+    user_id = _user_id() or ""
+    store.set_status(user_id, dataset_id, "running")
+    asyncio.create_task(
+        _run_web_sync(user_id, dataset_id, base_url, bearer, identity_headers)
+    )
+    return {"started": True}
+
+
+# ---------------------------------------------------------------------------
 # 解析日志流（Phase 2 T3）：代理侧 SSE——服务端轮询上游 ingestions，
 # 快照变化即推送；客户端断开或超时退出。
 # ---------------------------------------------------------------------------

@@ -764,6 +764,31 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents/structured": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /**
+     * Knowledge Upload Structured
+     * @description 结构化上传（zip / 文件夹）：解包 zip、按 ``rel_paths`` 保留目录结构，
+     *     按目录分组后逐组转发上游（每目录一次请求，`parent_path`=目录）。
+     *
+     *     - ``rel_paths``：与 ``file`` 对齐的相对路径 JSON 数组（文件夹上传语义）；
+     *       未提供时 zip 条目用其内部路径、普通文件用文件名。
+     *     - 响应为各分组上游结果的数组（信封透传）。
+     */
+    readonly post: operations["knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/knowledge-center/datasets/{dataset_id}/ingestions": {
     readonly parameters: {
       readonly query?: never;
@@ -798,6 +823,23 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/logs/stream": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Knowledge Stream Logs */
+    readonly get: operations["knowledge_stream_logs_api_knowledge_center_datasets__dataset_id__logs_stream_get"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/knowledge-center/datasets/{dataset_id}/search": {
     readonly parameters: {
       readonly query?: never;
@@ -815,6 +857,78 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/sources/github": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Knowledge Get Github Source */
+    readonly get: operations["knowledge_get_github_source_api_knowledge_center_datasets__dataset_id__sources_github_get"];
+    /** Knowledge Put Github Source */
+    readonly put: operations["knowledge_put_github_source_api_knowledge_center_datasets__dataset_id__sources_github_put"];
+    readonly post?: never;
+    /** Knowledge Delete Github Source */
+    readonly delete: operations["knowledge_delete_github_source_api_knowledge_center_datasets__dataset_id__sources_github_delete"];
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/sources/github/sync": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Knowledge Sync Github Source */
+    readonly post: operations["knowledge_sync_github_source_api_knowledge_center_datasets__dataset_id__sources_github_sync_post"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/sources/web": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Knowledge Get Web Source */
+    readonly get: operations["knowledge_get_web_source_api_knowledge_center_datasets__dataset_id__sources_web_get"];
+    /** Knowledge Put Web Source */
+    readonly put: operations["knowledge_put_web_source_api_knowledge_center_datasets__dataset_id__sources_web_put"];
+    readonly post?: never;
+    /** Knowledge Delete Web Source */
+    readonly delete: operations["knowledge_delete_web_source_api_knowledge_center_datasets__dataset_id__sources_web_delete"];
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/sources/web/sync": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Knowledge Sync Web Source */
+    readonly post: operations["knowledge_sync_web_source_api_knowledge_center_datasets__dataset_id__sources_web_sync_post"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/knowledge-center/documents/{document_id}/preview": {
     readonly parameters: {
       readonly query?: never;
@@ -825,6 +939,24 @@ export interface paths {
     /** Knowledge Preview Document */
     readonly get: operations["knowledge_preview_document_api_knowledge_center_documents__document_id__preview_get"];
     readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/preferences": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Knowledge Get Preferences */
+    readonly get: operations["knowledge_get_preferences_api_knowledge_center_preferences_get"];
+    /** Knowledge Put Preferences */
+    readonly put: operations["knowledge_put_preferences_api_knowledge_center_preferences_put"];
     readonly post?: never;
     readonly delete?: never;
     readonly options?: never;
@@ -950,6 +1082,27 @@ export interface paths {
     readonly get?: never;
     /** Update Branch Selection */
     readonly put: operations["update_branch_selection_api_sessions__session_id__branch_selection_put"];
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/sessions/{session_id}/knowledge-selection": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Get Knowledge Selection */
+    readonly get: operations["get_knowledge_selection_api_sessions__session_id__knowledge_selection_get"];
+    /**
+     * Update Knowledge Selection
+     * @description 知识中心勾选（Phase 1.5）：会话级知识库 dataset ids，存会话偏好。
+     */
+    readonly put: operations["update_knowledge_selection_api_sessions__session_id__knowledge_selection_put"];
     readonly post?: never;
     readonly delete?: never;
     readonly options?: never;
@@ -2491,10 +2644,19 @@ export interface components {
     };
     /** Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post */
     readonly Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post: {
-      /** Files */
-      readonly files: readonly string[];
+      /** File */
+      readonly file: readonly string[];
       /** Parent Path */
       readonly parent_path?: string | null;
+      /** Type */
+      readonly type?: string | null;
+    };
+    /** Body_knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post */
+    readonly Body_knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post: {
+      /** File */
+      readonly file: readonly string[];
+      /** Rel Paths */
+      readonly rel_paths?: string | null;
       /** Type */
       readonly type?: string | null;
     };
@@ -2937,6 +3099,17 @@ export interface components {
       readonly name_zh: string;
       /** Object Type Name */
       readonly object_type_name: string;
+    };
+    /**
+     * KnowledgeSelectionRequest
+     * @description 知识中心勾选（Phase 1.5）：会话级知识库 dataset ids。
+     *
+     *     Stored inside the session preferences blob so it survives reloads
+     *     without a dedicated column.
+     */
+    readonly KnowledgeSelectionRequest: {
+      /** Kb Ids */
+      readonly kb_ids?: readonly string[];
     };
     /** LanguageUpdate */
     readonly LanguageUpdate: {
@@ -3704,6 +3877,8 @@ export type SchemaAuthStatusResponse =
   components["schemas"]["AuthStatusResponse"];
 export type SchemaBodyKnowledgeUploadDocumentsApiKnowledgeCenterDatasetsDatasetIdDocumentsPost =
   components["schemas"]["Body_knowledge_upload_documents_api_knowledge_center_datasets__dataset_id__documents_post"];
+export type SchemaBodyKnowledgeUploadStructuredApiKnowledgeCenterDatasetsDatasetIdDocumentsStructuredPost =
+  components["schemas"]["Body_knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post"];
 export type SchemaBodySpeechToTextApiVoiceSttPost =
   components["schemas"]["Body_speech_to_text_api_voice_stt_post"];
 export type SchemaBodyUploadAvatarApiAuthProfileAvatarPut =
@@ -3753,6 +3928,8 @@ export type SchemaKagSchemaEditRequest =
   components["schemas"]["KagSchemaEditRequest"];
 export type SchemaKagSchemaRelationAdd =
   components["schemas"]["KagSchemaRelationAdd"];
+export type SchemaKnowledgeSelectionRequest =
+  components["schemas"]["KnowledgeSelectionRequest"];
 export type SchemaLanguageUpdate = components["schemas"]["LanguageUpdate"];
 export type SchemaLlmSelection = components["schemas"]["LLMSelection"];
 export type SchemaLoginRequest = components["schemas"]["LoginRequest"];
@@ -5501,6 +5678,45 @@ export interface operations {
       };
     };
   };
+  readonly knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "multipart/form-data": components["schemas"]["Body_knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   readonly knowledge_list_ingestions_api_knowledge_center_datasets__dataset_id__ingestions_get: {
     readonly parameters: {
       readonly query?: never;
@@ -5572,6 +5788,43 @@ export interface operations {
       };
     };
   };
+  readonly knowledge_stream_logs_api_knowledge_center_datasets__dataset_id__logs_stream_get: {
+    readonly parameters: {
+      readonly query?: {
+        readonly max_ticks?: number;
+      };
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   readonly knowledge_search_dataset_api_knowledge_center_datasets__dataset_id__search_post: {
     readonly parameters: {
       readonly query?: never;
@@ -5607,6 +5860,314 @@ export interface operations {
       };
     };
   };
+  readonly knowledge_get_github_source_api_knowledge_center_datasets__dataset_id__sources_github_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_put_github_source_api_knowledge_center_datasets__dataset_id__sources_github_put: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": {
+          readonly [key: string]: unknown;
+        };
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_delete_github_source_api_knowledge_center_datasets__dataset_id__sources_github_delete: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_sync_github_source_api_knowledge_center_datasets__dataset_id__sources_github_sync_post: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_get_web_source_api_knowledge_center_datasets__dataset_id__sources_web_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_put_web_source_api_knowledge_center_datasets__dataset_id__sources_web_put: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": {
+          readonly [key: string]: unknown;
+        };
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_delete_web_source_api_knowledge_center_datasets__dataset_id__sources_web_delete: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_sync_web_source_api_knowledge_center_datasets__dataset_id__sources_web_sync_post: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   readonly knowledge_preview_document_api_knowledge_center_documents__document_id__preview_get: {
     readonly parameters: {
       readonly query?: never;
@@ -5629,6 +6190,82 @@ export interface operations {
         };
         content: {
           readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_get_preferences_api_knowledge_center_preferences_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path?: never;
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_put_preferences_api_knowledge_center_preferences_put: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path?: never;
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": {
+          readonly [key: string]: unknown;
+        };
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
         };
       };
       /** @description Validation Error */
@@ -5984,6 +6621,80 @@ export interface operations {
     readonly requestBody: {
       readonly content: {
         readonly "application/json": components["schemas"]["BranchSelectionRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly get_knowledge_selection_api_sessions__session_id__knowledge_selection_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly session_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly update_knowledge_selection_api_sessions__session_id__knowledge_selection_put: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly session_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["KnowledgeSelectionRequest"];
       };
     };
     readonly responses: {

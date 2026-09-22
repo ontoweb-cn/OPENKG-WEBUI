@@ -4978,5 +4978,10 @@
   "GitHub source": "GitHub 源",
   "Token (optional)": "令牌（可选）",
   "Leave blank to keep": "留空表示保留",
-  "Save source": "保存源"
+  "Save source": "保存源",
+  "Web source": "Web 爬取源",
+  "Site URL": "站点 URL",
+  "Max depth": "最大深度",
+  "Sync status:": "同步状态：",
+  "Live parse logs": "实时解析日志"
 }

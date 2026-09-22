@@ -295,3 +295,52 @@ export async function syncGithubSource(datasetId: string): Promise<{ started: bo
   );
   return unwrapEnvelope(payload) as { started: boolean };
 }
+
+// —— Phase 2 T5：Web 爬取源 ——
+
+export interface WebSource {
+  type: string;
+  base_url: string;
+  max_pages: number;
+  max_depth: number;
+  state: Record<string, unknown>;
+}
+
+export async function fetchWebSource(datasetId: string): Promise<WebSource | null> {
+  try {
+    const payload = await requestJson<WebSource>(
+      `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web`,
+      { cache: "no-store", scope: "knowledge" },
+    );
+    return unwrapEnvelope(payload) ?? null;
+  } catch (error) {
+    if (error instanceof KnowledgeApiError && error.code === 404) return null;
+    throw error;
+  }
+}
+
+export async function saveWebSource(
+  datasetId: string,
+  body: { base_url: string; max_pages?: number; max_depth?: number },
+): Promise<WebSource> {
+  const payload = await requestJson<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), scope: "knowledge" },
+  );
+  return unwrapEnvelope(payload) as WebSource;
+}
+
+export async function deleteWebSource(datasetId: string): Promise<void> {
+  await requestJson<void>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web`,
+    { method: "DELETE", scope: "knowledge" },
+  );
+}
+
+export async function syncWebSource(datasetId: string): Promise<{ started: boolean }> {
+  const payload = await requestJson<{ started: boolean }>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web/sync`,
+    { method: "POST", scope: "knowledge" },
+  );
+  return unwrapEnvelope(payload) as { started: boolean };
+}

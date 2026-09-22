@@ -28,6 +28,7 @@ import {
   uploadStructured,
 } from "../api";
 import GithubSourcePanel from "./GithubSourcePanel";
+import WebSourcePanel from "./WebSourcePanel";
 import {
   formatBytes,
   anyDocumentRunning,
@@ -290,6 +291,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
 
       <RetrievalPlayground datasetId={datasetId} />
       <GithubSourcePanel datasetId={datasetId} />
+      <WebSourcePanel datasetId={datasetId} />
 
       <ConfirmDialog
         open={deleteIds != null}

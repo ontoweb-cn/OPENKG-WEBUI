@@ -301,3 +301,132 @@ def test_logs_stream_smoke(proxy: TestClient) -> None:
         assert "text/event-stream" in response.headers.get("content-type", "")
         first = next(response.iter_lines())
         assert first.startswith("data:")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 T5：Web 爬取源（提取器 / 同站 BFS / 配置端点）
+# ---------------------------------------------------------------------------
+
+SAMPLE_HTML = """
+<html><head><title>Docs Home</title></head><body>
+<nav>ignore nav</nav>
+<h1>Getting started</h1>
+<p>First paragraph about 傅里叶变换.</p>
+<ul><li>item one</li><li>item two</li></ul>
+<pre>code block</pre>
+<a href="/guide/advanced.html">Advanced</a>
+<script>ignore()</script>
+</body></html>
+"""
+
+
+def test_web_extractor_produces_markdown_and_links() -> None:
+    from openkg_webui.services.knowledge.sources import web
+
+    title, markdown, links = web.html_to_markdown(SAMPLE_HTML, "http://localhost:3300/docs/home")
+    assert title == "Docs Home"
+    assert "# Getting started" in markdown
+    assert "First paragraph" in markdown
+    assert "- item one" in markdown
+    assert "```\ncode block" in markdown
+    assert "ignore nav" not in markdown
+    assert any(link.endswith("/guide/advanced.html") for link in links)
+
+
+@pytest.mark.asyncio
+async def test_web_crawl_bfs_same_site() -> None:
+    import httpx as _httpx
+    from openkg_webui.services.knowledge.sources import web
+
+    pages = {
+        "http://docs.test/home": (SAMPLE_HTML, "text/html"),
+        "http://docs.test/guide/advanced.html": (
+            "<html><head><title>Advanced</title></head><body><p>Advanced guide body</p></body></html>",
+            "text/html",
+        ),
+    }
+
+    def factory() -> _httpx.AsyncClient:
+        def handler(request: _httpx.Request) -> _httpx.Response:
+            key = str(request.url)
+            body, ctype = pages.get(key, ("<html></html>", "text/html"))
+            return _httpx.Response(200, text=body, headers={"content-type": ctype})
+
+        return _httpx.AsyncClient(transport=_httpx.MockTransport(handler))
+
+    result = await web.crawl_site(
+        "http://docs.test/home", max_pages=5, max_depth=2, client_factory=factory
+    )
+    assert len(result) == 2
+    assert {p.title for p in result} == {"Docs Home", "Advanced"}
+
+
+def test_web_source_put_rejects_private_url(proxy: TestClient) -> None:
+    response = proxy.put(
+        f"{_K}/datasets/ds1/sources/web",
+        json={"base_url": "http://127.0.0.1:9380"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# A5：knowledge MCP 注入单元验收（无激活 CLI 后端时的能力级验收）
+# ---------------------------------------------------------------------------
+
+
+def test_knowledge_mcp_config_writes_merged_servers(tmp_path) -> None:
+    import json as _json
+
+    import openkg_webui.services.knowledge as knowledge_service
+
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    # kag 先写入的 .mcp.json 不应被覆盖
+    (workdir / ".mcp.json").write_text(
+        _json.dumps({"mcpServers": {"kag-bridge": {"url": "http://x"}}}), encoding="utf-8"
+    )
+    monkey_settings = {"enabled": True, "mcp_url": "http://127.0.0.1:9382/mcp"}
+
+    def fake_auth(user_id=None):
+        return "svc-key", {"X-Intellect-User": "mem_u1"}
+
+    orig_get = knowledge_service.get_knowledge_settings
+    orig_auth = knowledge_service.resolve_request_auth
+    knowledge_service.get_knowledge_settings = lambda: monkey_settings
+    knowledge_service.resolve_request_auth = fake_auth
+    try:
+        knowledge_service.ensure_knowledge_mcp_config(str(workdir))
+    finally:
+        knowledge_service.get_knowledge_settings = orig_get
+        knowledge_service.resolve_request_auth = orig_auth
+
+    config = _json.loads((workdir / ".mcp.json").read_text(encoding="utf-8"))
+    servers = config["mcpServers"]
+    assert servers["kag-bridge"]["url"] == "http://x"
+    assert servers["intellect-knowledge"]["url"] == "http://127.0.0.1:9382/mcp"
+    assert servers["intellect-knowledge"]["headers"]["Authorization"] == "Bearer svc-key"
+
+    claude = _json.loads((workdir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    assert "mcp__intellect-knowledge__intellect_retrieval" in claude["permissions"]["allow"]
+
+
+def test_knowledge_mcp_config_skips_when_disabled(tmp_path) -> None:
+    import openkg_webui.services.knowledge as knowledge_service
+
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+
+    def fake_auth(user_id=None):
+        raise AssertionError("should not resolve identity when disabled")
+
+    orig_get = knowledge_service.get_knowledge_settings
+    orig_auth = knowledge_service.resolve_request_auth
+    knowledge_service.get_knowledge_settings = lambda: {"enabled": False, "mcp_url": "http://x"}
+    knowledge_service.resolve_request_auth = fake_auth
+    try:
+        knowledge_service.ensure_knowledge_mcp_config(str(workdir))
+        assert not list(workdir.iterdir())
+    finally:
+        knowledge_service.get_knowledge_settings = orig_get
+        knowledge_service.resolve_request_auth = orig_auth
