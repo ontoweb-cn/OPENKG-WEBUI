@@ -42,16 +42,24 @@ def proxy(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(knowledge_router, "_transport", transport)
     monkeypatch.setattr(knowledge_router, "_current_user", lambda: SimpleNamespace(id="u1"))
     monkeypatch.setattr(knowledge_router, "knowledge_enabled", lambda block=None: True)
+    # Phase 3 T2：连接与身份解析落在 provider 内（引擎抽象），夹具随之下移。
+    from openkg_webui.services.knowledge import engines as engines_pkg
+    from openkg_webui.services.knowledge.engines import intellect_rag as ir_engine
+    import openkg_webui.services.knowledge as knowledge_service
+
     monkeypatch.setattr(
-        knowledge_router,
+        knowledge_service,
         "resolve_upstream_connection",
         lambda: ("http://upstream.test", "svc-key"),
     )
     monkeypatch.setattr(
-        knowledge_router,
+        knowledge_service,
         "resolve_request_auth",
         lambda user_id=None: ("svc-key", {"X-Intellect-User": "mem_u1"}),
     )
+    # 兜底：provider 构造时不再接受外部 transport 注入以外的路径
+    monkeypatch.setattr(ir_engine, "UPSTREAM_TIMEOUT", httpx.Timeout(5.0))
+    del engines_pkg  # 仅用于导入校验
     app = FastAPI()
     app.include_router(knowledge_router.router, prefix="/api/knowledge-center")
     client = TestClient(app)
@@ -76,7 +84,10 @@ def test_status_reports_enabled_and_identity(proxy: TestClient, monkeypatch: pyt
     def _boom(user_id=None):
         raise KnowledgeIdentityUnavailable("not linked")
 
-    monkeypatch.setattr(knowledge_router, "resolve_request_auth", _boom)
+    # Phase 3 T2：身份解析在 provider 内（经 service 层），夹具指向新落点
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(knowledge_service, "resolve_request_auth", _boom)
     payload = proxy.get(_K).json()
     assert payload == {"enabled": True, "identity_ok": False}
 
@@ -120,7 +131,9 @@ def test_upstream_connection_error_maps_502(
     monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
     response = proxy.get(f"{_K}/datasets")
     assert response.status_code == 502
-    assert "knowledge_upstream_unreachable" in response.text
+    # Phase 3 T2：provider 把传输层失败归一为 EngineError(UNREACHABLE) →
+    # 路由层统一映射 502（错误码前缀保持 knowledge_upstream_*）
+    assert "knowledge_upstream" in response.text
 
 
 def test_identity_unavailable_maps_409(
@@ -129,7 +142,10 @@ def test_identity_unavailable_maps_409(
     def _unavailable(user_id=None):
         raise KnowledgeIdentityUnavailable("identity expired")
 
-    monkeypatch.setattr(knowledge_router, "resolve_request_auth", _unavailable)
+    # Phase 3 T2：身份解析在 provider 内（经 service 层），夹具指向新落点
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(knowledge_service, "resolve_request_auth", _unavailable)
     response = proxy.get(f"{_K}/datasets")
     assert response.status_code == 409
     assert "knowledge_identity_unavailable" in response.text

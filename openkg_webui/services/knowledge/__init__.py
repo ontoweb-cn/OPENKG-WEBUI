@@ -106,93 +106,25 @@ def set_default_knowledge_dataset(user_id: str, dataset_id: str | None) -> None:
 
 
 def ensure_knowledge_mcp_config(workdir: str) -> None:
-    """CLI 后端 MCP 注入（Phase 2 T6）。
+    """CLI 后端 MCP 注入——委托默认引擎的 ``mcp_binding``（评审 P1-1）。
 
-    向 session workdir 的 ``.mcp.json`` **合并** intellect-knowledge server
-    （streamable-http，指向 ``mcp_url``），并在 ``.claude/settings.json``
-    放行 ``intellect_retrieval``。凭据：header 模式 = 服务 key；token 模式 =
-    该用户 member token（与 turn 检索同一身份源，P1-1）。写入失败不阻塞
-    turn；kag 的 ensure_session_mcp_config 可能已写同一文件——读取-合并-写回。
+    引擎差异（intellect-rag 写 ``.mcp.json`` 的 intellect-knowledge 条目；
+    KAG 写 kag-bridge 或不注入）由 provider 实现。
     """
-    import json
-    from pathlib import Path
+    from openkg_webui.services.knowledge.engines import build_engine
 
-    block = get_knowledge_settings()
-    if not block.get("enabled") or not block.get("mcp_url"):
-        return
-    try:
-        # 请求上下文内解析当前用户身份（P1-1：与 turn 检索同一身份源）
-        bearer, identity_headers = resolve_request_auth()
-    except Exception:
-        return
-    mcp_entry = {
-        # Claude Code 要求 url 型条目带 "type"，否则整个 server 被跳过
-        # （2026-09-22 claude mcp list 实测："has a url but no type"）
-        "type": "http",
-        "url": str(block.get("mcp_url")),
-        "headers": {
-            "Authorization": f"Bearer {bearer}",
-            **{
-                k: v
-                for k, v in identity_headers.items()
-                if k.lower() != "authorization"
-            },
-        },
-    }
-    workdir_path = Path(workdir)
-    mcp_path = workdir_path / ".mcp.json"
-    config: dict[str, Any] = {"mcpServers": {}}
-    if mcp_path.exists():
-        try:
-            config = json.loads(mcp_path.read_text("utf-8")) or {"mcpServers": {}}
-        except Exception:
-            config = {"mcpServers": {}}
-    servers = dict(config.get("mcpServers") or {})
-    servers["intellect-knowledge"] = mcp_entry
-    config["mcpServers"] = servers
-    mcp_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", "utf-8")
-    # .mcp.json 含 Bearer 凭据——收紧为仅属主可读（工作区在服务器侧）
-    try:
-        import os as _os
-
-        _os.chmod(mcp_path, 0o600)
-    except OSError:
-        pass
-
-    claude_dir = workdir_path / ".claude"
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = claude_dir / "settings.json"
-    settings: dict[str, Any] = {}
-    if settings_path.exists():
-        try:
-            settings = json.loads(settings_path.read_text("utf-8")) or {}
-        except Exception:
-            settings = {}
-    # Claude Code 两道门（沿 kag ensure_session_mcp_config 的实测结论）：
-    #   enableAllProjectMcpServers —— 项目级 MCP server 审批
-    #   permissions.allow —— 非交互模式下的工具级 permission 门
-    settings["enableAllProjectMcpServers"] = True
-    permissions = dict(settings.get("permissions") or {})
-    allow = [str(x) for x in (permissions.get("allow") or [])]
-    wanted = "mcp__intellect-knowledge__intellect_retrieval"
-    if wanted not in allow:
-        allow.append(wanted)
-    permissions["allow"] = allow
-    settings["permissions"] = permissions
-    settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", "utf-8")
+    build_engine().mcp_binding(workdir)
 
 
-def chat_rag_block() -> dict[str, Any] | None:
-    """runs 协议请求体的 ``rag`` 会话块（网关 ``build_session_config`` 契约）。
+def chat_rag_block(kb_ids: list[str] | None = None) -> dict[str, Any] | None:
+    """runs 协议请求体的 ``rag`` 会话块——委托默认引擎的 ``chat_binding``。
 
-    knowledge 未启用时返回 ``None``——调用方不带该键，请求体与既有部署
-    逐字节一致。Phase 1b 只带 ``scope``（租户级默认召回，决策 D2）；per-会话
-    ``knowledge_base_ids`` 属 Phase 1.5（B2），网关侧字段已就绪。
+    保留模块级签名以稳定既有调用方（`agent_loop/http_backend.py`）；
+    引擎差异（如 KAG 走 grounding 块）由 provider 实现（评审 P1-1）。
     """
-    block = get_knowledge_settings()
-    if not block.get("enabled"):
-        return None
-    return {"enabled": True, "scope": str(block.get("chat_scope") or "tenant")}
+    from openkg_webui.services.knowledge.engines import build_engine
+
+    return build_engine().chat_binding(kb_ids)
 
 
 def resolve_upstream_connection() -> tuple[str, str]:

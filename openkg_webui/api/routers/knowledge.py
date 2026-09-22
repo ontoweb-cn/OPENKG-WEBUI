@@ -24,7 +24,6 @@ import zipfile
 from collections import defaultdict
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 
 from openkg_webui.services.knowledge import (
@@ -32,14 +31,9 @@ from openkg_webui.services.knowledge import (
     KnowledgeNotConfigured,
     get_knowledge_settings,
     knowledge_enabled,
-    resolve_request_auth,
-    resolve_upstream_connection,
 )
 
 router = APIRouter()
-
-#: 管理面流量：连接 60s / 读流 300s（大文档 preview）。
-_UPSTREAM_TIMEOUT = httpx.Timeout(60.0, read=300.0)
 
 #: 测试注入点（httpx.MockTransport）；生产恒为 None（走默认 transport）。
 _transport: httpx.AsyncBaseTransport | None = None
@@ -99,6 +93,19 @@ def _service_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=502, detail=f"knowledge_upstream_error: {exc}")
 
 
+def _engine_for(dataset_id: str | None = None) -> Any:
+    """构造本次请求的引擎 provider（按 dataset pin 路由；评审 P2-2/P2-3）。
+
+    身份通过 :class:`EngineContext` 随请求绑定——provider 内部复用同一份
+    agent-loop 身份解析（P1-1）。
+    """
+    from openkg_webui.services.knowledge.engines import build_context, build_engine
+    from openkg_webui.services.knowledge.engines.registry import engine_id_for_dataset
+
+    ctx = build_context(user_id=_user_id())
+    return build_engine(engine_id_for_dataset(dataset_id), ctx=ctx, transport=_transport)
+
+
 async def _upstream(
     method: str,
     path: str,
@@ -107,40 +114,46 @@ async def _upstream(
     params: dict[str, Any] | None = None,
     files: list[tuple[str, Any]] | None = None,
     data: dict[str, Any] | None = None,
+    dataset_id: str | None = None,
 ) -> Response:
-    """执行一次带身份的上游请求并原样透传响应（含信封与业务状态码）。"""
+    """经引擎执行一次带身份的请求并原样透传响应（含信封与业务状态码）。
+
+    T2 语义与重构前一致：信封、业务状态码、错误归一均不变；差异在于调用
+    改经 provider（多引擎路由的地基，评审 D1 分阶段策略）。``dataset_id``
+    用于解析该库所属引擎；管理面未提供时回落默认引擎。
+    """
+    from openkg_webui.services.knowledge.engines import EngineError
+
+    # 路由层已能识别的库 id（路径参数）优先，供未来多引擎分流。
+    engine = _engine_for(dataset_id or _dataset_id_from_path(path))
     try:
-        base_url, _ = resolve_upstream_connection()
-        bearer, identity_headers = resolve_request_auth(_user_id())
+        upstream = await engine.request(
+            method,
+            path,
+            json=json,
+            params=params,
+            files=files,
+            data=data,
+        )
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
         raise _service_error(exc) from exc
-    # Authorization 放最后：profile 自带 headers（operator 为 team 服务配置的
-    # 定制头，可能含 Authorization）不得覆盖发往 rag-app 的凭据（评审 R-4）。
-    headers = {**identity_headers, "Authorization": f"Bearer {bearer}"}
-    try:
-        async with httpx.AsyncClient(
-            base_url=f"{base_url}/api/v1",
-            timeout=_UPSTREAM_TIMEOUT,
-            transport=_transport,
-        ) as client:
-            upstream = await client.request(
-                method,
-                path,
-                json=json,
-                params=params,
-                files=files,
-                data=data,
-                headers=headers,
-            )
-    except httpx.HTTPError as exc:
+    except EngineError as exc:
         raise HTTPException(
-            status_code=502, detail=f"knowledge_upstream_unreachable: {exc}"
+            status_code=502, detail=f"knowledge_upstream_error: {exc}"
         ) from exc
     return Response(
         content=upstream.content,
         status_code=upstream.status_code,
         media_type=upstream.headers.get("content-type", "application/json"),
     )
+
+
+def _dataset_id_from_path(path: str) -> str | None:
+    """从 ``/datasets/<id>/...`` 形态的路径中提取库 id（供引擎路由）。"""
+    parts = [p for p in str(path or "").split("/") if p]
+    if len(parts) >= 2 and parts[0] == "datasets":
+        return parts[1]
+    return None
 
 
 async def _json_body(request: Request) -> Any:
@@ -162,7 +175,8 @@ async def knowledge_status() -> dict[str, Any]:
     identity_ok: bool | None = None
     if enabled:
         try:
-            resolve_request_auth(_user_id())
+            # Phase 3 T2：身份可用性经默认引擎的 provider 校验（P1-1 同一身份源）
+            _engine_for(None)._auth()
             identity_ok = True
         except Exception:
             identity_ok = False
@@ -474,19 +488,12 @@ async def knowledge_delete_github_source(
     return {"deleted": deleted}
 
 
-async def _run_github_sync(
-    user_id: str,
-    dataset_id: str,
-    base_url: str,
-    bearer: str,
-    identity_headers: dict,
-) -> None:
+async def _run_github_sync(user_id: str, dataset_id: str) -> None:
     """后台同步任务：plan → 上传变更 → 删除移除项 → 更新状态。"""
     import os
 
     from openkg_webui.services.knowledge.sources import github, store
 
-    headers = {**identity_headers, "Authorization": f"Bearer {bearer}"}
     cfg = store.get_source(user_id, dataset_id) or {}
     client = github.GitHubClient(
         token=store.get_source_token(user_id, dataset_id) or os.environ.get("GITHUB_TOKEN")
@@ -509,39 +516,43 @@ async def _run_github_sync(
                 user_id, dataset_id, {"sync_status": "done", "last_result": "no changes"}
             )
             return
+        # Phase 3 T2（评审 P2-1）：经引擎 provider 上传，不再自行拼引擎 REST——
+        # 否则引擎切换时外部源同步会静默打到旧引擎。身份由 EngineContext 绑定，
+        # 后台任务显式传 user_id。
+        from openkg_webui.services.knowledge.engines import (
+            UploadItem,
+            build_context,
+            build_engine,
+        )
+
+        engine = build_engine(
+            engine_id_for_dataset(dataset_id),
+            ctx=build_context(user_id=user_id),
+            transport=_transport,
+        )
         uploaded = 0
-        async with httpx.AsyncClient(
-            base_url=f"{base_url}/api/v1", timeout=_UPSTREAM_TIMEOUT, transport=_transport
-        ) as client:
+        if True:
             for path, content in plan.uploads:
                 directory = posixpath.dirname(path)
-                files_payload = [
-                    (
-                        "file",
-                        (
-                            posixpath.basename(path),
-                            content,
-                            "application/octet-stream",
-                        ),
-                    )
-                ]
-                resp = await client.post(
-                    f"/datasets/{dataset_id}/documents",
-                    files=files_payload,
-                    data={
-                        "type": "local",
-                        **({"parent_path": directory} if directory else {}),
-                    },
-                    headers=headers,
+                resp = await engine.upload(
+                    dataset_id,
+                    [
+                        UploadItem(
+                            name=posixpath.basename(path),
+                            content=content,
+                            content_type="application/octet-stream",
+                        )
+                    ],
+                    parent_path=directory,
                 )
                 if resp.status_code < 400:
                     uploaded += 1
             removed = 0
             if plan.removals:
-                listed = await client.get(
+                listed = await engine.request(
+                    "GET",
                     f"/datasets/{dataset_id}/documents",
                     params={"page": 1, "page_size": 100},
-                    headers=headers,
                 )
                 docs = (
                     (listed.json().get("data") or {}).get("docs") or []
@@ -560,10 +571,10 @@ async def _run_github_sync(
                     if name_to_id.get(posixpath.basename(p))
                 ]
                 if doomed:
-                    resp = await client.delete(
+                    resp = await engine.request(
+                        "DELETE",
                         f"/datasets/{dataset_id}/documents",
                         json={"ids": doomed},
-                        headers=headers,
                     )
                     removed += len(doomed) if resp.status_code < 400 else 0
         # plan.files = 同步后远端全量 {path: sha}——增量状态以此为准（评审 F2）
@@ -598,16 +609,14 @@ async def knowledge_sync_github_source(dataset_id: str, request: Request) -> dic
         raise HTTPException(status_code=404, detail="github source not configured")
     if store.get_state(_user_id(), dataset_id).get("sync_status") == "running":
         return {"started": False, "reason": "sync already running"}
+    user_id = _user_id() or ""
     try:
-        base_url, _ = resolve_upstream_connection()
-        bearer, identity_headers = resolve_request_auth(_user_id())
+        # 预校验：配置/身份不可用时立刻 409（而不是任务里静默失败）
+        _engine_for(dataset_id)._connection()
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
         raise _service_error(exc) from exc
-    user_id = _user_id() or ""
     store.set_status(user_id, dataset_id, "running")
-    asyncio.create_task(
-        _run_github_sync(user_id, dataset_id, base_url, bearer, identity_headers)
-    )
+    asyncio.create_task(_run_github_sync(user_id, dataset_id))
     return {"started": True}
 
 
@@ -667,16 +676,9 @@ async def knowledge_delete_web_source(
     return {"deleted": deleted}
 
 
-async def _run_web_sync(
-    user_id: str,
-    dataset_id: str,
-    base_url: str,
-    bearer: str,
-    identity_headers: dict,
-) -> None:
+async def _run_web_sync(user_id: str, dataset_id: str) -> None:
     from openkg_webui.services.knowledge.sources import store, web
 
-    headers = {**identity_headers, "Authorization": f"Bearer {bearer}"}
     cfg = store.get_source(user_id, dataset_id) or {}
     try:
         pages = await web.crawl_site(
@@ -691,26 +693,40 @@ async def _run_web_sync(
         uploads = [p for p in pages if prev.get(p.url) != p.content_hash]
         removals = [u for u in prev if u not in current]
 
+        # Phase 3 T2（评审 P2-1）：经引擎 provider，不再自行拼引擎 REST。
+        from openkg_webui.services.knowledge.engines import (
+            UploadItem,
+            build_context,
+            build_engine,
+        )
+
+        engine = build_engine(
+            engine_id_for_dataset(dataset_id),
+            ctx=build_context(user_id=user_id),
+            transport=_transport,
+        )
         uploaded = 0
-        async with httpx.AsyncClient(
-            base_url=f"{base_url}/api/v1", timeout=_UPSTREAM_TIMEOUT, transport=_transport
-        ) as client:
+        if True:
             for page in uploads:
                 name = _slug_for_url(page.url)
-                files_payload = [("file", (name, page.markdown.encode("utf-8"), "text/markdown"))]
-                resp = await client.post(
-                    f"/datasets/{dataset_id}/documents",
-                    files=files_payload,
-                    data={"type": "local", "parent_path": f"web/{web and _host_of(page.url)}"},
-                    headers=headers,
+                resp = await engine.upload(
+                    dataset_id,
+                    [
+                        UploadItem(
+                            name=name,
+                            content=page.markdown.encode("utf-8"),
+                            content_type="text/markdown",
+                        )
+                    ],
+                    parent_path=f"web/{_host_of(page.url)}",
                 )
                 if resp.status_code < 400:
                     uploaded += 1
             if removals:
-                listed = await client.get(
+                listed = await engine.request(
+                    "GET",
                     f"/datasets/{dataset_id}/documents",
                     params={"page": 1, "page_size": 100},
-                    headers=headers,
                 )
                 docs = (
                     (listed.json().get("data") or {}).get("docs") or []
@@ -724,10 +740,10 @@ async def _run_web_sync(
                     if doc_id:
                         doomed.append(doc_id)
                 if doomed:
-                    await client.delete(
+                    await engine.request(
+                        "DELETE",
                         f"/datasets/{dataset_id}/documents",
                         json={"ids": doomed},
-                        headers=headers,
                     )
         store.update_state(
             user_id,
@@ -765,16 +781,13 @@ async def knowledge_sync_web_source(dataset_id: str, request: Request) -> dict[s
         raise HTTPException(status_code=404, detail="web source not configured")
     if store.get_state(_user_id(), dataset_id).get("sync_status") == "running":
         return {"started": False, "reason": "sync already running"}
+    user_id = _user_id() or ""
     try:
-        base_url, _ = resolve_upstream_connection()
-        bearer, identity_headers = resolve_request_auth(_user_id())
+        _engine_for(dataset_id)._connection()
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
         raise _service_error(exc) from exc
-    user_id = _user_id() or ""
     store.set_status(user_id, dataset_id, "running")
-    asyncio.create_task(
-        _run_web_sync(user_id, dataset_id, base_url, bearer, identity_headers)
-    )
+    asyncio.create_task(_run_web_sync(user_id, dataset_id))
     return {"started": True}
 
 
@@ -791,12 +804,15 @@ async def knowledge_stream_logs(
     max_ticks: int = 300,
 ):
     _require_enabled()
+    # Phase 3 T2：经引擎 provider 轮询（身份随 EngineContext 绑定）。
+    # 连接错误在首次调用时暴露为 409/502（与其余端点一致）。
+    from openkg_webui.services.knowledge.engines import EngineError
+
+    engine = _engine_for(dataset_id)
     try:
-        base_url, _ = resolve_upstream_connection()
-        bearer, identity_headers = resolve_request_auth(_user_id())
+        engine._connection()  # 提前校验配置：未配置时以 409 拒绝而非静默空流
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
         raise _service_error(exc) from exc
-    headers = {**identity_headers, "Authorization": f"Bearer {bearer}"}
     params = {"log_type": "file", "page": 1, "page_size": 5}
     max_ticks = max(1, min(max_ticks, 300))  # 生产上限 10 分钟；测试可调小
 
@@ -810,16 +826,11 @@ async def knowledge_stream_logs(
             if await request.is_disconnected():
                 return
             try:
-                async with httpx.AsyncClient(
-                    base_url=f"{base_url}/api/v1",
-                    timeout=httpx.Timeout(15.0),
-                    transport=_transport,
-                ) as client:
-                    resp = await client.get(
-                        f"/datasets/{dataset_id}/ingestions",
-                        params=params,
-                        headers=headers,
-                    )
+                resp = await engine.request(
+                    "GET",
+                    f"/datasets/{dataset_id}/ingestions",
+                    params=params,
+                )
                 if resp.status_code == 200:
                     logs = (resp.json().get("data") or {}).get("logs") or []
                     signature = json.dumps(logs, ensure_ascii=False, sort_keys=True)
@@ -830,7 +841,7 @@ async def knowledge_stream_logs(
                         yield ": keepalive\n\n"
                 else:
                     yield f": upstream {resp.status_code}\n\n"
-            except (httpx.HTTPError, asyncio.CancelledError):
+            except (EngineError, asyncio.CancelledError):
                 return
             await asyncio.sleep(2.0)
 
