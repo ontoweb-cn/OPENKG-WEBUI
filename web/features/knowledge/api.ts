@@ -212,3 +212,86 @@ export async function searchDataset(
 }
 
 export { KnowledgeApiError };
+
+// —— Phase 2：结构化上传 / SSE 日志流 / GitHub 源 ——
+
+export interface StructuredEntry {
+  file: File;
+  /** 相对路径（文件夹上传语义）；zip 文件留空由代理解包 */
+  relPath?: string;
+}
+
+/** 结构化上传：zip 由代理解包，rel_paths 保留目录结构（D1/D2）。 */
+export async function uploadStructured(
+  datasetId: string,
+  entries: StructuredEntry[],
+): Promise<void> {
+  const form = new FormData();
+  const relPaths: string[] = [];
+  for (const entry of entries) {
+    form.append("file", entry.file, entry.file.name);
+    relPaths.push(entry.relPath ?? entry.file.name);
+  }
+  form.append("rel_paths", JSON.stringify(relPaths));
+  form.append("type", "local");
+  const payload = await requestJson<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/structured`,
+    { method: "POST", body: form, scope: "knowledge" },
+  );
+  unwrapEnvelope(payload);
+}
+
+/** 解析日志 SSE 流地址（EventSource 同源带 cookie）。 */
+export function logsStreamUrl(datasetId: string): string {
+  return `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/logs/stream`;
+}
+
+export interface GithubSource {
+  repo: string;
+  branch: string;
+  path_prefix: string;
+  glob: string;
+  token_set: boolean;
+  state: Record<string, unknown>;
+}
+
+export async function fetchGithubSource(
+  datasetId: string,
+): Promise<GithubSource | null> {
+  try {
+    const payload = await requestJson<GithubSource>(
+      `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github`,
+      { cache: "no-store", scope: "knowledge" },
+    );
+    return unwrapEnvelope(payload) ?? null;
+  } catch (error) {
+    if (error instanceof KnowledgeApiError && error.code === 404) return null;
+    throw error;
+  }
+}
+
+export async function saveGithubSource(
+  datasetId: string,
+  body: Record<string, unknown>,
+): Promise<GithubSource> {
+  const payload = await requestJson<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), scope: "knowledge" },
+  );
+  return unwrapEnvelope(payload) as GithubSource;
+}
+
+export async function deleteGithubSource(datasetId: string): Promise<void> {
+  await requestJson<void>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github`,
+    { method: "DELETE", scope: "knowledge" },
+  );
+}
+
+export async function syncGithubSource(datasetId: string): Promise<{ started: boolean }> {
+  const payload = await requestJson<{ started: boolean }>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github/sync`,
+    { method: "POST", scope: "knowledge" },
+  );
+  return unwrapEnvelope(payload) as { started: boolean };
+}

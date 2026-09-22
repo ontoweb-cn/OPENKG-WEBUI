@@ -217,6 +217,7 @@ def test_settings_roundtrip_and_masking(admin_client: TestClient) -> None:
         "api_key",
         "api_key_set",
         "chat_scope",
+        "mcp_url",
     }
 
 
@@ -230,4 +231,73 @@ def test_settings_normalize_defaults(settings_dir: Path) -> None:
         "base_url": "",
         "api_key": "",
         "chat_scope": "tenant",
+        "mcp_url": "",
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2：结构化上传 / GitHub 源 / SSE 日志流
+# ---------------------------------------------------------------------------
+
+import io as _io
+import zipfile as _zipfile
+
+
+def _make_zip(entries: dict[str, bytes]) -> bytes:
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, "w") as zf:
+        for name, content in entries.items():
+            zf.writestr(name, content)
+    return buf.getvalue()
+
+
+def test_structured_zip_groups_by_directory(proxy: TestClient) -> None:
+    zip_bytes = _make_zip(
+        {"docs/a/one.md": b"1", "docs/b/two.md": b"2", "__MACOSX/junk": b"x"}
+    )
+    response = proxy.post(
+        f"{_K}/datasets/ds1/documents/structured",
+        files={"file": ("bundle.zip", zip_bytes, "application/zip")},
+        data={"type": "local"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    results = response.json()
+    dirs = sorted(r["directory"] for r in results)
+    assert dirs == ["docs/a", "docs/b"]
+
+
+def test_structured_zip_slip_rejected(proxy: TestClient) -> None:
+    evil = _make_zip({"../evil.txt": b"nope"})
+    response = proxy.post(
+        f"{_K}/datasets/ds1/documents/structured",
+        files={"file": ("evil.zip", evil, "application/zip")},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 400
+    assert "unsafe zip entry" in response.text
+
+
+def test_github_source_put_masks_token(proxy: TestClient) -> None:
+    response = proxy.put(
+        f"{_K}/datasets/ds1/sources/github",
+        json={"repo": "octocat/Hello-World", "branch": "main", "token": "ghp_secret"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["repo"] == "octocat/Hello-World"
+    assert body.get("token_set") is True
+    assert "ghp_secret" not in response.text
+
+    got = proxy.get(f"{_K}/datasets/ds1/sources/github").json()
+    assert got["token_set"] is True
+    assert "ghp_secret" not in got.get("__repr__", "")
+
+
+def test_logs_stream_smoke(proxy: TestClient) -> None:
+    with proxy.stream("GET", f"{_K}/datasets/ds1/logs/stream?max_ticks=1") as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+        first = next(response.iter_lines())
+        assert first.startswith("data:")

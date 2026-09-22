@@ -756,6 +756,14 @@ async def _build_request(
             )
         except Exception:
             pass
+        # 知识中心 MCP 注入（Phase 2 T6）：CLI 后端经 session .mcp.json 发现
+        # 检索工具；可选集成——失败不阻塞 turn。凭据与身份经 services.knowledge。
+        try:
+            from openkg_webui.services.knowledge import ensure_knowledge_mcp_config
+
+            ensure_knowledge_mcp_config(resolved_workdir, str(context.session_id or ""))
+        except Exception:
+            pass
 
     history = [
         item

@@ -20,6 +20,7 @@ def test_defaults(tmp_path: Path) -> None:
         "base_url": "",
         "api_key": "",
         "chat_scope": "tenant",
+        "mcp_url": "",
     }
 
 
@@ -34,4 +35,5 @@ def test_roundtrip_and_coercion(tmp_path: Path) -> None:
         "base_url": "http://127.0.0.1:9380",
         "api_key": "sk-x",
         "chat_scope": "tenant",
+        "mcp_url": "",
     }

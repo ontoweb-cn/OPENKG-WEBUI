@@ -112,6 +112,10 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
         "base_url": "",
         "api_key": "",
         "chat_scope": "tenant",
+        # MCP 接入（Phase 2 T6，可选）：CLI 后端经 session .mcp.json 使用的
+        # intellect-rag MCP server 地址（如 http://127.0.0.1:9382/mcp）。
+        # 留空 = 不注入。凭据为上方 api_key（服务 key）。
+        "mcp_url": "",
     },
 }
 
@@ -1629,6 +1633,7 @@ class RuntimeSettingsService:
             "base_url": _string(block.get("base_url")).rstrip("/"),
             "api_key": _string(block.get("api_key")),
             "chat_scope": scope,
+            "mcp_url": _string(block.get("mcp_url")).rstrip("/"),
         }
 
     def _normalize_auth(self, settings: dict[str, Any]) -> dict[str, Any]:

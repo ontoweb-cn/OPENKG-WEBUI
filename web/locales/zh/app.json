@@ -4973,5 +4973,10 @@
   "Retrieval scope for chat": "聊天召回范围",
   "Which knowledge bases participate in chat retrieval. Tenant = every base you can access.": "哪些知识库参与聊天召回。租户 = 你可访问的全部知识库。",
   "Tenant — all accessible bases": "租户 — 全部可访问知识库",
-  "{{count}} knowledge bases": "{{count}} 个知识库"
+  "{{count}} knowledge bases": "{{count}} 个知识库",
+  "Upload folder": "上传文件夹",
+  "GitHub source": "GitHub 源",
+  "Token (optional)": "令牌（可选）",
+  "Leave blank to keep": "留空表示保留",
+  "Save source": "保存源"
 }

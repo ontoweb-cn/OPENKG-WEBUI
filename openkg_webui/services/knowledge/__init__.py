@@ -51,7 +51,7 @@ def _defaults_file() -> Any:
 
     from openkg_webui.services.path_service import get_path_service
 
-    return Path(get_path_service().user_data_dir()) / "knowledge_defaults.json"
+    return Path(get_path_service().user_data_dir) / "knowledge_defaults.json"
 
 
 def default_knowledge_kb_ids(user_id: str) -> list[str]:
@@ -89,6 +89,68 @@ def set_default_knowledge_dataset(user_id: str, dataset_id: str | None) -> None:
         data.pop(uid, None)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
+
+
+def ensure_knowledge_mcp_config(workdir: str, session_id: str) -> None:
+    """CLI 后端 MCP 注入（Phase 2 T6）。
+
+    向 session workdir 的 ``.mcp.json`` **合并** intellect-knowledge server
+    （streamable-http，指向 ``mcp_url``），并在 ``.claude/settings.json``
+    放行 ``intellect_retrieval``。凭据：header 模式 = 服务 key；token 模式 =
+    该用户 member token（与 turn 检索同一身份源，P1-1）。写入失败不阻塞
+    turn；kag 的 ensure_session_mcp_config 可能已写同一文件——读取-合并-写回。
+    """
+    import json
+    from pathlib import Path
+
+    block = get_knowledge_settings()
+    if not block.get("enabled") or not block.get("mcp_url"):
+        return
+    try:
+        bearer, identity_headers = resolve_request_auth(str(session_id or "") or None)
+    except Exception:
+        return
+    mcp_entry = {
+        "url": str(block.get("mcp_url")),
+        "headers": {
+            "Authorization": f"Bearer {bearer}",
+            **{
+                k: v
+                for k, v in identity_headers.items()
+                if k.lower() != "authorization"
+            },
+        },
+    }
+    workdir_path = Path(workdir)
+    mcp_path = workdir_path / ".mcp.json"
+    config: dict[str, Any] = {"mcpServers": {}}
+    if mcp_path.exists():
+        try:
+            config = json.loads(mcp_path.read_text("utf-8")) or {"mcpServers": {}}
+        except Exception:
+            config = {"mcpServers": {}}
+    servers = dict(config.get("mcpServers") or {})
+    servers["intellect-knowledge"] = mcp_entry
+    config["mcpServers"] = servers
+    mcp_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", "utf-8")
+
+    claude_dir = workdir_path / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+    settings: dict[str, Any] = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text("utf-8")) or {}
+        except Exception:
+            settings = {}
+    permissions = dict(settings.get("permissions") or {})
+    allow = [str(x) for x in (permissions.get("allow") or [])]
+    wanted = "mcp__intellect-knowledge__intellect_retrieval"
+    if wanted not in allow:
+        allow.append(wanted)
+    permissions["allow"] = allow
+    settings["permissions"] = permissions
+    settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", "utf-8")
 
 
 def chat_rag_block() -> dict[str, Any] | None:

@@ -48,6 +48,7 @@
     "enabled": false,
     "base_url": "",
     "api_key": "",
-    "chat_scope": "tenant"
+    "chat_scope": "tenant",
+    "mcp_url": ""
   }
 }

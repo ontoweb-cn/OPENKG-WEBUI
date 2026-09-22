@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Database,
   FileUp,
+  FolderUp,
   RotateCw,
   Search,
   Square,
@@ -19,11 +20,14 @@ import {
   fetchDataset,
   fetchDocuments,
   fetchIngestionLogs,
+  logsStreamUrl,
   parseDocuments,
   searchDataset,
   stopParsing,
   uploadDocuments,
+  uploadStructured,
 } from "../api";
+import GithubSourcePanel from "./GithubSourcePanel";
 import {
   formatBytes,
   anyDocumentRunning,
@@ -55,6 +59,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchDataset(datasetId)
@@ -99,13 +104,39 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     setUploading(true);
     setError(null);
     try {
-      await uploadDocuments(datasetId, Array.from(fileList));
-      await load();
+      // zip 走结构化端点（代理解包，D1）；其余走多文件直传
+      const zips = Array.from(fileList).filter((f) => f.name.toLowerCase().endsWith(".zip"));
+      const plain = Array.from(fileList).filter((f) => !f.name.toLowerCase().endsWith(".zip"));
+      if (plain.length) await uploadDocuments(datasetId, plain);
+      for (const zf of zips) {
+        await uploadStructured(datasetId, [{ file: zf }]);
+      }
+      if (plain.length || zips.length) await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const onUploadFolder = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const entries = Array.from(fileList).map((f) => ({
+        file: f,
+        relPath:
+          (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      }));
+      await uploadStructured(datasetId, entries);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+      if (folderInputRef.current) folderInputRef.current.value = "";
     }
   };
 
@@ -168,6 +199,18 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
                 {t("Stop parsing")}
               </Button>
             ) : null}
+            <Button variant="secondary" icon={<FolderUp size={14} />} onClick={() => folderInputRef.current?.click()}>
+              {t("Upload folder")}
+            </Button>
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              // @ts-expect-error 非标准属性：目录上传
+              webkitdirectory=""
+              className="hidden"
+              onChange={(event) => onUploadFolder(event.target.files)}
+            />
             <Button
               variant="primary"
               icon={<FileUp size={15} />}
@@ -201,6 +244,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       />
 
       <RetrievalPlayground datasetId={datasetId} />
+      <GithubSourcePanel datasetId={datasetId} />
 
       <ConfirmDialog
         open={deleteIds != null}

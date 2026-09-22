@@ -121,4 +121,6 @@ SOFTWARE.
   its progress/status semantics are ported and adapted from DeepMentor's knowledge center
   (web/components/knowledge/, web/features/knowledge/, web/lib/knowledge-helpers.ts).
   Ported files carry "Derived from DeepMentor" headers; substantial adaptation per
-  docs/knowledge-center-port-design.md §十.
+  docs/knowledge-center-port-design.md §十. The external-source sync engine
+  (openkg_webui/services/knowledge/sources/github.py) is likewise derived from
+  DeepMentor's deepmentor/services/github_source/.
