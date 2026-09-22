@@ -1,0 +1,5333 @@
+{
+  "host": "http://127.0.0.1:8887",
+  "project_id": 4,
+  "names": {
+    "prop": "a0prop179006026804390757",
+    "prop2": "a0prop2179006026804390757",
+    "type": "A0Type179006026804390757",
+    "type_zh": "探针实体类型",
+    "child": "A0Child179006026804390757"
+  },
+  "cases": {
+    "U1": {
+      "ok": true,
+      "error": "",
+      "detail": {
+        "http": 200,
+        "resp": "True",
+        "wire_alter_spg_types": [
+          {
+            "basicInfo": {
+              "name": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "Person",
+                "@type": "SPG_TYPE"
+              },
+              "nameZh": "人物",
+              "desc": ""
+            },
+            "parentTypeInfo": {
+              "uniqueId": 2026091822426909,
+              "parentUniqueId": 1,
+              "parentTypeIdentifier": {
+                "identityType": "SPG_TYPE",
+                "nameEn": "Thing",
+                "@type": "SPG_TYPE"
+              },
+              "inheritPath": [
+                1,
+                2026091822426909
+              ]
+            },
+            "spgTypeEnum": "ENTITY_TYPE",
+            "properties": [
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "description",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "描述"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 1,
+                  "alterId": 1
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "id",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "实体主键"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 2,
+                  "alterId": 2
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "name",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "名称"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 3,
+                  "alterId": 3
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "semanticType",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "semanticType",
+                  "desc": ""
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": false,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": [],
+                  "indexType": "TEXT"
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026091860044470,
+                  "alterId": 2026091860044470
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "a0prop179006026804390757",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "探针属性",
+                  "desc": "A-S0 property"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "@type": "SPG_TYPE"
+                    }
+                  }
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    }
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "advancedConfig": {
+                  "constraint": {
+                    "constraintItems": [
+                      {
+                        "constraintTypeEnum": "NOT_NULL",
+                        "@type": "NOT_NULL"
+                      }
+                    ]
+                  },
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "alterOperation": "CREATE"
+              }
+            ],
+            "relations": [],
+            "projectId": 4,
+            "ontologyId": {
+              "uniqueId": 2026091822426909,
+              "alterId": 2026091822426909
+            },
+            "alterOperation": "UPDATE",
+            "extInfo": {
+              "commonIndex": false
+            },
+            "@type": "ENTITY_TYPE"
+          }
+        ],
+        "server_after": {
+          "Text": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Integer": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Float": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Date": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaMobile": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaTelCode": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Email": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Timestamp": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "IdCardNo": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "MacAddress": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Concept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ArtificialObject": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Transport": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005919428890254": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Astronomy": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Others": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "SemanticConcept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005933256690323": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Medicine": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Building": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "GeographicLocation": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Works": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005930654790300": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005927377890286": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Chunk": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "content",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005924888490275": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Person": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Organization": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Event": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "NaturalScience": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Creature": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Keyword": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          }
+        },
+        "asserted": true
+      }
+    },
+    "U2": {
+      "ok": true,
+      "error": "",
+      "detail": {
+        "http": 200,
+        "resp": "True",
+        "wire_alter_spg_types": [
+          {
+            "basicInfo": {
+              "name": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "Person",
+                "@type": "SPG_TYPE"
+              },
+              "nameZh": "人物",
+              "desc": ""
+            },
+            "parentTypeInfo": {
+              "uniqueId": 2026091822426909,
+              "parentUniqueId": 1,
+              "parentTypeIdentifier": {
+                "identityType": "SPG_TYPE",
+                "nameEn": "Thing",
+                "@type": "SPG_TYPE"
+              },
+              "inheritPath": [
+                1,
+                2026091822426909
+              ]
+            },
+            "spgTypeEnum": "ENTITY_TYPE",
+            "properties": [
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "description",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "描述"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 1,
+                  "alterId": 1
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "id",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "实体主键"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 2,
+                  "alterId": 2
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "name",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "名称"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 3,
+                  "alterId": 3
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "semanticType",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "semanticType",
+                  "desc": ""
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": false,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": [],
+                  "indexType": "TEXT"
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026091860044470,
+                  "alterId": 2026091860044470
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "a0prop179006026804390757",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "探针属性-改",
+                  "desc": "updated desc by A-S0"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": false,
+                "advancedConfig": {
+                  "constraint": {
+                    "id": 2026092255931782,
+                    "constraintItems": []
+                  },
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026092275758099,
+                  "alterId": 2026092275758099
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              }
+            ],
+            "relations": [],
+            "projectId": 4,
+            "ontologyId": {
+              "uniqueId": 2026091822426909,
+              "alterId": 2026091822426909
+            },
+            "alterOperation": "UPDATE",
+            "extInfo": {
+              "commonIndex": false
+            },
+            "@type": "ENTITY_TYPE"
+          }
+        ],
+        "server_after": {
+          "Text": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Integer": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Float": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Date": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaMobile": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaTelCode": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Email": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Timestamp": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "IdCardNo": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "MacAddress": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Concept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ArtificialObject": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Transport": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005919428890254": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Astronomy": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Others": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "SemanticConcept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005933256690323": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Medicine": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Building": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "GeographicLocation": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Works": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005930654790300": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005927377890286": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Chunk": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "content",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005924888490275": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Person": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Organization": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Event": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "NaturalScience": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Creature": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Keyword": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          }
+        },
+        "asserted": true
+      }
+    },
+    "U3": {
+      "ok": true,
+      "error": "",
+      "detail": {
+        "http": 200,
+        "resp": "True",
+        "wire_alter_spg_types": [
+          {
+            "basicInfo": {
+              "name": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "Person",
+                "@type": "SPG_TYPE"
+              },
+              "nameZh": "人物",
+              "desc": ""
+            },
+            "parentTypeInfo": {
+              "uniqueId": 2026091822426909,
+              "parentUniqueId": 1,
+              "parentTypeIdentifier": {
+                "identityType": "SPG_TYPE",
+                "nameEn": "Thing",
+                "@type": "SPG_TYPE"
+              },
+              "inheritPath": [
+                1,
+                2026091822426909
+              ]
+            },
+            "spgTypeEnum": "ENTITY_TYPE",
+            "properties": [
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "description",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "描述"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 1,
+                  "alterId": 1
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "id",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "实体主键"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 2,
+                  "alterId": 2
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "name",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "名称"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 3,
+                  "alterId": 3
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "semanticType",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "semanticType",
+                  "desc": ""
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": false,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": [],
+                  "indexType": "TEXT"
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026091860044470,
+                  "alterId": 2026091860044470
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "a0prop179006026804390757",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "探针属性"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "Person",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "人物",
+                    "desc": ""
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": false,
+                "advancedConfig": {
+                  "constraint": {
+                    "id": 2026092283983636,
+                    "constraintItems": []
+                  },
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026092266655864,
+                  "alterId": 2026092266655864
+                },
+                "alterOperation": "DELETE",
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              }
+            ],
+            "relations": [],
+            "projectId": 4,
+            "ontologyId": {
+              "uniqueId": 2026091822426909,
+              "alterId": 2026091822426909
+            },
+            "alterOperation": "UPDATE",
+            "extInfo": {
+              "commonIndex": false
+            },
+            "@type": "ENTITY_TYPE"
+          }
+        ],
+        "server_after": {
+          "Text": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Integer": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Float": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Date": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaMobile": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaTelCode": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Email": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Timestamp": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "IdCardNo": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "MacAddress": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Concept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ArtificialObject": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Transport": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005919428890254": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Astronomy": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Others": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "SemanticConcept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005933256690323": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Medicine": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Building": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "GeographicLocation": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Works": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005930654790300": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005927377890286": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Chunk": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "content",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005924888490275": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Person": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Organization": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Event": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "NaturalScience": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Creature": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Keyword": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          }
+        },
+        "asserted": true
+      }
+    },
+    "U4": {
+      "ok": true,
+      "error": "",
+      "detail": {
+        "http": 200,
+        "resp": "True",
+        "wire_alter_spg_types": [
+          {
+            "basicInfo": {
+              "name": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "A0Type179006026804390757",
+                "@type": "SPG_TYPE"
+              },
+              "nameZh": "探针实体类型",
+              "desc": "A-S0 probe entity type"
+            },
+            "parentTypeInfo": {
+              "parentTypeIdentifier": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "Person",
+                "@type": "SPG_TYPE"
+              },
+              "inheritPath": []
+            },
+            "spgTypeEnum": "ENTITY_TYPE",
+            "properties": [
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "a0prop2179006026804390757",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "探针子属性",
+                  "desc": "A-S0 prop under new type"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "@type": "SPG_TYPE"
+                    }
+                  }
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    }
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "advancedConfig": {
+                  "constraint": {
+                    "constraintItems": [
+                      {
+                        "constraintTypeEnum": "NOT_NULL",
+                        "@type": "NOT_NULL"
+                      }
+                    ]
+                  },
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "alterOperation": "CREATE"
+              }
+            ],
+            "relations": [],
+            "alterOperation": "CREATE",
+            "@type": "ENTITY_TYPE"
+          }
+        ],
+        "server_after": {
+          "Text": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Integer": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Float": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Date": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaMobile": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaTelCode": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Email": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Timestamp": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "IdCardNo": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "MacAddress": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Concept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Type179006026804390757": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ],
+              [
+                "a0prop2179006026804390757",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ArtificialObject": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Transport": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005919428890254": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Astronomy": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Others": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "SemanticConcept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005933256690323": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Medicine": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Building": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "GeographicLocation": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Works": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005930654790300": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005927377890286": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Chunk": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "content",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005924888490275": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Person": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Organization": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Event": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "NaturalScience": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Creature": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Keyword": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          }
+        },
+        "asserted": true
+      }
+    },
+    "U5": {
+      "ok": true,
+      "error": "",
+      "detail": {
+        "http": 200,
+        "resp": "True",
+        "wire_alter_spg_types": [
+          {
+            "basicInfo": {
+              "name": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "A0Type179006026804390757",
+                "@type": "SPG_TYPE"
+              },
+              "nameZh": "探针实体类型",
+              "desc": "A-S0 probe"
+            },
+            "parentTypeInfo": {
+              "uniqueId": 2026092240885011,
+              "parentUniqueId": 2026091822426909,
+              "parentTypeIdentifier": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "Person",
+                "@type": "SPG_TYPE"
+              },
+              "inheritPath": [
+                1,
+                2026091822426909,
+                2026092240885011
+              ]
+            },
+            "spgTypeEnum": "ENTITY_TYPE",
+            "properties": [
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "description",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "描述"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0 probe"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 1,
+                  "alterId": 1
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "id",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "实体主键"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0 probe"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 2,
+                  "alterId": 2
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "name",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "名称"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0 probe"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 3,
+                  "alterId": 3
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "semanticType",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "semanticType",
+                  "desc": ""
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0 probe"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": [],
+                  "indexType": "TEXT"
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026091860044470,
+                  "alterId": 2026091860044470
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "a0prop2179006026804390757",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "探针子属性"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0 probe"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": false,
+                "advancedConfig": {
+                  "constraint": {
+                    "id": 2026092263443587,
+                    "constraintItems": []
+                  },
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026092235579854,
+                  "alterId": 2026092235579854
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              }
+            ],
+            "relations": [],
+            "projectId": 4,
+            "ontologyId": {
+              "uniqueId": 2026092240885011,
+              "alterId": 2026092240885011
+            },
+            "alterOperation": "DELETE",
+            "extInfo": {
+              "commonIndex": false
+            },
+            "@type": "ENTITY_TYPE"
+          }
+        ],
+        "server_after": {
+          "Text": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Integer": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Float": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Date": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaMobile": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaTelCode": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Email": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Timestamp": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "IdCardNo": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "MacAddress": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Concept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ArtificialObject": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Transport": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005919428890254": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Astronomy": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Others": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "SemanticConcept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005933256690323": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Medicine": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Building": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "GeographicLocation": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Works": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005930654790300": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005927377890286": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Chunk": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "content",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005924888490275": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Person": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Organization": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Event": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "NaturalScience": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Creature": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Keyword": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          }
+        },
+        "asserted": true
+      }
+    },
+    "U6": {
+      "ok": true,
+      "error": "",
+      "detail": {
+        "http": 200,
+        "resp": "True",
+        "wire_alter_spg_types": [
+          {
+            "basicInfo": {
+              "name": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "A0Type179006026804390757",
+                "@type": "SPG_TYPE"
+              },
+              "nameZh": "探针实体类型",
+              "desc": "A-S0"
+            },
+            "parentTypeInfo": {
+              "uniqueId": 2026092215531645,
+              "parentUniqueId": 2026091822426909,
+              "parentTypeIdentifier": {
+                "identityType": "SPG_TYPE",
+                "namespace": "m2ReviewProj",
+                "nameEn": "Person",
+                "@type": "SPG_TYPE"
+              },
+              "inheritPath": [
+                1,
+                2026091822426909,
+                2026092215531645
+              ]
+            },
+            "spgTypeEnum": "ENTITY_TYPE",
+            "properties": [
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "description",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "描述"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 1,
+                  "alterId": 1
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "id",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "实体主键"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 2,
+                  "alterId": 2
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "name",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "名称"
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": []
+                },
+                "projectId": 0,
+                "ontologyId": {
+                  "uniqueId": 3,
+                  "alterId": 3
+                }
+              },
+              {
+                "basicInfo": {
+                  "name": {
+                    "identityType": "PREDICATE",
+                    "name": "semanticType",
+                    "@type": "PREDICATE"
+                  },
+                  "nameZh": "semanticType",
+                  "desc": ""
+                },
+                "subjectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "namespace": "m2ReviewProj",
+                      "nameEn": "A0Type179006026804390757",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "探针实体类型",
+                    "desc": "A-S0"
+                  },
+                  "spgTypeEnum": "ENTITY_TYPE"
+                },
+                "objectTypeRef": {
+                  "basicInfo": {
+                    "name": {
+                      "identityType": "SPG_TYPE",
+                      "nameEn": "Text",
+                      "@type": "SPG_TYPE"
+                    },
+                    "nameZh": "文本",
+                    "desc": "文本"
+                  },
+                  "spgTypeEnum": "BASIC_TYPE"
+                },
+                "inherited": true,
+                "advancedConfig": {
+                  "subProperties": [],
+                  "semantics": [],
+                  "indexType": "TEXT"
+                },
+                "projectId": 4,
+                "ontologyId": {
+                  "uniqueId": 2026091860044470,
+                  "alterId": 2026091860044470
+                },
+                "extInfo": {
+                  "valueType": "BASIC_TYPE"
+                }
+              }
+            ],
+            "relations": [],
+            "projectId": 4,
+            "ontologyId": {
+              "uniqueId": 2026092215531645,
+              "alterId": 2026092215531645
+            },
+            "alterOperation": "DELETE",
+            "extInfo": {
+              "commonIndex": false
+            },
+            "@type": "ENTITY_TYPE"
+          }
+        ],
+        "server_after": {
+          "Text": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Integer": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Float": {
+            "enum": "BASIC_TYPE",
+            "props": [],
+            "rels": []
+          },
+          "Date": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaMobile": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ChinaTelCode": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Email": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Timestamp": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "IdCardNo": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "MacAddress": {
+            "enum": "STANDARD_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Concept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "ArtificialObject": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Transport": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005919428890254": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Astronomy": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Others": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "SemanticConcept": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005933256690323": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Medicine": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Building": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "GeographicLocation": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Works": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005930654790300": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005927377890286": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Chunk": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "content",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "A0Child179005924888490275": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Person": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Organization": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Event": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "NaturalScience": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Creature": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          },
+          "Keyword": {
+            "enum": "ENTITY_TYPE",
+            "props": [
+              [
+                "description",
+                null
+              ],
+              [
+                "id",
+                null
+              ],
+              [
+                "name",
+                null
+              ],
+              [
+                "semanticType",
+                null
+              ]
+            ],
+            "rels": []
+          }
+        },
+        "asserted": true
+      }
+    }
+  },
+  "ok": true
+}
