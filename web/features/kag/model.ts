@@ -522,6 +522,34 @@ export function parseKagBuildDetail(raw: unknown): KagBuildDetail | null {
   };
 }
 
+export interface KagSchemaExportRow {
+  name: string;
+  nameZh: string;
+  kind: SpgTypeKind;
+  parent: string | null;
+  desc: string;
+  properties: SpgPropertyRow[];
+  relations: SpgRelationRow[];
+}
+
+export function serializeKagSchema(rows: SpgTypeRow[]): {
+  types: KagSchemaExportRow[];
+} {
+  return {
+    types: rows
+      .filter((row) => row.key !== "")
+      .map((row) => ({
+        name: row.name,
+        nameZh: row.nameZh,
+        kind: row.kind,
+        parent: row.parent,
+        desc: row.desc,
+        properties: row.properties,
+        relations: parseRelations(row.raw.relations),
+      })),
+  };
+}
+
 // —— 概念规则（C2：/projects/{id}/concept/rules 归一行）——
 // 后端归一：reasoning 行 {kind:logical, subject_type/name, predicate,
 // object_type/name, dsl}（TripleSemantic）；taxonomy 行 {kind:taxonomy,
@@ -546,6 +574,8 @@ export interface KagConceptRules {
   typeName: string;
   reasoning: KagConceptRule[];
   taxonomy: KagConceptRule[];
+  /** A-S3：该概念类型下的概念实例名（queryConcept 枚举）。 */
+  concepts: string[];
   /** schema 中是否存在 belongTo 属性（实体类型→该概念类型）；定义门禁。 */
   belongToReady: boolean;
 }
@@ -589,10 +619,14 @@ export function parseConceptRules(raw: unknown): KagConceptRules {
     Array.isArray(rows)
       ? rows.map(parseConceptRule).filter((rule): rule is KagConceptRule => rule !== null)
       : [];
+  const concepts = Array.isArray(payload.concepts)
+    ? Array.from(new Set(payload.concepts.map(text).filter(Boolean)))
+    : [];
   return {
     typeName: text(payload.type_name),
     reasoning: pick(payload.reasoning),
     taxonomy: pick(payload.taxonomy),
+    concepts,
     belongToReady: payload.belong_to_ready === true,
   };
 }

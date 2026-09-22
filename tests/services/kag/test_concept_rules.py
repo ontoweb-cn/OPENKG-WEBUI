@@ -302,6 +302,8 @@ def test_get_concept_rules_normalizes_both_kinds(
     assert body["reasoning"][0]["predicate"] == "leadTo"
     assert body["reasoning"][0]["object_name"] == "2"
     assert body["taxonomy"][0]["concept_name"] == "1"
+    # A-S3：概念实例名（_concept_name 取 name||id，去重保序）
+    assert body["concepts"] == ["1"]
     # 非 DynamicTaxonomySemantic 语义行不混入 taxonomy
     fake2 = FakeConceptOpenSPG(
         reasoning=[], concepts=[{"name": {"id": "1"}, "semantics": [TRIPLE_LEAD_TO]}], schema={}
@@ -340,6 +342,7 @@ def test_get_concept_rules_degrades_per_part(
     body = resp.json()
     assert body["reasoning"] == []
     assert body["taxonomy"] == []
+    assert body["concepts"] == []  # A-S3：queryConcept 失败 also 独立降级空
     assert body["belong_to_ready"] is False
 
 

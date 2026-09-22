@@ -603,11 +603,13 @@ export interface paths {
     readonly put?: never;
     /**
      * Alter Project Schema
-     * @description 提交 Schema 变更（项目成员 + same-origin；M3.5）。
+     * @description 提交 Schema 变更（项目成员 + same-origin；M3.5 + A-S1）。
      *
-     *     语义（M3.5 实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于
-     *     删除（服务端 500），删除必须显式 DELETE 操作。T2（M4-B）写操作由
-     *     admin-only 放宽为项目 membership（owner/成员可改自己的项目）。
+     *     语义（wire 契约实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于
+     *     删除（服务端 500），删除必须显式 DELETE 操作。A-S1 扩展：属性/关系/类型
+     *     的新增与删除意图；类型删除做子类型拒删（A-S0：直接删父会留不可还原孤儿）；
+     *     inherited 属性/关系禁删（沿 M3.5 关系先例）。T2 写操作由 admin-only 放宽
+     *     为项目 membership。
      */
     readonly post: operations["alter_project_schema_api_kag_projects__project_id__schema_alter_post"];
     readonly delete?: never;
@@ -2349,6 +2351,16 @@ export interface components {
       /** Trace Count */
       readonly trace_count: number;
     };
+    /** CoordinationStatus */
+    readonly CoordinationStatus: {
+      /**
+       * Backend
+       * @enum {string}
+       */
+      readonly backend: "memory" | "redis";
+      /** Healthy */
+      readonly healthy: boolean;
+    };
     /**
      * DoclingRemoteTest
      * @description Draft Docling remote-server test. ``api_token`` is tri-state: ``None``
@@ -2656,24 +2668,70 @@ export interface components {
       readonly vector_dimensions?: number | null;
     };
     /**
+     * KagPropertyAdd
+     * @description 新增属性（A-S0 实测 wire：属性 CREATE，nameZh 必填）。
+     */
+    readonly KagPropertyAdd: {
+      /**
+       * Constraint
+       * @default
+       */
+      readonly constraint: string;
+      /**
+       * Desc
+       * @default
+       */
+      readonly desc: string;
+      /** Name */
+      readonly name: string;
+      /**
+       * Name Zh
+       * @default
+       */
+      readonly name_zh: string;
+      /** Object Type Name */
+      readonly object_type_name: string;
+    };
+    /**
      * KagSchemaEditRequest
-     * @description Schema 编辑（M3.5）：读模型进、wire 转换在后端。
+     * @description Schema 编辑（M3.5+A-S1）：读模型进、wire 转换在后端。
      *
      *     ``spg_type`` 为 queryProjectSchema 返回的 SPG type 原样（前端就地编辑
-     *     中文名/描述等）；新增/删除关系以意图列表表达（CREATE/DELETE 元素级
-     *     操作由服务端组装——M3.5 实测 wire 契约，schema_draft.py）。
+     *     中文名/描述等）；新增/删除以意图列表表达（CREATE/DELETE 元素级操作由
+     *     服务端组装——wire 契约实测见 schema_draft.py）。新增字段默认空列表，
+     *     对旧客户端向后兼容。
      */
     readonly KagSchemaEditRequest: {
+      /**
+       * Add Properties
+       * @default []
+       */
+      readonly add_properties: readonly components["schemas"]["KagPropertyAdd"][];
       /**
        * Add Relations
        * @default []
        */
       readonly add_relations: readonly components["schemas"]["KagSchemaRelationAdd"][];
       /**
+       * Add Types
+       * @default []
+       */
+      readonly add_types: readonly components["schemas"]["KagTypeAdd"][];
+      /**
+       * Delete Properties
+       * @default []
+       */
+      readonly delete_properties: readonly string[];
+      /**
        * Delete Relations
        * @default []
        */
       readonly delete_relations: readonly string[];
+      /**
+       * Delete Types
+       * @default []
+       */
+      readonly delete_types: readonly string[];
       /** Spg Type */
       readonly spg_type: {
         readonly [key: string]: unknown;
@@ -2698,6 +2756,32 @@ export interface components {
       readonly name_zh: string;
       /** Object Type Name */
       readonly object_type_name: string;
+    };
+    /**
+     * KagTypeAdd
+     * @description 新增 SPG 类型（A-S0 实测 wire：类型 CREATE；parent 为 schema 内现有
+     *     实体类型的裸名，后端拼 namespace 全名）。首版仅 ENTITY_TYPE。
+     */
+    readonly KagTypeAdd: {
+      /**
+       * Desc
+       * @default
+       */
+      readonly desc: string;
+      /** Name */
+      readonly name: string;
+      /**
+       * Name Zh
+       * @default
+       */
+      readonly name_zh: string;
+      /** Parent Name */
+      readonly parent_name: string;
+      /**
+       * Spg Type
+       * @default ENTITY_TYPE
+       */
+      readonly spg_type: string;
     };
     /** LanguageUpdate */
     readonly LanguageUpdate: {
@@ -2915,6 +2999,13 @@ export interface components {
        */
       readonly selection: string | null;
     };
+    /** RedisStatusDetail */
+    readonly RedisStatusDetail: {
+      /** Configured */
+      readonly configured: boolean;
+      /** Healthy */
+      readonly healthy: boolean;
+    };
     /**
      * RegisterRequest
      * @description Payload for the POST /register endpoint.
@@ -2927,6 +3018,8 @@ export interface components {
     };
     /** RuntimeStatus */
     readonly RuntimeStatus: {
+      /** @default null */
+      readonly coordination: components["schemas"]["CoordinationStatus"] | null;
       /**
        * Coordination Mode
        * @enum {string}
@@ -2968,6 +3061,8 @@ export interface components {
       readonly recovery_backlog: number;
       /** Recovery Interval Seconds */
       readonly recovery_interval_seconds: number;
+      /** @default null */
+      readonly redis: components["schemas"]["RedisStatusDetail"] | null;
       /** Redis Configured */
       readonly redis_configured: boolean;
       /**
@@ -3479,6 +3574,8 @@ export type SchemaChatResponseTimeoutUpdate =
   components["schemas"]["ChatResponseTimeoutUpdate"];
 export type SchemaChatStarterSettingsUpdate =
   components["schemas"]["ChatStarterSettingsUpdate"];
+export type SchemaCoordinationStatus =
+  components["schemas"]["CoordinationStatus"];
 export type SchemaDoclingRemoteTest =
   components["schemas"]["DoclingRemoteTest"];
 export type SchemaDocumentParsingInstall =
@@ -3508,10 +3605,12 @@ export type SchemaKagMembersUpdateRequest =
   components["schemas"]["KagMembersUpdateRequest"];
 export type SchemaKagProjectCreateRequest =
   components["schemas"]["KagProjectCreateRequest"];
+export type SchemaKagPropertyAdd = components["schemas"]["KagPropertyAdd"];
 export type SchemaKagSchemaEditRequest =
   components["schemas"]["KagSchemaEditRequest"];
 export type SchemaKagSchemaRelationAdd =
   components["schemas"]["KagSchemaRelationAdd"];
+export type SchemaKagTypeAdd = components["schemas"]["KagTypeAdd"];
 export type SchemaLanguageUpdate = components["schemas"]["LanguageUpdate"];
 export type SchemaLlmSelection = components["schemas"]["LLMSelection"];
 export type SchemaLoginRequest = components["schemas"]["LoginRequest"];
@@ -3529,6 +3628,8 @@ export type SchemaOutgoingAttachment =
   components["schemas"]["OutgoingAttachment"];
 export type SchemaReadingReference = components["schemas"]["ReadingReference"];
 export type SchemaReadingViewport = components["schemas"]["ReadingViewport"];
+export type SchemaRedisStatusDetail =
+  components["schemas"]["RedisStatusDetail"];
 export type SchemaRegisterRequest = components["schemas"]["RegisterRequest"];
 export type SchemaRuntimeStatus = components["schemas"]["RuntimeStatus"];
 export type SchemaSessionDetail = components["schemas"]["SessionDetail"];

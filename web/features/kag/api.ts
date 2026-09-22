@@ -93,14 +93,32 @@ export async function fetchKagProjectSchema(
   return parseSpgSchema(payload);
 }
 
-/** M3.5 Schema 编辑：spg_type 为读模型原样（SpgTypeRow.raw），wire 转换在服务端。 */
+/** M3.5+A-S1 Schema 编辑：spg_type 为读模型原样（SpgTypeRow.raw），wire 转换在服务端。 */
+export interface KagSchemaAlterBody {
+  spg_type: Record<string, unknown>;
+  add_relations?: { name: string; name_zh?: string; desc?: string; object_type_name: string }[];
+  delete_relations?: string[];
+  add_properties?: {
+    name: string;
+    object_type_name: string;
+    name_zh?: string;
+    desc?: string;
+    constraint?: string;
+  }[];
+  delete_properties?: string[];
+  add_types?: {
+    name: string;
+    name_zh?: string;
+    desc?: string;
+    parent_name: string;
+    spg_type?: string;
+  }[];
+  delete_types?: string[];
+}
+
 export async function alterKagProjectSchema(
   projectId: string,
-  body: {
-    spg_type: Record<string, unknown>;
-    add_relations?: { name: string; name_zh?: string; desc?: string; object_type_name: string }[];
-    delete_relations?: string[];
-  },
+  body: KagSchemaAlterBody,
 ): Promise<unknown> {
   return requestJson<unknown>(
     `/api/kag/projects/${encodeURIComponent(projectId)}/schema/alter`,

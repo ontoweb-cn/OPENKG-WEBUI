@@ -481,6 +481,29 @@
         "title": "ChatStarterSettingsUpdate",
         "type": "object"
       },
+      "CoordinationStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "enum": [
+              "memory",
+              "redis"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "backend",
+          "healthy"
+        ],
+        "title": "CoordinationStatus",
+        "type": "object"
+      },
       "DoclingRemoteTest": {
         "description": "Draft Docling remote-server test. ``api_token`` is tri-state: ``None``\nfalls back to the stored key, ``\"\"`` clears it, a string supplies it (so\nthe user can verify an unsaved key before saving).",
         "properties": {
@@ -976,9 +999,51 @@
         "title": "KagProjectCreateRequest",
         "type": "object"
       },
-      "KagSchemaEditRequest": {
-        "description": "Schema 编辑（M3.5）：读模型进、wire 转换在后端。\n\n``spg_type`` 为 queryProjectSchema 返回的 SPG type 原样（前端就地编辑\n中文名/描述等）；新增/删除关系以意图列表表达（CREATE/DELETE 元素级\n操作由服务端组装——M3.5 实测 wire 契约，schema_draft.py）。",
+      "KagPropertyAdd": {
+        "description": "新增属性（A-S0 实测 wire：属性 CREATE，nameZh 必填）。",
         "properties": {
+          "constraint": {
+            "default": "",
+            "title": "Constraint",
+            "type": "string"
+          },
+          "desc": {
+            "default": "",
+            "title": "Desc",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_zh": {
+            "default": "",
+            "title": "Name Zh",
+            "type": "string"
+          },
+          "object_type_name": {
+            "title": "Object Type Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "object_type_name"
+        ],
+        "title": "KagPropertyAdd",
+        "type": "object"
+      },
+      "KagSchemaEditRequest": {
+        "description": "Schema 编辑（M3.5+A-S1）：读模型进、wire 转换在后端。\n\n``spg_type`` 为 queryProjectSchema 返回的 SPG type 原样（前端就地编辑\n中文名/描述等）；新增/删除以意图列表表达（CREATE/DELETE 元素级操作由\n服务端组装——wire 契约实测见 schema_draft.py）。新增字段默认空列表，\n对旧客户端向后兼容。",
+        "properties": {
+          "add_properties": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KagPropertyAdd"
+            },
+            "title": "Add Properties",
+            "type": "array"
+          },
           "add_relations": {
             "default": [],
             "items": {
@@ -987,12 +1052,36 @@
             "title": "Add Relations",
             "type": "array"
           },
+          "add_types": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KagTypeAdd"
+            },
+            "title": "Add Types",
+            "type": "array"
+          },
+          "delete_properties": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Delete Properties",
+            "type": "array"
+          },
           "delete_relations": {
             "default": [],
             "items": {
               "type": "string"
             },
             "title": "Delete Relations",
+            "type": "array"
+          },
+          "delete_types": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Delete Types",
             "type": "array"
           },
           "spg_type": {
@@ -1034,6 +1123,40 @@
           "object_type_name"
         ],
         "title": "KagSchemaRelationAdd",
+        "type": "object"
+      },
+      "KagTypeAdd": {
+        "description": "新增 SPG 类型（A-S0 实测 wire：类型 CREATE；parent 为 schema 内现有\n实体类型的裸名，后端拼 namespace 全名）。首版仅 ENTITY_TYPE。",
+        "properties": {
+          "desc": {
+            "default": "",
+            "title": "Desc",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_zh": {
+            "default": "",
+            "title": "Name Zh",
+            "type": "string"
+          },
+          "parent_name": {
+            "title": "Parent Name",
+            "type": "string"
+          },
+          "spg_type": {
+            "default": "ENTITY_TYPE",
+            "title": "Spg Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "parent_name"
+        ],
+        "title": "KagTypeAdd",
         "type": "object"
       },
       "LLMSelection": {
@@ -1427,6 +1550,25 @@
         "title": "ReadingViewport",
         "type": "object"
       },
+      "RedisStatusDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "healthy"
+        ],
+        "title": "RedisStatusDetail",
+        "type": "object"
+      },
       "RegisterRequest": {
         "description": "Payload for the POST /register endpoint.",
         "properties": {
@@ -1449,6 +1591,17 @@
       "RuntimeStatus": {
         "additionalProperties": false,
         "properties": {
+          "coordination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoordinationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "coordination_mode": {
             "enum": [
               "memory",
@@ -1514,6 +1667,17 @@
             "minimum": 1,
             "title": "Recovery Interval Seconds",
             "type": "integer"
+          },
+          "redis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RedisStatusDetail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "redis_configured": {
             "title": "Redis Configured",
@@ -5045,7 +5209,7 @@
     },
     "/api/kag/projects/{project_id}/schema/alter": {
       "post": {
-        "description": "提交 Schema 变更（项目成员 + same-origin；M3.5）。\n\n语义（M3.5 实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于\n删除（服务端 500），删除必须显式 DELETE 操作。T2（M4-B）写操作由\nadmin-only 放宽为项目 membership（owner/成员可改自己的项目）。",
+        "description": "提交 Schema 变更（项目成员 + same-origin；M3.5 + A-S1）。\n\n语义（wire 契约实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于\n删除（服务端 500），删除必须显式 DELETE 操作。A-S1 扩展：属性/关系/类型\n的新增与删除意图；类型删除做子类型拒删（A-S0：直接删父会留不可还原孤儿）；\ninherited 属性/关系禁删（沿 M3.5 关系先例）。T2 写操作由 admin-only 放宽\n为项目 membership。",
         "operationId": "alter_project_schema_api_kag_projects__project_id__schema_alter_post",
         "parameters": [
           {

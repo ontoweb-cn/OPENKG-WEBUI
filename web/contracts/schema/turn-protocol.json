@@ -180,6 +180,29 @@
       "title": "CommandAckEvent",
       "type": "object"
     },
+    "CoordinationStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "memory",
+            "redis"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "healthy": {
+          "title": "Healthy",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backend",
+        "healthy"
+      ],
+      "title": "CoordinationStatus",
+      "type": "object"
+    },
     "ErrorEnvelope": {
       "additionalProperties": false,
       "properties": {
@@ -467,6 +490,25 @@
       "title": "ReadingViewport",
       "type": "object"
     },
+    "RedisStatusDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "healthy": {
+          "title": "Healthy",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "configured",
+        "healthy"
+      ],
+      "title": "RedisStatusDetail",
+      "type": "object"
+    },
     "RegenerateCommand": {
       "additionalProperties": false,
       "properties": {
@@ -535,6 +577,17 @@
     "RuntimeStatus": {
       "additionalProperties": false,
       "properties": {
+        "coordination": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CoordinationStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "coordination_mode": {
           "enum": [
             "memory",
@@ -600,6 +653,17 @@
           "minimum": 1,
           "title": "Recovery Interval Seconds",
           "type": "integer"
+        },
+        "redis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RedisStatusDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "redis_configured": {
           "title": "Redis Configured",

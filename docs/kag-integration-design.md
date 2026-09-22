@@ -483,3 +483,33 @@ M3.3 实测结论（M3.0 四条之外的补充）：
 - **M1**：`.mcp.json` 注入实例级 bridge api_key（env 含 `KAG_SESSION_ID` 供 Bridge 归因）；
 - **M3 强化（可选）**：Bridge 增加 `POST /tokens` 签发短期 per-session token（绑定 project 白名单），`.mcp.json` 生成时换取——消除"CLI 子进程持实例级 key 可调任意项目"的越权面——**M3.6 已落地**：token 为 HMAC 无状态自包含形态（`kagt.<b64(sid|pid|exp)>.<sig>`，签名密钥经 `HMAC(api_key, "kag-bridge-token-v1")` 派生——泄漏的 token 无法反推 key，key 变更即全部失效；bridge 重启不影响已签发 token）；TTL 缺省 900s（clamp 60-3600），`.mcp.json` 每 turn 重写即持续刷新；`/tokens` 仅实例 key 可调（token 不能换 token，防滚雪球）；Bearer 层接受实例 key 或 token；**单项目实例的"项目白名单"由一项目一实例的物理隔离承担**（§5.1 部署模型），token payload 携带 pid 备 M2 多项目路由的 scope 校验；OPENKG-WebUI 侧 `bridge_http_url`（根 URL，MCP 端点拼默认 `/mcp`）配置时 `.mcp.json` 生成 http 形态、换取失败不回落 stdio（本 turn 无 KAG 工具）；live E2E：鉴权矩阵（401/400/篡改/过期/防滚雪球）+ token 调 kag_status + http 形态 `openkg-webui run chat` 全链路正确答案、workdir 内无实例 key；
 - **任务上报（M2）**：`POST /api/kag/bridge/tasks`（bridge api_key 鉴权），body `{"task_id", "session_id", "project_id", "question", "answer_digest", "cost_ms", "references"}`，`task_id` 幂等；OPENKG-WebUI 落库供管理面"推理任务列表"查询（§5.2）。
+
+---
+
+## 附录 B：Schema 编辑增强（方案 A，2026-09-22）
+
+> 目标：补齐管理面 Schema 编辑（A-S0 拦包 + A-S1 属性/类型增删 + A-S2 中英映射/导出）。
+> 前置 gate A-S0：wire 契约拦包实测已于先完成（探针脚本 `scripts/kag_a0/`，结论归档
+> `scripts/kag_a0/results/a0_schema_wire_README.md`）。
+
+### B.1 A-S0 关键 wire 结论（后端构造器的权威依据）
+- 命名规则（server 强校验）：属性/关系 `^[a-z][0-9a-zA-Z]*`；SPG 类型 `^[A-Z][a-zA-Z0-9]*` 且全名 `ns.Type` 提交、parent 亦全名；create 属性 `nameZh` 必填。
+- 属性 UPDATE **无元素级标记**，靠类型 UPDATE 整型覆写（改 nameZh/desc 即覆盖生效）；增/删给元素级 `alterOperation`（CREATE / DELETE；缺条目不等于删除）。
+- 类型 DROP 需保留非空 `parentTypeInfo`；**直接删父类型会把子类型孤立成 `parent=null` 不可还原孤儿** → 删除前必须校验无子类型（或先删子）。
+
+### B.2 A-S1 落地（属性/关系/类型增删）
+- `schema_draft.py`：新增 `new_property`（属性 CREATE）、`new_spg_type`（类型 CREATE）、`validate_property_name`/`_type_name`/`_property_name_zh`（命名硬校验）。
+- `kag.py /schema/alter`：`KagSchemaEditRequest` 扩 `add/delete_properties`、`add/delete_types`（默认空，向后兼容）；组装含命名/nameZh 校验、inherited 属性/关系禁删、**类型删除子类型拒删**（A-S0 孤儿发现落地）。
+- 前端 `SchemaEditPanel.tsx` 属性区（新增/删除自有属性）；`TypeManagementPanel.tsx`（新建/删除实体类型）。
+
+### B.3 A-S2 落地（中英映射 + Schema 导出）
+- `/schema/alter` 移除 `nothing to alter` 门槛——`spg_type` 恒作 UPDATE 整型覆写（幂等），纯 nameZh/desc 修改可用。
+- 前端 `SchemaEditPanel.tsx`「Names (zh mapping)」（类型/自有属性/自有关系 nameZh + desc → 纯 UPDATE）；详情页「Export schema JSON」（`serializeKagSchema` 归一 + Blob 下载）。
+
+### B.4 A3（完整概念树浏览）→ 降级/未做
+- A-S0 实测：`/public/v1/concept/getConceptTree`、`/concept/getConceptDetail` **404 不存在**——无公开树端点。仅 `queryConcept`（某类型下全部概念及语义）与 `getReasoningConcept` 可用 → 不做独立树浏览，如需仅按概念类型聚合浏览（成本低、价值有限，未排期）。
+
+### B.5 实测结果
+- 后端 `tests/services/kag/` **94 passed**（`test_schema_draft.py` +8 构造器 wire；新增 `test_schema_alter.py` 15 项意图/校验/门禁/兼容）。
+- 前端 `check:fast` EXIT=0、完整 `build` EXIT=0、`test:node` 含 `serializeKagSchema` 单测 fail 0。
+- 冒烟（2026-09-22）：KAG 详情页渲染 + 全部新增 UI 存在；API live 冒烟——新建实体类型/加属性/改 nameZh（纯 UPDATE）/非法属性名 400/删除类型**全链符合预期、净零残留**。

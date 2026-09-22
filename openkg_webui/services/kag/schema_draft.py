@@ -21,8 +21,39 @@ OpenSPG 的读模型（``GET /public/v1/schema/queryProjectSchema``）是服务�
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
+
+# A-S0 实测命名规则（scripts/kag_a0）：
+# - 属性/关系名必须匹配 ^[a-z][0-9a-zA-Z]*（小写开头、仅字母数字、无下划线）；
+# - SPG 类型名必须匹配 ^[A-Z][a-zA-Z0-9]*（大写开头、无点无下划线），且以全名 ns.Name 提交。
+_PROPERTY_NAME_RE = re.compile(r"^[a-z][0-9a-zA-Z]*$")
+_TYPE_NAME_RE = re.compile(r"^[A-Z][a-zA-Z0-9]*$")
+
+
+def validate_property_name(name: str) -> None:
+    """属性/关系命名硬校验（A-S0：违反即 server 500）。"""
+    if not _PROPERTY_NAME_RE.match(name or ""):
+        raise ValueError(
+            f"invalid property name {name!r}: must match ^[a-z][0-9a-zA-Z]*"
+            " (lowercase start, no dash/underscore/dot)"
+        )
+
+
+def validate_type_name(name: str) -> None:
+    """SPG 类型命名硬校验（A-S0：违反即 server 500）。"""
+    if not _TYPE_NAME_RE.match(name or ""):
+        raise ValueError(
+            f"invalid spg type name {name!r}: must match ^[A-Z][a-zA-Z0-9]*"
+            " (uppercase start, no dash/underscore/dot)"
+        )
+
+
+def validate_property_name_zh(name_zh: str) -> None:
+    """属性新建时 nameZh 必填（A-S0：缺省报 'null nameZh can not be null'）。"""
+    if not str(name_zh or "").strip():
+        raise ValueError("property nameZh is required on create")
 
 
 def read_type_to_draft(spg_type: dict[str, Any], *, operation: str = "UPDATE") -> dict[str, Any]:
@@ -72,6 +103,85 @@ def new_relation(
             "subProperties": [],
             "semantics": [],
         },
+    }
+
+
+def new_property(
+    *,
+    object_type: dict[str, Any],
+    name: str,
+    name_zh: str = "",
+    desc: str = "",
+    constraint_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """组装一条新 property 的写模型元素（A-S0 实测 wire：属性 CREATE）。
+
+    object_type 为读模型中的目标数据类型（如 Text，取 spgTypeEnum）；
+    元素级 ``alterOperation: "CREATE"``（A-S0 §2.1 权威形态）。命名/nameZh
+    校验前置（违反即 server 500）。
+    """
+    validate_property_name(name)
+    validate_property_name_zh(name_zh)
+    return {
+        "alterOperation": "CREATE",
+        "isDynamic": False,
+        "basicInfo": {
+            "name": {"@type": "PREDICATE", "name": name, "identityType": "PREDICATE"},
+            "nameZh": name_zh,
+            "desc": desc,
+        },
+        "subjectTypeRef": {
+            "basicInfo": {"name": {"identityType": "SPG_TYPE", "@type": "SPG_TYPE"}}
+        },
+        "objectTypeRef": _ref(object_type),
+        "advancedConfig": {
+            "constraint": {"constraintItems": constraint_items or []},
+            "subProperties": [],
+            "semantics": [],
+        },
+    }
+
+
+def new_spg_type(
+    *,
+    namespace: str,
+    name: str,
+    name_zh: str = "",
+    desc: str = "",
+    parent_name: str = "Thing",
+    spg_type_enum: str = "ENTITY_TYPE",
+) -> dict[str, Any]:
+    """组装一个新建 SPG 类型的写模型元素（A-S0 §2.2 权威形态：类型 CREATE）。
+
+    命名校验 + 全名规范（``basicInfo.name.namespace``/``nameEn``、parent 全名）
+    前置（违反即 server 500）。初版无属性/关系（后续经 add_properties 增量）。
+    """
+    validate_type_name(name)
+    return {
+        "@type": spg_type_enum,
+        "alterOperation": "CREATE",
+        "spgTypeEnum": spg_type_enum,
+        "basicInfo": {
+            "name": {
+                "@type": "SPG_TYPE",
+                "identityType": "SPG_TYPE",
+                "namespace": namespace,
+                "nameEn": name,
+            },
+            "nameZh": name_zh,
+            "desc": desc,
+        },
+        "parentTypeInfo": {
+            "parentTypeIdentifier": {
+                "@type": "SPG_TYPE",
+                "identityType": "SPG_TYPE",
+                "namespace": namespace,
+                "nameEn": parent_name,
+            },
+            "inheritPath": [],
+        },
+        "properties": [],
+        "relations": [],
     }
 
 
