@@ -58,8 +58,40 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
   const [uploading, setUploading] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [liveLogs, setLiveLogs] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  const running = documents ? anyDocumentRunning(documents) : false;
+
+  // T3：解析进行中时订阅代理 SSE 日志流；非 JSON/错误帧静默忽略，
+  // 断开自动回退到文档列表轮询。
+  useEffect(() => {
+    if (!running) return;
+    const es = new EventSource(logsStreamUrl(datasetId));
+    es.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          logs?: Array<Record<string, unknown>>;
+        };
+        const lines = (payload.logs ?? [])
+          .map((log) => {
+            const docName = typeof log.document_name === "string" ? log.document_name : "";
+            const progress = typeof log.progress === "number" ? Math.floor(log.progress) : 0;
+            const message = typeof log.progress_msg === "string" ? log.progress_msg : "";
+            const tail = message.split("\n").pop() ?? "";
+            return `[${progress}%] ${docName}: ${tail}`;
+          })
+          .filter((line) => line.trim().length > 0)
+          .reverse();
+        setLiveLogs(lines);
+      } catch {
+        /* 非 JSON 帧（keepalive 等）忽略 */
+      }
+    };
+    es.onerror = () => es.close();
+    return () => es.close();
+  }, [datasetId, running]);
 
   useEffect(() => {
     fetchDataset(datasetId)
@@ -242,6 +274,21 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         onRequestDelete={(ids) => setDeleteIds(ids)}
         onReparse={onReparse}
       />
+
+      {running && liveLogs.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-3">
+          <p className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+            {t("Live parse logs")}
+          </p>
+          <ul className="max-h-40 space-y-0.5 overflow-y-auto font-mono text-[11px] text-[var(--muted-foreground)]">
+            {liveLogs.map((line, index) => (
+              <li key={`${index}-${line.slice(0, 12)}`} className="truncate" title={line}>
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <RetrievalPlayground datasetId={datasetId} />
       <GithubSourcePanel datasetId={datasetId} />

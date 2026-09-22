@@ -134,6 +134,8 @@ class SyncPlan:
     """一次同步待执行的上传/删除计划。"""
 
     head: str = ""
+    #: 同步后远端全量 ``{path: sha}``——调用方以此更新增量状态。
+    files: dict[str, str] = field(default_factory=dict)
     uploads: list[tuple[str, bytes]] = field(default_factory=list)
     removals: list[str] = field(default_factory=list)
     skipped: bool = False
@@ -155,7 +157,7 @@ async def plan_sync(
     prev_files = prev_files or {}
     head = await client.get_latest_commit_sha(repo, branch)
     if prev_files and head == prev_files.get("__head__"):
-        return SyncPlan(head=head, skipped=True)
+        return SyncPlan(head=head, files=dict(prev_files), skipped=True)
 
     entries = await client.get_tree(repo, branch, path_prefix=path_prefix, glob=glob)
     uploads: list[tuple[str, bytes]] = []
@@ -169,4 +171,4 @@ async def plan_sync(
     for path in prev_files:
         if path not in current and path != "__head__":
             removals.append(path)
-    return SyncPlan(head=head, uploads=uploads, removals=removals)
+    return SyncPlan(head=head, files=current, uploads=uploads, removals=removals)

@@ -91,7 +91,7 @@ def set_default_knowledge_dataset(user_id: str, dataset_id: str | None) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", "utf-8")
 
 
-def ensure_knowledge_mcp_config(workdir: str, session_id: str) -> None:
+def ensure_knowledge_mcp_config(workdir: str) -> None:
     """CLI 后端 MCP 注入（Phase 2 T6）。
 
     向 session workdir 的 ``.mcp.json`` **合并** intellect-knowledge server
@@ -107,7 +107,8 @@ def ensure_knowledge_mcp_config(workdir: str, session_id: str) -> None:
     if not block.get("enabled") or not block.get("mcp_url"):
         return
     try:
-        bearer, identity_headers = resolve_request_auth(str(session_id or "") or None)
+        # 请求上下文内解析当前用户身份（P1-1：与 turn 检索同一身份源）
+        bearer, identity_headers = resolve_request_auth()
     except Exception:
         return
     mcp_entry = {

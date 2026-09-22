@@ -297,9 +297,13 @@ def _safe_zip_entries(data: bytes) -> list[tuple[str, bytes]]:
             if raw.startswith("/") or ".." in raw.split("/"):
                 raise HTTPException(status_code=400, detail=f"unsafe zip entry: {raw}")
             parts = [p for p in raw.split("/") if p]
-            if any(p.startswith(".") for p in parts) or parts[0] == "__MACOSX":
+            if any(p.startswith(".") for p in parts) or any(p == "__MACOSX" for p in parts):
                 continue
-            content = zf.read(info)
+            try:
+                content = zf.read(info)
+            except RuntimeError as exc:
+                # 加密条目等 zipfile 层错误——按不可用条目拒绝整个 zip
+                raise HTTPException(status_code=400, detail=f"zip entry unreadable: {info.filename}") from exc
             total += len(content)
             if total > _ZIP_MAX_TOTAL_BYTES:
                 raise HTTPException(status_code=413, detail="zip: total size exceeds limit")
@@ -529,18 +533,14 @@ async def _run_github_sync(
                         headers=headers,
                     )
                     removed += len(doomed) if resp.status_code < 400 else 0
-        files_map = {
-            path: sha
-            for path, sha in prev_files.items()
-            if path not in set(plan.removals)
-        }
+        # plan.files = 同步后远端全量 {path: sha}——增量状态以此为准（评审 F2）
         store.update_state(
             user_id,
             dataset_id,
             {
                 "sync_status": "done",
                 "last_commit": plan.head,
-                "files": files_map,
+                "files": plan.files,
                 "last_result": f"uploaded {uploaded}, removed {removed}",
             },
         )
@@ -548,6 +548,11 @@ async def _run_github_sync(
         store.update_state(
             user_id, dataset_id, {"sync_status": "error", "last_result": str(exc)[:300]}
         )
+    finally:
+        # 任务被取消/异常退出时不得遗留 running 状态（阻塞后续同步）
+        state = store.get_state(user_id, dataset_id)
+        if state.get("sync_status") == "running":
+            store.set_status(user_id, dataset_id, "interrupted")
 
 
 @router.post("/datasets/{dataset_id}/sources/github/sync")

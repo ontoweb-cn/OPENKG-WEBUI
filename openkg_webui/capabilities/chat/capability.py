@@ -761,7 +761,7 @@ async def _build_request(
         try:
             from openkg_webui.services.knowledge import ensure_knowledge_mcp_config
 
-            ensure_knowledge_mcp_config(resolved_workdir, str(context.session_id or ""))
+            ensure_knowledge_mcp_config(resolved_workdir)
         except Exception:
             pass
 
