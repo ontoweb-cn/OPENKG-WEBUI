@@ -25,11 +25,20 @@ def settings_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def client(settings_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """Admin client over an isolated settings directory."""
+    """Admin client over an isolated settings directory.
+
+    同时隔离 per-owner secrets root：身份端点会读写
+    ``<SYSTEM_ROOT>/user-secrets/<uid>/``。不隔离的后果有两重——测试读到
+    开发者真实链接状态而误判（`linked` 期望 False 却为 True），且其解链/
+    清理逻辑会**删除真实凭据文件**（2026-09-22 实测踩中）。
+    """
 
     def _service() -> RuntimeSettingsService:
         return RuntimeSettingsService(settings_dir, process_env={})
 
+    import openkg_webui.multi_user.paths as paths
+
+    monkeypatch.setattr(paths, "SYSTEM_ROOT", settings_dir / "system")
     monkeypatch.setattr(settings_router, "get_runtime_settings_service", _service)
     monkeypatch.setattr(settings_router, "get_current_user", lambda: SimpleNamespace(is_admin=True))
     return TestClient(api_main.app)
