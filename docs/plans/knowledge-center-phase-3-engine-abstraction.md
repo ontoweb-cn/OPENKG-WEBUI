@@ -92,6 +92,114 @@ def list_engines() -> list[EngineDescriptor]: ...  # 供 UI 目录（名称/图�
 - **D2 的兼容成本**：前端 parse 层简化会触及 1a/1.5 的既有代码 → 若评审倾向保守，可保留 parse 层的宽兼容（既接受信封也接受归一结果），代价是过渡期两套形状并存。
 - **KAG 异构性**：KAG 无"文档上传"概念（图谱构建语义不同）→ 这正是 D4 能力集合要表达的差异，但需在 KAG provider 设计中细化。
 
+## 六、技术评审记录（2026-09-23）
+
+**总评：分层方向正确（D1/D3/D4 成立），但抽象范围漏了两大面、且内部有自相矛盾之处。修订后可作为 T1/T2 的依据。**
+
+### P1-1 抽象范围只覆盖管理面，遗漏「聊天面」与「MCP 面」
+
+方案 §二 的接口只有管理面方法（datasets/documents/upload/search），但知识引擎在
+本系统有**三条接入面**，另两条同样高度引擎耦合：
+
+| 面 | 现状落点 | 引擎耦合点 |
+| --- | --- | --- |
+| 管理面 | `api/routers/knowledge.py`（28 端点） | 镜像 rag-app `/api/v1/*`（方案已覆盖） |
+| **聊天面** | `services/knowledge/__init__.py:195` `chat_rag_block()` + `agent_loop/http_backend.py:695-700` | 返回 `{"enabled":true,"scope":chat_scope}`——这是 **intellect-team 网关 `build_session_config` 契约**（runs payload 的 `rag` 块），不是通用形状 |
+| **MCP 面** | `services/knowledge/__init__.py:111-170` `ensure_knowledge_mcp_config()` | 写死 intellect-rag MCP server 的 URL/工具名（`intellect_retrieval`）+ 鉴权头 |
+
+KAG 的第二引擎形态与此**完全不同**：KAG 走 grounding 块 + kag-bridge MCP
+（见 kag-integration-design），没有 runs `rag` 块。若抽象不含这两面，接入 KAG 时
+`chat_rag_block()`/`ensure_knowledge_mcp_config()` 会变成 `if engine == ...` 分支，
+抽象即失效。
+
+**修订建议**：接口补两个方法（或声明为可选能力）：
+```python
+async def chat_binding(self, kb_ids: list[str]) -> dict | None:
+    """本 turn 的聊天侧绑定产物（intellect-rag: runs rag 块；
+    KAG: grounding 块片段 / None）。None = 该引擎不参与聊天侧。"""
+async def mcp_binding(self, workdir: str) -> None:
+    """会话 MCP 注入（intellect-rag: .mcp.json intellect-knowledge 条目；
+    KAG: kag-bridge 条目 / 不注入）。"""
+```
+并把 `chat_scope` 从全局 settings 移入引擎配置（它是网关专有语义）。
+
+### P1-2 内部矛盾：§二"前端零改动" vs D2"信封归一化"
+
+§二 声称"路径与响应形状不变（前端零改动）"，D2 又要求"路由层不再透传
+`{code, data, message}`，改为业务异常"。两者冲突——前端 `unwrapEnvelope`
+（`web/features/knowledge/api.ts`）**正是按信封解包的**：去掉信封 = 前端
+parse 层必改（方案在 D2 也承认"前端 parse 函数需简化"，与 §二 的表述打架）。
+
+**修订建议**：§二 改为"路径不变；**响应形状在 T3 归一化时变更，前端 parse 层
+同步简化**"，并在任务表标注前端改动量（不是零）。
+
+### P2-1 sources 子系统未纳入
+
+`_run_github_sync` / `_run_web_sync`（`api/routers/knowledge.py:480-540`）自行拼
+`f"{base_url}/api/v1"` 并 POST `/datasets/{id}/documents`——**绕过 provider 直连
+引擎 REST**。抽象后必须改走 `provider.upload()`，否则引擎切换时外部源同步
+静默打到旧引擎。任务表需补此项（T2 范围内）。
+
+### P2-2 D5 未给出可执行的 engine 解析规则
+
+"`engine_id` 是路由提示而非权威字段" 方向正确（intellect-rag 的 KB 权威在
+rag-app，无法覆盖），但**没有说清 存储与解析规则**：现有 KB（Phase 1 建的）
+没有 engine 记录，请求 `dataset_id` 如何知道路由到哪个 provider？
+
+**修订建议**（择一，建议 a）：
+- **(a) 本地映射表**：`<user_data_dir>/knowledge_engines.json`（`dataset_id →
+  engine_id`），创建时写入；未命中 → 默认引擎（`settings.knowledge.engine`，
+  缺省 `intellect-rag`）。与 A3 默认库、sources store 同构，纯本地、零引擎改动；
+- (b) dataset_id 命名空间前缀（`kag:<id>`）——侵入 id 语义，不建议。
+
+### P2-3 接口未定义身份上下文传递方式
+
+方法签名不一致：`list_datasets(*, user_id)` 有身份，`create_dataset/upload/search`
+没有——但鉴权是**每请求**解析的（现状 `_upstream()` 每请求取
+`resolve_request_auth()`，P1-1 要求同一身份源）。KAG 的身份又是 OpenSPG
+`user_no`（另一套）。
+
+**修订建议**：provider **按请求实例化**，上下文在构造时绑定：
+```python
+class EngineContext:  # user_id / language / request_scope / identity headers
+    ...
+def build_engine(engine_id: str, ctx: EngineContext) -> KnowledgeEngine: ...
+```
+方法签名不再各自带 user_id（消除不一致，也让 provider 能在内部复用同一份鉴权）。
+
+### P3 修订项
+
+- **capabilities 取值未定义**：`frozenset[str]` 需要枚举常量（如
+  `CAP_UPLOAD/CAP_SOURCES/CAP_LOGS/CAP_GRAPH`），否则 UI 无法 switch；
+- **错误模型未细化**：`EngineError` 需带 `kind`（unreachable/unauthorized/
+  not_found/upstream_error）→ HTTP 映射表；现状 502 归一与 `denied_dataset_ids`
+  的数据级信号要有归宿（建议 `SearchResult{chunks, denied_dataset_ids, total}`）；
+- **分页/流式/日志流未体现**：rag-app 支持 page/page_size 而 KAG 未必 →
+  建议 `Page[T]` 显式（或声明"引擎可按能力忽略分页"）；`upload` 必须写明
+  **流式契约**（现状代理刻意不 buffer 大文件，是 1a 的风险注记点）；
+  `logs/stream`（SSE 日志）如何抽象需表态（建议 `capabilities` 标注 +
+  可选方法 `stream_logs()`）；
+- **模块布局未规划**：`services/knowledge/__init__.py`（247 行）当前同时承载
+  settings 访问、身份解析、MCP 注入、A3 偏好、chat_rag_block——providers 移入
+  `engines/` 后这些函数需明确归属，否则会形成 `routers → engines → services`
+  的环。建议：`engines/`（纯 provider）+ `context.py`（EngineContext/身份）+
+  `bindings.py`（chat/MCP），`__init__.py` 仅做导出；
+- **测试基线引用不准**：方案写"现有 487 项"，实际是**全套**后端测试数；
+  知识域专项是 `tests/api/test_knowledge_router.py`（23 项）+ agent_loop/config
+  相关——T2 的门禁应点名这个子集，而非笼统"487 全绿"（后者含与本重构无关的
+  大量用例，且全套偶发 OOM）。
+
+### 确认项（评审通过）
+
+- **D1 分阶段（先纯重构、只接一个 provider）**：判断正确且诚实——
+  "接口形状只有在有第二个实现时才真正验证"，用重构 + 回归锁定风险是小步策略；
+- **D2 的核心判断（信封与上游字段命名是真实耦合）**：证据充分（前端
+  `unwrapEnvelope` + `chunk_id/content_with_weight` 等字段映射确实是
+  rag-app 专有），仅需修正 §二 的矛盾表述；
+- **D3（KAG 走 openkg-webui 侧 provider）**：与 kag-integration-design 的
+  "引擎维护自己的数据权威" 一致，且能让两条引擎接入路径都被验证；
+- **D4（能力集合优于继承）**：当前规模下正确；仅需补取值定义。
+
 ## 六、建议的下一步
 
 1. **评审本文**（尤其 D1/D2/D5——它们决定是否现在动、动多大）；
