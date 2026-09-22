@@ -210,11 +210,24 @@ def test_settings_roundtrip_and_masking(admin_client: TestClient) -> None:
     got = admin_client.get("/api/settings/knowledge").json()
     assert got["api_key"] == ""
     assert got["api_key_set"] is True
-    assert set(got) == {"version", "enabled", "base_url", "api_key", "api_key_set"}
+    assert set(got) == {
+        "version",
+        "enabled",
+        "base_url",
+        "api_key",
+        "api_key_set",
+        "chat_scope",
+    }
 
 
 def test_settings_normalize_defaults(settings_dir: Path) -> None:
     from openkg_webui.services.config.runtime_settings import RuntimeSettingsService as S
 
     block = S(settings_dir, process_env={})._normalize_system({})["knowledge"]
-    assert block == {"version": 1, "enabled": False, "base_url": "", "api_key": ""}
+    assert block == {
+        "version": 1,
+        "enabled": False,
+        "base_url": "",
+        "api_key": "",
+        "chat_scope": "tenant",
+    }

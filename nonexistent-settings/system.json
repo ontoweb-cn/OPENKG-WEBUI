@@ -47,6 +47,7 @@
     "version": 1,
     "enabled": false,
     "base_url": "",
-    "api_key": ""
+    "api_key": "",
+    "chat_scope": "tenant"
   }
 }

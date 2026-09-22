@@ -41,6 +41,19 @@ def knowledge_enabled(block: dict[str, Any] | None = None) -> bool:
     return bool(block.get("enabled"))
 
 
+def chat_rag_block() -> dict[str, Any] | None:
+    """runs 协议请求体的 ``rag`` 会话块（网关 ``build_session_config`` 契约）。
+
+    knowledge 未启用时返回 ``None``——调用方不带该键，请求体与既有部署
+    逐字节一致。Phase 1b 只带 ``scope``（租户级默认召回，决策 D2）；per-会话
+    ``knowledge_base_ids`` 属 Phase 1.5（B2），网关侧字段已就绪。
+    """
+    block = get_knowledge_settings()
+    if not block.get("enabled"):
+        return None
+    return {"enabled": True, "scope": str(block.get("chat_scope") or "tenant")}
+
+
 def resolve_upstream_connection() -> tuple[str, str]:
     """返回 rag-app 上游 ``(base_url, service_api_key)``；未配置抛
     :class:`KnowledgeNotConfigured`。"""

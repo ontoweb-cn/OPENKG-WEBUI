@@ -33,6 +33,7 @@ interface KnowledgeSettingsDraft {
   enabled: boolean;
   base_url: string;
   api_key_set: boolean;
+  chat_scope: string;
 }
 
 export default function KnowledgeCenterSettingsSection() {
@@ -55,6 +56,7 @@ export default function KnowledgeCenterSettingsSection() {
         enabled: payload.enabled === true,
         base_url: typeof payload.base_url === "string" ? payload.base_url : "",
         api_key_set: payload.api_key_set === true,
+        chat_scope: typeof payload.chat_scope === "string" ? payload.chat_scope : "tenant",
       });
       setApiKey("");
     } catch (err) {
@@ -76,6 +78,7 @@ export default function KnowledgeCenterSettingsSection() {
       const body: Record<string, unknown> = {
         enabled: next.enabled,
         base_url: next.base_url,
+        chat_scope: next.chat_scope,
       };
       // tri-state：留空 = 保留已存值
       if (apiKey.trim()) body.api_key = apiKey.trim();
@@ -144,6 +147,29 @@ export default function KnowledgeCenterSettingsSection() {
                   onBlur={() => save(loaded)}
                   className={`${inputClass} w-72`}
                 />
+              }
+            />
+            <SettingRow
+              title={t("Retrieval scope for chat")}
+              description={t(
+                "Which knowledge bases participate in chat retrieval. Tenant = every base you can access.",
+              )}
+              control={
+                <select
+                  value={loaded.chat_scope}
+                  disabled={saving}
+                  onChange={(event) => {
+                    const next = { ...loaded, chat_scope: event.target.value };
+                    setLoaded(next);
+                    save(next);
+                  }}
+                  className={`${inputClass} w-72`}
+                >
+                  <option value="tenant">{t("Tenant — all accessible bases")}</option>
+                  <option value="team">{t("Team")}</option>
+                  <option value="project">{t("Project")}</option>
+                  <option value="auto">{t("Auto")}</option>
+                </select>
               }
             />
             <SettingRow

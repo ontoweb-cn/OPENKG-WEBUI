@@ -806,3 +806,127 @@ async def test_the_degraded_poll_emits_each_event_once() -> None:
     assert [event.kind for event in events].count("usage") == 1
     assert [event.kind for event in events].count("progress") == 1
     assert [event.text for event in events if event.kind == "content"] == ["polled answer"]
+
+
+# ---------------------------------------------------------------------------
+# 知识中心会话级 rag 块（Phase 1b T1；设计 §九-9.2 B1）与工具失败映射（F7）
+# ---------------------------------------------------------------------------
+
+
+def _rag_sse() -> str:
+    return (
+        'data: {"event": "tool.progress", "type": "tool.completed",'
+        ' "name": "search_knowledge", "result": "hit", "error": true}\n'
+        "\n"
+        'data: {"event": "tool.progress", "type": "tool.failed",'
+        ' "name": "shell", "result": "boom"}\n'
+        "\n"
+        'data: {"event": "run.completed", "output": "done"}\n'
+        "\n"
+    )
+
+
+async def test_runs_request_carries_rag_block_when_knowledge_enabled(
+    monkeypatch,
+) -> None:
+    """knowledge 启用时 runs 请求体携带 rag 块（scope 取设置，网关契约）。"""
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "get_knowledge_settings",
+        lambda: {"enabled": True, "chat_scope": "team"},
+    )
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/v1/runs") and request.method == "POST":
+            bodies.append(json.loads(request.content))
+            return httpx.Response(202, json={"run_id": "run_1"})
+        if request.url.path.endswith("/events"):
+            return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={"status": "completed", "output": "x"})
+
+    backend = RunsAgentLoopBackend(
+        name="intellect-runs",
+        url="http://gateway.test",
+        turn_path="/v1/runs",
+        api_key="k",
+        headers={},
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    )
+    [event async for event in backend.run(AgentLoopRequest(prompt="hi"))]
+    assert bodies[-1]["rag"] == {"enabled": True, "scope": "team"}
+
+
+async def test_runs_request_omits_rag_block_when_knowledge_disabled(
+    monkeypatch,
+) -> None:
+    """knowledge 关闭时不带 rag 键——请求体与既有部署逐字节一致。"""
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "get_knowledge_settings",
+        lambda: {"enabled": False, "chat_scope": "tenant"},
+    )
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/v1/runs") and request.method == "POST":
+            bodies.append(json.loads(request.content))
+            return httpx.Response(202, json={"run_id": "run_1"})
+        if request.url.path.endswith("/events"):
+            return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={"status": "completed", "output": "x"})
+
+    backend = RunsAgentLoopBackend(
+        name="intellect-runs",
+        url="http://gateway.test",
+        turn_path="/v1/runs",
+        api_key="k",
+        headers={},
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    )
+    [event async for event in backend.run(AgentLoopRequest(prompt="hi"))]
+    assert "rag" not in bodies[-1]
+
+
+async def test_tool_failure_is_marked_as_error(monkeypatch) -> None:
+    """intellect-team 的工具失败约定：tool.completed + error:true 与 tool.failed
+    都必须渲染为 is_error 的 tool_result（§九-9.2 集成注记）。"""
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "get_knowledge_settings",
+        lambda: {"enabled": False},
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/v1/runs") and request.method == "POST":
+            return httpx.Response(202, json={"run_id": "run_1"})
+        if request.url.path.endswith("/events"):
+            return httpx.Response(
+                200, text=_rag_sse(), headers={"content-type": "text/event-stream"}
+            )
+        return httpx.Response(200, json={"status": "completed", "output": "x"})
+
+    backend = RunsAgentLoopBackend(
+        name="intellect-runs",
+        url="http://gateway.test",
+        turn_path="/v1/runs",
+        api_key="k",
+        headers={},
+        timeout_seconds=5,
+        transport=httpx.MockTransport(handler),
+    )
+    results = [
+        event
+        async for event in backend.run(AgentLoopRequest(prompt="hi"))
+        if event.kind == "tool_result"
+    ]
+    assert [r.name for r in results] == ["search_knowledge", "shell"]
+    assert all(r.data.get("is_error") for r in results)

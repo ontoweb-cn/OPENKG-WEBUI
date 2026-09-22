@@ -4969,5 +4969,8 @@
   "Link your Intellect account so retrieval runs under your identity.": "关联你的 Intellect 账号，使检索以你的身份执行。",
   "Linked": "已关联",
   "Open agent-loop settings": "打开 Agent Loop 设置",
-  "Chunks": "分块"
+  "Chunks": "分块",
+  "Retrieval scope for chat": "聊天召回范围",
+  "Which knowledge bases participate in chat retrieval. Tenant = every base you can access.": "哪些知识库参与聊天召回。租户 = 你可访问的全部知识库。",
+  "Tenant — all accessible bases": "租户 — 全部可访问知识库"
 }

@@ -19,6 +19,7 @@ def test_defaults(tmp_path: Path) -> None:
         "enabled": False,
         "base_url": "",
         "api_key": "",
+        "chat_scope": "tenant",
     }
 
 
@@ -32,4 +33,5 @@ def test_roundtrip_and_coercion(tmp_path: Path) -> None:
         "enabled": True,
         "base_url": "http://127.0.0.1:9380",
         "api_key": "sk-x",
+        "chat_scope": "tenant",
     }

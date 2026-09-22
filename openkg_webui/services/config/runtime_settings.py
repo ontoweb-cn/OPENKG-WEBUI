@@ -104,11 +104,14 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
     # 是同一把（设计 §十一-2）；身份归因 header 不在此配置——代理经 agent-loop
     # identity（resolve_backend_identity）按当前用户解析，与 turn 检索同一
     # 身份源（P1-1）。base_url 指向 rag-app（如 http://127.0.0.1:9380）。
+    # chat_scope：runs 会话 rag 块的召回范围（网关 build_session_config 契约，
+    # 合法值 tenant/team/project/auto；Phase 1b T1），空串=部署缺省 tenant。
     "knowledge": {
         "version": 1,
         "enabled": False,
         "base_url": "",
         "api_key": "",
+        "chat_scope": "tenant",
     },
 }
 
@@ -1614,14 +1617,18 @@ class RuntimeSettingsService:
         }
 
     def _normalize_knowledge(self, settings: dict[str, Any]) -> dict[str, Any]:
-        """归一化 ``knowledge``（知识中心）集成块（Phase 1a：开关 + 上游连接）。"""
+        """归一化 ``knowledge``（知识中心）集成块（开关 + 上游连接 + 召回范围）。"""
         raw = settings.get("knowledge")
         block = raw if isinstance(raw, dict) else {}
+        scope = _string(block.get("chat_scope")).strip().lower()
+        if scope not in {"tenant", "team", "project", "auto"}:
+            scope = "tenant"
         return {
             "version": 1,
             "enabled": _coerce_bool(block.get("enabled"), False),
             "base_url": _string(block.get("base_url")).rstrip("/"),
             "api_key": _string(block.get("api_key")),
+            "chat_scope": scope,
         }
 
     def _normalize_auth(self, settings: dict[str, Any]) -> dict[str, Any]:
