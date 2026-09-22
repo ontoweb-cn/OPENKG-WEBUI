@@ -33,6 +33,16 @@
 >   member_context（即 openkg-webui 归因的成员）构建 identity，替代静态服务
 >   身份；验收=以 local-admin 会话检索时 rag-app 侧收到的 X-Intellect-User 为
 >   mem_local-admin 且结果集=其可见集。1.5（B2 精确库引用）以此为前置。
+>   → **已提 issue**：ontoweb-cn/intellect-team#27。
+>
+> **rag-app/rag 侧遗留（102 Tenant not found）已修复（2026-09-22）**：
+> - intellect-rag `fix/team-user-tenant-fallback`（9e855b4）：ensure_team_user
+>   租户解析不到时回落 member_id（per-user tenant）；
+> - intellect-rag-app `fix/team-user-tenant-fallback`（80a3427）：服务 token
+>   路径无条件幂等 ensure_team_user，历史无租户用户在下次请求时自动补齐。
+> 均已 live 验证（孤儿用户 testreview01 补建 tenant + membership 成功）。
+> **部署注意**：需重启 rag-app API 进程生效；生效后 openkg-webui 用户（如
+> local-admin）首次请求即自动补建租户，无需手工 SQL。
 > - T4 ✅ [../knowledge-center-deployment.md](../knowledge-center-deployment.md)。
 >
 > 后续：Phase 1.5（composer 勾选 + knowledge_base_ids 透传）以网关身份修复为前置。
