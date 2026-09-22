@@ -126,6 +126,9 @@ def ensure_knowledge_mcp_config(workdir: str) -> None:
     except Exception:
         return
     mcp_entry = {
+        # Claude Code 要求 url 型条目带 "type"，否则整个 server 被跳过
+        # （2026-09-22 claude mcp list 实测："has a url but no type"）
+        "type": "http",
         "url": str(block.get("mcp_url")),
         "headers": {
             "Authorization": f"Bearer {bearer}",
@@ -165,6 +168,10 @@ def ensure_knowledge_mcp_config(workdir: str) -> None:
             settings = json.loads(settings_path.read_text("utf-8")) or {}
         except Exception:
             settings = {}
+    # Claude Code 两道门（沿 kag ensure_session_mcp_config 的实测结论）：
+    #   enableAllProjectMcpServers —— 项目级 MCP server 审批
+    #   permissions.allow —— 非交互模式下的工具级 permission 门
+    settings["enableAllProjectMcpServers"] = True
     permissions = dict(settings.get("permissions") or {})
     allow = [str(x) for x in (permissions.get("allow") or [])]
     wanted = "mcp__intellect-knowledge__intellect_retrieval"
