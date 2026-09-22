@@ -17,10 +17,22 @@
 > - T2 ✅/⚠️ 网关级验收通过：runs 携带 rag 块 → 执行检索（/retrieval 全部 200，
 >   多轮查询）→ Agent 诚实作答；`knowledge_base_ids` 定向在 rag-app API 层验证
 >   正确（scope=tenant 与 dataset_ids 均只见本租户库，**隔离无泄漏**）。
->   ⚠️ **遗留（阻塞"引用测试库"严格形态）**：网关检索实际生效的身份/范围与 run
->   的成员归因不一致——scoped run 仍检出了其他租户的文档。疑为网关
->   HttpRAGProvider 的 identity 取自静态服务身份而非 run 成员上下文，属
->   intellect-team 侧缺陷，1.5 的 B2 依赖其修复，已单独立项跟踪。
+>   ⚠️ **遗留（2026-09-22 二次分析修正结论）**：原判定"网关检索泄漏其他租户
+>   文档"**不成立**。证据矩阵：① scoped run 引用的文档（AI技术=private/
+>   owner 2d0b100f273a；场景图谱综述=tenant 级/属 0000 租户）对身份
+>   **2d0b100f273a**（网关自己的服务成员：前者 owner、后者为其已加入租户的
+>   tenant 级库）完全合法可见；② 以 2d0b100f273a + scope=tenant 复现检索，
+>   结果与 agent 所见一致（total 7）；③ 以 2d0b100f273a + dataset_ids=[测试库]
+>   检索 → `denied_dataset_ids` 精确拒绝（访问控制无泄漏）。
+>   **真实缺陷是身份归因断链**：网关检索以自身服务成员（2d0b100f273a）执行，
+>   而非 run 的归因成员（openkg-webui 用户 local-admin）——后者 scope=tenant
+>   只见 1 个分块，前者可见 7 个。后果：(a) openkg-webui 用户会话可能召回
+>   服务成员可见但其自身不可见的内容（越权暴露方向）；(b) per-run
+>   knowledge_base_ids 对服务成员不可见的库静默失效（denied）。
+>   **修复方向（intellect-team 仓库）**：run 路径构建 RAG provider 时以
+>   member_context（即 openkg-webui 归因的成员）构建 identity，替代静态服务
+>   身份；验收=以 local-admin 会话检索时 rag-app 侧收到的 X-Intellect-User 为
+>   mem_local-admin 且结果集=其可见集。1.5（B2 精确库引用）以此为前置。
 > - T4 ✅ [../knowledge-center-deployment.md](../knowledge-center-deployment.md)。
 >
 > 后续：Phase 1.5（composer 勾选 + knowledge_base_ids 透传）以网关身份修复为前置。

@@ -61,4 +61,6 @@ curl -X POST http://localhost:3300/api/knowledge-center/datasets/<id>/search \
   -H 'Content-Type: application/json' -d '{"question":"...","similarity_threshold":0.1}'
 ```
 
-聊天接线（Phase 1b）：openkg-webui 的 runs 请求自动携带 `rag` 块（知识中心启用时）；网关日志可见 `POST /api/v1/retrieval → 200`。**已知遗留**：网关检索实际使用的身份/范围与 run 的成员归因未对齐（见任务清单 Phase 1b 遗留），per-会话库引用的严格形态待 intellect-team 侧修复后复验。
+聊天接线（Phase 1b）：openkg-webui 的 runs 请求自动携带 `rag` 块（知识中心启用时）；网关日志可见 `POST /api/v1/retrieval → 200`。
+
+**已知遗留（Phase 1b，intellect-team 侧）**：网关检索调用使用**其自身服务成员**的身份（rag-app 侧收到的 X-Intellect-User 是网关配置的成员，而非发起 run 的用户）——runs 请求携带的 `X-Intellect-User` 归因未传导到检索调用。后果：用户会话可能召回服务成员可见但其自身不可见的库内容（越权暴露方向），且 `rag.knowledge_base_ids` 对服务成员不可见的库静默失效（rag-app 返回 `denied_dataset_ids`，行为可预期但非用户意图）。rag-app 侧访问控制本身验证无泄漏（`denied_dataset_ids` 机制精确）。修复方向：网关 run 路径以 member_context 构建 RAG provider 的 identity。
