@@ -1127,6 +1127,109 @@ async def get_concept_rules(project_id: str, type_name: str = "") -> dict[str, A
     }
 
 
+# —— 概念层级树（附录 B.4；I3）——
+# 端点语义：/conceptInstance/level 为图存储**一跳**聚合（沿 hypernymPredicate/
+# Direction.IN），完整树须以 child.id 作下一层 root 递归 BFS。本路由做递归
+# 聚合，并施加深度/节点双上限，避免大层级图打爆响应。
+_MAX_TREE_DEPTH = 6
+_MAX_TREE_NODES = 200
+
+
+async def _build_concept_tree(
+    client: OpenSPGClient,
+    type_name: str,
+    root: str,
+    project_id: str,
+    depth_cap: int,
+    node_cap: int,
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """递归 BFS 聚合概念层级，返回 (children, truncated, node_count)。
+
+    - root 缺省为虚拟根 ``ROOT``（server 端语义）；非空则以该概念作根。
+    - depth_cap：某节点所在层 >= depth_cap 时不再展开其子层。
+    - node_cap：累计实际概念节点数到达后停止，标记 truncated 并在残叶显式
+      标注 ``node_cap_reached``（前端据此显示"已截断"提示）。
+    - seen：以概念 id 去重，防层级图成环导致死循环。
+    """
+    seen: set[str] = set()
+    truncated = False
+    count = 0
+
+    async def expand(root_id: str, depth: int) -> list[dict[str, Any]]:
+        nonlocal truncated, count
+        if depth >= depth_cap:
+            truncated = True
+            return []
+        resp = await client.query_concept_level_instance(type_name, root_id, project_id)
+        rows = resp.get("children") if isinstance(resp, dict) else []
+        children: list[dict[str, Any]] = []
+        for child in rows:
+            if not isinstance(child, dict):
+                continue
+            cid = str(child.get("id") or "")
+            if not cid or cid in seen:
+                continue
+            if count >= node_cap:
+                # 超限：残叶显式标注 node_cap_reached（前端据此显示"已截断"）
+                truncated = True
+                children.append({"id": "", "name": "", "node_cap_reached": True, "children": []})
+                break
+            seen.add(cid)
+            count += 1
+            props = child.get("properties") if isinstance(child.get("properties"), dict) else {}
+            item: dict[str, Any] = {
+                "id": cid,
+                "name": str(props.get("nameZh") or props.get("name") or ""),
+                "children": [],
+            }
+            item["children"] = await expand(cid, depth + 1)
+            children.append(item)
+        return children
+
+    top = await expand(root, 0)
+    return top, truncated, count
+
+
+@router.get("/projects/{project_id}/concepts/{type_path}/tree")
+async def get_concept_tree(
+    project_id: str,
+    type_path: str,
+    root: str = "",
+    max_depth: int = 0,
+    max_nodes: int = 0,
+) -> dict[str, Any]:
+    """概念层级树（read + membership；B.4 完整概念树浏览）。
+
+    - ``type_path`` 为 SPG 概念类型全名（``ns.Type``，含点，故用 path 型变量）。
+    - ``root``：可选起始概念 id（缺省=虚拟根 ROOT，即顶层概念们）。
+    - ``max_depth``/``max_nodes``：可选上限（<=0 取内置默认），防大图打爆。
+    - conceptType 非概念类型：归一 ``"not a concept type"`` → 400；图不可达/
+      上游错误 → 502；响应经 ``_sanitize``（properties 可能含凭据）。
+    """
+    _require_project_access(project_id)
+    type_name = str(type_path or "").strip()
+    if not type_name:
+        raise HTTPException(status_code=400, detail="type_name is required")
+    depth_cap = max_depth if max_depth > 0 else _MAX_TREE_DEPTH
+    node_cap = max_nodes if max_nodes > 0 else _MAX_TREE_NODES
+    try:
+        children, truncated, count = await _build_concept_tree(
+            _client(), type_name, str(root or ""), project_id, depth_cap, node_cap
+        )
+    except OpenSPGError as exc:
+        body = exc.body if isinstance(exc.body, str) else ""
+        if "not a concept type" in body:
+            raise HTTPException(status_code=400, detail=f"{type_name} is not a concept type") from exc
+        raise _upstream_error(exc) from exc
+    return {
+        "type_name": type_name,
+        "root": str(root or ""),
+        "nodes": count,
+        "truncated": truncated,
+        "children": _sanitize(children),
+    }
+
+
 @router.post("/projects/{project_id}/concept/rules/define")
 async def define_concept_rule(
     request: Request, project_id: str, payload: KagConceptRuleDefineRequest

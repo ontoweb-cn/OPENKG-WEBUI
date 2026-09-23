@@ -25,6 +25,7 @@ import {
 } from "../model";
 import { KagBackLink, KagPageBody, KagPageHeader, KagStateView } from "./KagPageFrame";
 import { ConceptRulePanel } from "./ConceptRulePanel";
+import { ConceptTreePanel } from "./ConceptTreePanel";
 import { GraphExplorerSection } from "./GraphExplorerSection";
 import { MemberBuildPanel } from "./MemberBuildPanel";
 import { KagImportPanel } from "./KagImportPanel";
@@ -200,7 +201,10 @@ function TypeNodeRow({
                 onAltered={onAltered}
               />
               {node.kind === "concept" ? (
-                <ConceptRulePanel projectId={projectId} typeRow={node} />
+                <>
+                  <ConceptTreePanel projectId={projectId} typeRow={node} />
+                  <ConceptRulePanel projectId={projectId} typeRow={node} />
+                </>
               ) : null}
             </div>
           ) : null}

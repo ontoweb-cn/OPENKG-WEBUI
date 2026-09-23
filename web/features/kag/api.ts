@@ -8,6 +8,7 @@
 import { requestJson } from "@/shared/api/client";
 import {
   parseConceptRules,
+  parseConceptTree,
   parseEmbeddingProfiles,
   parseGraphQueryResult,
   parseKagBuildDetail,
@@ -20,6 +21,7 @@ import {
   type KagBuildDetail,
   type KagBuildLiveStatus,
   type KagConceptRules,
+  type KagConceptTree,
   type KagEmbeddingProfile,
   type KagGraphQueryResult,
   type KagProject,
@@ -281,6 +283,25 @@ export async function fetchKagConceptRules(
     { cache: "no-store", signal, scope: "kag" },
   );
   return parseConceptRules(payload);
+}
+
+/** B.4：该概念类型的层级树（后端递归 BFS 聚合 /conceptInstance/level）。
+ * root 可选起始概念 id（缺省=虚拟根 ROOT/顶层）；max_depth/max_nodes 上限
+ * 防大图超限（<=0 交给后端内置默认）。 */
+export async function fetchKagConceptTree(
+  projectId: string,
+  typeName: string,
+  opts: { root?: string; maxDepth?: number; maxNodes?: number; signal?: AbortSignal } = {},
+): Promise<KagConceptTree> {
+  const payload = await requestJson<unknown>(
+    `/api/kag/projects/${encodeURIComponent(projectId)}/concepts/${encodeURIComponent(typeName)}/tree${query({
+      root: opts.root,
+      max_depth: opts.maxDepth,
+      max_nodes: opts.maxNodes,
+    })}`,
+    { cache: "no-store", signal: opts.signal, scope: "kag" },
+  );
+  return parseConceptTree(payload);
 }
 
 /** C2：定义概念规则（taxonomy=belongTo 分类规则，logical=leadTo 推理规则）。 */

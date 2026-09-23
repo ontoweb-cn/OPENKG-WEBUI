@@ -90,6 +90,33 @@ async def test_get_concept_detail_params_and_degrade() -> None:
 
 
 @pytest.mark.asyncio
+async def test_query_concept_level_instance_params_and_degrade() -> None:
+    """I3 client：GET /conceptInstance/level 参数（conceptType 必有，
+    rootConceptInstance/projectId 可省）与空体降级。"""
+    captured: list[str] = []
+    payload = {
+        "conceptType": "m0ProbeLive.Topic",
+        "rootConceptInstance": "ROOT",
+        "children": [{"id": "A", "properties": {"nameZh": "甲", "name": "A"}}],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(str(request.url))
+        return httpx.Response(200, json=payload)
+
+    client = _mock_client(handler)
+    assert await client.query_concept_level_instance("m0ProbeLive.Topic") == payload
+    assert captured[0] == "http://spg.test/public/v1/conceptInstance/level?conceptType=m0ProbeLive.Topic"
+    # root 与 projectId 可选追加
+    await client.query_concept_level_instance("m0ProbeLive.Topic", "abc", 7)
+    assert "rootConceptInstance=abc" in captured[1]
+    assert "projectId=7" in captured[1]
+    # 空体/非 dict 降级为 {children:[]}
+    empty = _mock_client(lambda request: httpx.Response(200, text="boom"))
+    assert await empty.query_concept_level_instance("m0ProbeLive.Topic") == {"children": []}
+
+
+@pytest.mark.asyncio
 async def test_concept_write_methods_send_expected_bodies() -> None:
     captured: list[dict] = []
 
@@ -203,11 +230,13 @@ class FakeConceptOpenSPG:
         reasoning=None,
         concepts=None,
         schema=None,
+        levels=None,
         errors=(),
     ):
         self.reasoning = reasoning or []
         self.concepts = concepts or []
         self.schema = schema
+        self.levels = levels or {}
         self.errors = set(errors)
         self.submitted = []
 
@@ -215,6 +244,11 @@ class FakeConceptOpenSPG:
         if "get_reasoning_concepts" in self.errors:
             raise OpenSPGError("boom")
         return self.reasoning
+
+    async def query_concept_level_instance(self, concept_type_name, root_concept_instance="", project_id=""):
+        if "query_concept_level_instance" in self.errors:
+            raise OpenSPGError("boom")
+        return self.levels.get(root_concept_instance or "", {"children": []})
 
     async def get_concept_detail(self, concept_type_name, concept_name=""):
         if "get_concept_detail" in self.errors:
@@ -488,3 +522,124 @@ def test_define_logical_requires_subject_concept_name(
     )
     assert resp.status_code == 400
     assert fake.submitted == []  # 未触达上游
+
+
+# ---------------------------------------------------------------------------
+# 概念层级树路由（附录 B.4；I3）：聚合 / 深度与节点截断 / 非概念类型 400 /
+# 门禁 / 上游降级
+# ---------------------------------------------------------------------------
+
+# 模拟层级图：root=""/ROOT → [A, B]；A → [a1]；a1 → []
+TREE_LEVELS = {
+    "": {
+        "children": [
+            {"id": "A", "properties": {"nameZh": "甲", "name": "A"}},
+            {"id": "B", "properties": {"name": "B"}},
+        ]
+    },
+    "A": {"children": [{"id": "a1", "properties": {"nameZh": "乙", "name": "a1"}}]},
+}
+
+
+def test_get_concept_tree_builds_nested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """递归 BFS 聚合为嵌套树；nameZh 优先于 name，缺省回退空串。"""
+    _patch_router_env(monkeypatch, tmp_path)
+    client = _router_client(monkeypatch, FakeConceptOpenSPG(levels=TREE_LEVELS), _ADMIN)
+    resp = client.get("/api/kag/projects/3/concepts/m0ProbeLive.Topic/tree")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["type_name"] == "m0ProbeLive.Topic"
+    assert body["root"] == ""
+    assert body["nodes"] == 3
+    assert body["truncated"] is False
+    children = body["children"]
+    assert children[0]["id"] == "A"
+    assert children[0]["name"] == "甲"  # nameZh 优先
+    assert children[0]["children"][0]["id"] == "a1"
+    assert children[0]["children"][0]["name"] == "乙"
+    assert children[1]["id"] == "B"
+    assert children[1]["children"] == []
+
+
+def test_get_concept_tree_honors_root_param(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """root 指定后仅从该概念展开（其 attach 过的子层不能再展开——非本样本叶）。"""
+    _patch_router_env(monkeypatch, tmp_path)
+    client = _router_client(monkeypatch, FakeConceptOpenSPG(levels=TREE_LEVELS), _ADMIN)
+    resp = client.get(
+        "/api/kag/projects/3/concepts/m0ProbeLive.Topic/tree", params={"root": "B"}
+    )
+    body = resp.json()
+    assert body["root"] == "B"
+    assert body["nodes"] == 0
+    assert body["children"] == []  # B 无 children → 空子树
+
+
+def test_get_concept_tree_depth_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """max_depth=1：只回顶层，子层不展开并标记 truncated。"""
+    _patch_router_env(monkeypatch, tmp_path)
+    client = _router_client(monkeypatch, FakeConceptOpenSPG(levels=TREE_LEVELS), _ADMIN)
+    resp = client.get(
+        "/api/kag/projects/3/concepts/m0ProbeLive.Topic/tree", params={"max_depth": 1}
+    )
+    body = resp.json()
+    assert body["truncated"] is True
+    assert body["nodes"] == 2
+    assert body["children"][0]["children"] == []
+    assert body["children"][1]["children"] == []
+
+
+def test_get_concept_tree_node_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """max_nodes=1：超限即截断，残叶显式 node_cap_reached 标记。"""
+    _patch_router_env(monkeypatch, tmp_path)
+    client = _router_client(monkeypatch, FakeConceptOpenSPG(levels=TREE_LEVELS), _ADMIN)
+    resp = client.get(
+        "/api/kag/projects/3/concepts/m0ProbeLive.Topic/tree", params={"max_nodes": 1}
+    )
+    body = resp.json()
+    assert body["truncated"] is True
+    # A 被放行但子层 a1 超限 → 子层残叶标记
+    assert body["children"][0]["id"] == "A"
+    assert body["children"][0]["children"][0]["node_cap_reached"] is True
+
+
+def test_get_concept_tree_not_concept_type_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """conceptType 非概念类型 → 归一 400（而非 502）。"""
+    _patch_router_env(monkeypatch, tmp_path)
+
+    class NotConceptType(FakeConceptOpenSPG):
+        async def query_concept_level_instance(self, concept_type_name, root_concept_instance="", project_id=""):
+            raise OpenSPGError("bad", status=400, body="Topic is not a concept type")
+
+    client = _router_client(monkeypatch, NotConceptType(), _ADMIN)
+    resp = client.get("/api/kag/projects/3/concepts/m0ProbeLive.X/tree")
+    assert resp.status_code == 400
+    assert resp.json()["detail"].endswith("is not a concept type")
+
+
+def test_get_concept_tree_membership_and_upstream_502(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_router_env(monkeypatch, tmp_path)
+    # 非成员 → 403
+    outsider = _router_client(monkeypatch, FakeConceptOpenSPG(), _OUTSIDER)
+    assert (
+        outsider.get("/api/kag/projects/3/concepts/m0ProbeLive.Topic/tree").status_code
+        == 403
+    )
+    # 图不可达/上游错误 → 502
+    failing = FakeConceptOpenSPG(errors={"query_concept_level_instance"})
+    client = _router_client(monkeypatch, failing, _ADMIN)
+    assert (
+        client.get("/api/kag/projects/3/concepts/m0ProbeLive.Topic/tree").status_code
+        == 502
+    )

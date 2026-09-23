@@ -631,6 +631,55 @@ export function parseConceptRules(raw: unknown): KagConceptRules {
   };
 }
 
+// —— 概念层级树（B.4：/projects/{id}/concepts/{type}/tree 归一行）——
+// 后端递归 BFS 聚合 `/conceptInstance/level` 一跳子层为嵌套树；节点
+// {id, name, children[]}，name 取自图顶点属性的 nameZh（缺省回退 name）。
+// `nodeCapReached` 为超限残叶标记（前端据此显示"已截断"提示）。
+
+export interface KagConceptTreeNode {
+  id: string;
+  /** 概念显示名（nameZh || name；缺失回退空串，前端兜底显示 id）。 */
+  name: string;
+  children: KagConceptTreeNode[];
+  /** 后端因节点上限截断时置 true（残叶，无 id/name/children 语义）。 */
+  nodeCapReached?: boolean;
+}
+
+export interface KagConceptTree {
+  typeName: string;
+  root: string;
+  nodes: number;
+  /** 深度或节点上限被触发 → 下游提示"已截断"。 */
+  truncated: boolean;
+  children: KagConceptTreeNode[];
+}
+
+function parseConceptTreeNode(raw: unknown): KagConceptTreeNode | null {
+  const row = record(raw);
+  const id = text(row.id);
+  const capReached = row.node_cap_reached === true;
+  if (capReached) return { id: "", name: "", children: [], nodeCapReached: true };
+  if (!id) return null;
+  const children = Array.isArray(row.children)
+    ? row.children.map(parseConceptTreeNode).filter((c): c is KagConceptTreeNode => c !== null)
+    : [];
+  return { id, name: text(row.name), children };
+}
+
+export function parseConceptTree(raw: unknown): KagConceptTree {
+  const payload = record(raw);
+  const children = Array.isArray(payload.children)
+    ? payload.children.map(parseConceptTreeNode).filter((c): c is KagConceptTreeNode => c !== null)
+    : [];
+  return {
+    typeName: text(payload.type_name),
+    root: text(payload.root),
+    nodes: typeof payload.nodes === "number" ? payload.nodes : 0,
+    truncated: payload.truncated === true,
+    children,
+  };
+}
+
 // —— 构建命令占位符校验（阶段 B-1 评审 P2）——
 // 导入模板含 <data-repo-url>/<commit-id> 等占位符，未替换即提交会送出
 // 字面占位命令——提交前用该谓词拦截。占位符形如 <word>（内部无空白）；

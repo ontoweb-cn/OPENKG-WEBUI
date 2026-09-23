@@ -506,8 +506,37 @@ M3.3 实测结论（M3.0 四条之外的补充）：
 - `/schema/alter` 移除 `nothing to alter` 门槛——`spg_type` 恒作 UPDATE 整型覆写（幂等），纯 nameZh/desc 修改可用。
 - 前端 `SchemaEditPanel.tsx`「Names (zh mapping)」（类型/自有属性/自有关系 nameZh + desc → 纯 UPDATE）；详情页「Export schema JSON」（`serializeKagSchema` 归一 + Blob 下载）。
 
-### B.4 A3（完整概念树浏览）→ 降级/未做
-- A-S0 实测：`/public/v1/concept/getConceptTree`、`/concept/getConceptDetail` **404 不存在**——无公开树端点。仅 `queryConcept`（某类型下全部概念及语义）与 `getReasoningConcept` 可用 → 不做独立树浏览，如需仅按概念类型聚合浏览（成本低、价值有限，未排期）。
+### B.4 A3（完整概念树浏览）— 结论修订（2026-09-22 二轮核查）
+
+**初判（过度断言，已修订）**：A-S0 曾以 `/public/v1/concept/getConceptTree`、`/concept/getConceptDetail` 返回 **404** 判定"无公开树端点、概念树不可浏览"。该 404 结论本身成立（`ConceptController` 无此二映射），但**漏扫了另一公开面 `/conceptInstance`**，故"不可实现"不成立。
+
+**修正：存在可行路径（源码实现级确证）**：
+- `GET /public/v1/conceptInstance/level?conceptType=<namespace.Type>&rootConceptInstance=<id>`（`ConceptInstanceController`；projectId 可省，按 namespace 反查项目）
+  → 返回该根概念的**直接下级** `children:[{id, properties}]`；`properties`=图顶点属性（含 nameZh/name）。
+- 语义 = **图存储一跳**（`OneHopLPGRecordQuery`，沿 `hypernymPredicate`，Direction.IN）→ 非递归；完整树 = 递归 BFS（`child.id` 作下一层 root）。
+- 另有 `GET /public/v1/conceptInstance?conceptType=&conceptInstanceIds=` 实例详情。
+- 服务层未公开可调的内部 `ConceptManager.getConceptDetail`/`getReasoningConceptsDetail`。
+
+**如需实现完整概念树浏览，需补充内容**：
+| # | 项 | 落点 |
+|---|---|---|
+| I1 | client `query_concept_level_instance(concept_type, root)`（projectId 可省）→ GET `/conceptInstance/level` | `openspg_client.py` |
+| I2 | client `query_concept_instances(concept_type, ids)` → GET `/conceptInstance`（可选） | 同上 |
+| I3 | 路由 `GET /projects/{id}/concepts/{type}/tree?root=&max_depth=&max_nodes=`：BFS 递归聚合为树；深度/节点双上限；归一 `"not a concept type"`→400、图不可达→502 | `kag.py` |
+| I4 | 节点直接用 `children[].properties`（含 nameZh/name），无需求 queryConcept 补名 | `model.ts`/组件 |
+| I5 | 前置 gate：对该类型 `/level` 运行时探针（依赖项目图库含概念层级数据） | tools |
+| I6 | 前端懒加载展开树组件 `ConceptTreePanel`（CONCEPT_TYPE 展开区）+ i18n + build | `web/features/kag/` |
+
+**状态**：
+
+- **I1 / I3 / I4 / I6 已实装**（2026-09-22 按本清单落地）：
+  - I1 `query_concept_level_instance(concept_type, root_concept_instance=, project_id=)` → GET `/public/v1/conceptInstance/level`（`openspg_client.py`）；
+  - I3 `GET /projects/{project_id}/concepts/{type_path}/tree?root=&max_depth=&max_nodes=`（`kag.py`）——递归 BFS 聚合、深度/节点双上限（内置 ≤6 层 / ≤200 节点，可经参数覆盖）、`"not a concept type"`→400、图不可达→502、响应过 `_sanitize`；超限残叶显式 `node_cap_reached` 标记；
+  - I4 `KagConceptTreeNode/KagConceptTree` + `parseConceptTree`（`model.ts`），节点名直接取 `properties` 的 `nameZh`/`name`；`fetchKagConceptTree`（`api.ts`）；
+  - I6 `ConceptTreePanel`（CONCEPT_TYPE 展开区，懒加载：初载取顶层、点节点以自身为 root 再查子层；空态/截断/容错提示）挂载于 `KagProjectDetailPage`；i18n en/zh 已补齐。
+  - 测试：后端 `tests/services/kag/test_concept_rules.py` 增 client 参数/降级 + 路由聚合/深度节点截断/非概念类型 400/门禁/上游 502（**101 passed**）；前端 `kag-model.test.ts` 增 `parseConceptTree`（`test:node` fail 0）。契约 openapi/生成同步；`check:fast` EXIT=0、前端 `build` EXIT=0。
+- **I2（`query_concept_instances` 实例详情）与 I5（`/level` 运行时前置探针）未排期**——实例详情浏览非 B.4 树浏览所必需；运行时依赖项目图库含概念层级数据，已在 I6 组件作空态/容错兜底。
+- A-S3 提供的「概念实例聚合浏览」仍为另一已交付形态，与本树浏览并存。
 
 ### B.5 实测结果
 - 后端 `tests/services/kag/` **94 passed**（`test_schema_draft.py` +8 构造器 wire；新增 `test_schema_alter.py` 15 项意图/校验/门禁/兼容）。

@@ -527,6 +527,32 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/kag/projects/{project_id}/concepts/{type_path}/tree": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * Get Concept Tree
+     * @description 概念层级树（read + membership；B.4 完整概念树浏览）。
+     *
+     *     - ``type_path`` 为 SPG 概念类型全名（``ns.Type``，含点，故用 path 型变量）。
+     *     - ``root``：可选起始概念 id（缺省=虚拟根 ROOT，即顶层概念们）。
+     *     - ``max_depth``/``max_nodes``：可选上限（<=0 取内置默认），防大图打爆。
+     *     - conceptType 非概念类型：归一 ``"not a concept type"`` → 400；图不可达/
+     *       上游错误 → 502；响应经 ``_sanitize``（properties 可能含凭据）。
+     */
+    readonly get: operations["get_concept_tree_api_kag_projects__project_id__concepts__type_path__tree_get"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/kag/projects/{project_id}/graph/query": {
     readonly parameters: {
       readonly query?: never;
@@ -5370,6 +5396,48 @@ export interface operations {
         readonly "application/json": components["schemas"]["KagConceptRuleRemoveRequest"];
       };
     };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": {
+            readonly [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly get_concept_tree_api_kag_projects__project_id__concepts__type_path__tree_get: {
+    readonly parameters: {
+      readonly query?: {
+        readonly max_depth?: number;
+        readonly max_nodes?: number;
+        readonly root?: string;
+      };
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly project_id: string;
+        readonly type_path: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
     readonly responses: {
       /** @description Successful Response */
       readonly 200: {

@@ -406,3 +406,32 @@ class OpenSPGClient:
             },
             timeout=60.0,
         )
+
+    async def query_concept_level_instance(
+        self,
+        concept_type_name: str,
+        root_concept_instance: str = "",
+        project_id: str | int = "",
+    ) -> dict[str, Any]:
+        """概念层级一跳（OneHop，沿 hypernymPredicate/Direction.IN 的子层聚合）。
+
+        B.4 实测：GET /conceptInstance/level?conceptType=<ns.Type>[&rootConceptInstance=][&projectId=]
+        返回 ``ConceptLevelInstanceResponse``（裸对象，非信封）——
+        ``{conceptType, rootConceptInstance, children:[ConceptInstanceResponse]}``，
+        其中每个 ``{id, properties}``（properties=图顶点属性，含 nameZh/name，
+        概念名可直接取）。语义为图存储**一跳**：完整树须由调用方以 child.id
+        作下一层 root 递归 BFS。
+
+        - ``rootConceptInstance`` 缺省=虚拟根 ``ROOT``（server 端语义）；
+        - ``projectId`` 可省略（后端按 conceptType 的 namespace 反查项目）；
+        - conceptType 非概念类型时后端抛 ``"xxx is not a concept type"``。
+        """
+        params: dict[str, Any] = {"conceptType": concept_type_name}
+        if root_concept_instance:
+            params["rootConceptInstance"] = root_concept_instance
+        if project_id:
+            params["projectId"] = int(project_id)
+        result = await self._request(
+            "GET", "/public/v1/conceptInstance/level", params=params, timeout=60.0
+        )
+        return result if isinstance(result, dict) else {"children": []}
