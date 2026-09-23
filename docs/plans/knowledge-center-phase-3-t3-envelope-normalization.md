@@ -1,7 +1,11 @@
 # 知识中心 Phase 3 T3 细化方案：信封归一化与域模型收口
 
 - 日期：2026-09-23
-- 状态：**细化待评审**（评审通过后实施）
+- 状态：**已实施完成（2026-09-23）**；T3.1-T3.6 全部落地并 live 验收通过
+- 实施结果：后端 505 项 + 前端 59 项测试全过；契约 19 端点实体化
+  （`DatasetPage`/`DocumentPage`/`SearchResult` 等）；live 复验
+  列表/检索/上传/结构化上传/删除 五条链路 + 错误码（403 权限、
+  上游对不存在库返回 403 以防枚举系有意设计）
 - 依据：[knowledge-center-phase-3-engine-abstraction.md](knowledge-center-phase-3-engine-abstraction.md) §六评审（P1-2 的表述修正、D2 的归一化要求）+ T1/T2 实施记录
 - 前置：T1+T2 已交付（`engines/{base,registry,intellect_rag}.py`，路由经 `_engine_for` 调 provider，行为不变）
 
