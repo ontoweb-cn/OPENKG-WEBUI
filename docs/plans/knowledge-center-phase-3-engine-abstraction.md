@@ -1,7 +1,13 @@
 # 知识中心 Phase 3 立项方案：多引擎接入（KnowledgeEngine provider 接口）
 
 - 日期：2026-09-23
-- 状态：**立项方案，待评审**（评审通过后按"细化任务→评审→实施"推进）
+- 状态：**T1+T2 已实施（2026-09-23）；T3+ 待评审**
+- 实施记录：T1（协议/注册表/CAP_* 常量/EngineError/EngineContext）与 T2
+  （intellect-rag provider + 路由与同步任务全部经引擎）已落地——
+  纯重构、对外行为不变：后端 487 项 + 引擎单测 10 项全过，live 复验
+  列表/检索/上传三条链路一致，depcruise 无分层违规。
+  代码落点：`openkg_webui/services/knowledge/engines/{base,registry,intellect_rag}.py`；
+  路由改造见 `api/routers/knowledge.py`（`_engine_for` + `_upstream`）。（评审通过后按"细化任务→评审→实施"推进）
 - 依据：[../knowledge-center-port-design.md](../knowledge-center-port-design.md) §三引擎抽象、§六 Phase 3
 - 前置：Phase 1a/1b/1.5/2 已交付；当前为**单引擎硬编码**（`services/knowledge/` 直连 intellect-rag）
 
