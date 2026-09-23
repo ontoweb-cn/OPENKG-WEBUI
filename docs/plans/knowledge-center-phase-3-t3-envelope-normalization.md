@@ -308,6 +308,59 @@ provider 直接把 source 交给 httpx（它同时支持两者），**禁止 `.r
 - **任务拆分与提交切分**（T3.1+T3.2 → T3.3+T3.4 原子切换 → T3.5+T3.6）：合理，
   原子切换是关键（避免中途前后端形状不一致）。
 
+## 十二、补充评审（第二轮，2026-09-23）
+
+首轮评审（§十一）聚焦错误映射与流式契约。第二轮逐条核对端点与实现细节，新增
+两项必须修订的问题。
+
+### P1（必须修订）同步任务的错误语义会回归——须规定"逐项容错"
+
+**现状语义**：GitHub/Web 同步任务用 `if resp.status_code < 400: uploaded += 1`
+（`knowledge.py:548/579/723`）——**单个文件失败不中断同步**，计数跳过、循环继续。
+
+**T3 后的危险**：provider 方法返回域模型、失败抛 `EngineError`。若按方案 §五 的
+"改用类型化方法"字面实施，循环体里一次失败即**抛出并中断整个同步**——从"逐项容错"
+退化为"首错即停"。外部源同步正是最容易出现单文件失败（远端 404/格式不支持）的场景。
+
+**修订要求**（写入 T3.3）：
+- 上传循环：`try: await engine.upload(…) except EngineError as exc: failures.append(…)`
+  ——逐项捕获、继续后续项；结束后把 `uploaded/failed` 都写进同步状态
+  （`last_result` 现为 `"uploaded N, removed M"`，建议扩为含 `failed K`）；
+- 列表/删除同理：列表失败可整体视为本次同步失败（保持现状），删除失败逐项容错；
+- **验收补一条**：构造"部分文件上传失败"场景（如计划中含 1 个必然失败项），断言
+  其余文件仍成功入库。
+
+### P2（必须补充）两处 `total` 来源不同——`DatasetPage.total` 需写明取值点
+
+实测（2026-09-23）：
+
+| 端点 | `total` 位置 | 形状 |
+| --- | --- | --- |
+| `GET /datasets` | **信封顶层** `total_datasets` | `{code, data: [...], total_datasets: N}` |
+| `GET /datasets/{id}/documents` | **`data` 内** `data.total` | `{code, data: {docs: [...], total: N}}` |
+
+方案 §二 定义了 `DatasetPage(datasets, total)` 与 `DocumentPage(documents, total)`，
+但未写明各自 `total` 从哪取。实现者若按 docs 的模式找 `data.total` 会恒得 0
+（datasets 的 data 是**裸列表**）。
+
+**修订要求**：§二 的模型旁注明取值点；并借此关闭 1a 评审的遗留 **R-4**
+（"GET /datasets 的 total 在信封顶层，unwrap 时被丢弃——分页需透传"）：
+T3 后 `DatasetPage.total` 即该字段的归宿，前端分页可用。
+
+### P3（文档准确性，非阻塞）
+
+方案 §五 称"20 个引擎型端点"，实际核对为 **15 个端点**对应 15 个 provider 方法
+（另 3 个走 provider 但端点为路由本地：结构化上传、SSE 日志流、两个 sync 触发）。
+总端点 25 个。建议改为"15 个引擎型端点 + 3 个复合端点"以免实现时误期。
+
+### 复核确认（第二轮）
+
+- 15 个 provider 方法与端点**一一对应**，无遗漏无多余（逐条比对 `@router` 清单）；
+- 路由本地端点（status/preferences/sources 配置与触发）**与引擎域正交**，不进 provider 正确；
+- documents 上游形状 `data.docs` + `data.total` 与 `parseKnowledgeDocuments` 一致 ✓；
+- datasets 上游 `data` 为裸列表 + 顶层 `total_datasets` ✓（前端 `parseKnowledgeDatasets`
+  的 `Array.isArray(data) ? data : payload` 双分支正是为该形状写的兜底）。
+
 ## 十、待评审决策点
 
 - **D1 字段命名 snake_case**（沿用现有前端读取，最小改动）——建议采纳；
