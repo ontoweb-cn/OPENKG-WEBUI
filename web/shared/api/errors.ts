@@ -6,7 +6,9 @@ export type AppErrorScope =
   | "network"
   // KAG 管理面（projects/schema/tasks）与 kag settings 域的请求错误归入
   // 独立 scope，便于错误面板按面聚合。
-  | "kag";
+  | "kag"
+  // 知识中心管理面（/api/knowledge 代理）——同上，独立聚合。
+  | "knowledge";
 
 export interface AppError {
   code: string;

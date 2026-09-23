@@ -42,6 +42,8 @@ export interface StartTurnInput {
   selectionTutorContext?: Record<string, unknown> | null;
   subagentConsultBudget?: number | null;
   autoRoute?: boolean | null;
+  /** 知识中心勾选（Phase 1.5）：本 turn 限定召回的知识库 dataset ids。 */
+  knowledgeBases?: string[];
 }
 
 export interface LegacySendMessageArguments {

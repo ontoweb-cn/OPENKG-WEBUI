@@ -687,6 +687,21 @@ class RunsAgentLoopBackend(HttpAgentLoopBackend):
             # per_turn_model flag) — services that ignore it keep their own
             # default silently.
             payload["model"] = turn_model
+        # 知识中心（docs/knowledge-center-port-design.md §九-9.2 B1/B2）：runs
+        # 协议的会话级 rag 块——网关 build_session_config 契约（enabled/scope/
+        # knowledge_base_ids）。优先级（Phase 1.5 D2）：composer/默认勾选的
+        # kb_ids > 部署默认 chat_scope（1b）> 不带该键。kb_ids 非空时省略
+        # scope（网关 kb_ids 优先语义）；知识中心整体关闭时一律不带（off=off）。
+        kb_ids = list(getattr(request, "knowledge_kb_ids", None) or [])
+        rag_block = None
+        from openkg_webui.services.knowledge import chat_rag_block
+
+        if kb_ids and chat_rag_block() is not None:
+            rag_block = {"enabled": True, "knowledge_base_ids": kb_ids}
+        else:
+            rag_block = chat_rag_block()
+        if rag_block:
+            payload["rag"] = rag_block
         state: dict[str, Any] = {"buf": [], "terminal": False}
         timeout = httpx.Timeout(
             connect=15.0,

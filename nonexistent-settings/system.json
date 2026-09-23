@@ -42,5 +42,13 @@
     "service_user_no": "",
     "bridge_api_key": "",
     "bridge_http_url": ""
+  },
+  "knowledge": {
+    "version": 1,
+    "enabled": false,
+    "base_url": "",
+    "api_key": "",
+    "chat_scope": "tenant",
+    "mcp_url": ""
   }
 }

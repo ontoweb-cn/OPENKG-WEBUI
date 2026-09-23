@@ -37,6 +37,10 @@ const ROUTE_TARGETS = [
   { route: "/kag/projects/[id]", requestPath: "/kag/projects/perf-budget", budgetKb: 360 },
   { route: "/kag/tasks", requestPath: "/kag/tasks", budgetKb: 360 },
   { route: "/settings/kag", requestPath: "/settings/kag", budgetKb: 360 },
+  // 知识中心（docs/knowledge-center-port-design.md）：无重依赖，预算参照
+  // settings/kag 类页面；Phase 2 图可视化落地时需按实测上调。
+  { route: "/knowledge-center", requestPath: "/knowledge-center", budgetKb: 360 },
+  { route: "/knowledge-center/[datasetId]", requestPath: "/knowledge-center/perf-budget", budgetKb: 360 },
 ];
 
 const ROOT_SHELL_BUDGET_KB = 390;

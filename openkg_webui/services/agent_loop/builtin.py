@@ -200,7 +200,7 @@ PRESETS: dict[str, AgentLoopPreset] = {
                     ),
                     turn_path="/v1/runs",
                     protocol="runs",
-                    probe_url="http://127.0.0.1:8642/health",
+                    probe_url="http://127.0.0.1:9091/health",
                     per_turn_model=True,
                 ),
             ),
@@ -221,7 +221,7 @@ PRESETS: dict[str, AgentLoopPreset] = {
             ),
             # The team deployment serves the same /health probe as the
             # community one; without it this preset had no probe target at all.
-            probe_url="http://127.0.0.1:8642/health",
+            probe_url="http://127.0.0.1:9091/health",
             turn_path="/v1/runs",
             protocol="runs",
             per_turn_model=True,

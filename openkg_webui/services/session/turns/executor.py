@@ -531,6 +531,20 @@ class TurnExecutor:
                     **parent_kwargs,
                 )
 
+            # 知识中心勾选（Phase 1.5）：composer 的 knowledge_bases 字段
+            # （rag-app dataset ids）；未勾选时回落该用户的默认知识库（A3）。
+            knowledge_bases = [str(x) for x in (payload.get("knowledge_bases") or [])]
+            if not knowledge_bases:
+                try:
+                    from openkg_webui.multi_user.context import get_current_user
+                    from openkg_webui.services.knowledge import default_knowledge_kb_ids
+
+                    knowledge_bases = default_knowledge_kb_ids(
+                        str(get_current_user().id)
+                    )
+                except Exception:
+                    knowledge_bases = []
+
             context = UnifiedContext(
                 session_id=session_id,
                 user_message=effective_user_message,
@@ -541,6 +555,7 @@ class TurnExecutor:
                 active_capability=payload.get("capability"),
                 attachments=attachments,
                 config_overrides=request_config,
+                knowledge_bases=knowledge_bases,
                 language=payload.get("language", "en"),
                 sidebar_context=sidebar_system_context,
                 source_manifest=source_manifest_text,

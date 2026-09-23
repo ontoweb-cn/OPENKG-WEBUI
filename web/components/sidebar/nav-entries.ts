@@ -1,4 +1,4 @@
-import { House, Layers, LayoutGrid, Settings } from "lucide-react";
+import { BookOpen, House, Layers, LayoutGrid, Settings } from "lucide-react";
 
 import type { Capability } from "@/lib/capability-routes";
 
@@ -15,6 +15,10 @@ export interface NavEntry {
   /** Top-banner group membership; every PRIMARY_NAV entry carries one. */
   group?: TopNavGroupId;
 }
+
+/** 知识中心入口 href。/knowledge 前缀属退役 v1 面（见
+ * tests/no-v1-chat-surface.test.ts 的字面量守卫），集中此一处便于审查。 */
+export const KNOWLEDGE_CENTER_HREF = "/knowledge-center";
 
 /**
  * The workspace features, in the order they ship in.
@@ -37,6 +41,17 @@ export const PRIMARY_NAV: NavEntry[] = [
     label: "Space",
     icon: LayoutGrid,
     tooltipKey: "Space tooltip",
+    group: "workspace",
+  },
+  {
+    // 知识中心（docs/knowledge-center-port-design.md）：入口可见性由
+    // useOrderedGroups 按 /api/knowledge-center 状态过滤——服务未启用时
+    // 隐藏。路由用 knowledge-center：/knowledge 是退役 v1 面（见
+    // tests/no-v1-chat-surface.test.ts），发布守卫禁用该字面量。
+    href: KNOWLEDGE_CENTER_HREF,
+    label: "Knowledge",
+    icon: BookOpen,
+    tooltipKey: "Knowledge tooltip",
     group: "workspace",
   },
 ];

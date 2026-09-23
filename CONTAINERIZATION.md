@@ -485,11 +485,11 @@ at `replicas: 1` with `strategy: Recreate`; redis is only needed for
 A containerized OPENKG-WebUI cannot spawn a host-side `intellect acp` child
 (ACP is stdio). Use the community preset's **HTTP** connection method
 instead: it speaks the api_server run endpoints that the gateway platform
-already exposes on `http://host.docker.internal:8642` (default port,
+already exposes on `http://host.docker.internal:9091` (default port,
 `API_SERVER_KEY` auth). Add an `intellect` profile and pick "HTTP service
 (/v1/runs)", or set `OPENKG_WEBUI_AGENT_LOOP_BACKEND=intellect` together with
 `OPENKG_WEBUI_AGENT_LOOP_TRANSPORT=http`. Configure the profile URL to
-`http://host.docker.internal:8642` and set the profile `api_key` to the
+`http://host.docker.internal:9091` and set the profile `api_key` to the
 gateway's `API_SERVER_KEY`.
 
 For the **enterprise (team)** deployment use `intellect-team`, which
@@ -510,7 +510,7 @@ and never binds the port:
 ```bash
 # ~/.intellect/.env (shell vars are read too; the file wins)
 API_SERVER_ENABLED=1
-API_SERVER_PORT=8642
+API_SERVER_PORT=9091
 API_SERVER_KEY=<openssl rand -hex 32>
 ```
 

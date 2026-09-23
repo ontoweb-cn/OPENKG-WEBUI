@@ -331,8 +331,11 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     key: "knowledge",
-    label: { zh: "知识库", en: "Knowledge Base" },
-    blurb: { zh: "文档解析引擎", en: "Document parsing engine" },
+    label: { zh: "知识中心", en: "Knowledge" },
+    blurb: {
+      zh: "知识中心连接与文档解析引擎",
+      en: "Knowledge center connection & document parsing",
+    },
     icon: Library,
   },
   {

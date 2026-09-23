@@ -111,3 +111,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## DeepMentor
+
+- Project: DeepMentor (`~/projects/DeepMentor`), "DeepMentor: Towards Agentic Personalized Tutoring"
+- License: Apache-2.0
+- Copyright: Copyright 2025 Data Intelligence Lab, The University of Hong Kong
+- Derived work: the knowledge center UI (web/features/knowledge/, web/app/(utility)/knowledge-center/) and
+  its progress/status semantics are ported and adapted from DeepMentor's knowledge center
+  (web/components/knowledge/, web/features/knowledge/, web/lib/knowledge-helpers.ts).
+  Ported files carry "Derived from DeepMentor" headers; substantial adaptation per
+  docs/knowledge-center-port-design.md §十. The external-source sync engine
+  (openkg_webui/services/knowledge/sources/github.py) is likewise derived from
+  DeepMentor's deepmentor/services/github_source/. The web crawl source
+  (openkg_webui/services/knowledge/sources/web.py) is derived from DeepMentor's
+  deepmentor/services/web_source/ (crawler, markdown, html_extractor).

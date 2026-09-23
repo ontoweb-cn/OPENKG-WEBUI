@@ -18,6 +18,7 @@ import { LogoutButton } from "@/components/auth/LogoutButton";
 import { ProfileLink } from "@/components/auth/ProfileLink";
 import { useCapabilityAccess } from "@/components/access/CapabilityAccessContext";
 import {
+  KNOWLEDGE_CENTER_HREF,
   TOP_NAV_GROUPS,
   isEntryActive,
   type NavEntry,
@@ -27,6 +28,10 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { fetchAuthStatus, type AuthStatus } from "@/lib/auth";
 import { PROJECT_GITHUB_URL } from "@/lib/project-links";
 import { readNavLayout, resolveNavLayout } from "@/lib/sidebar-layout";
+import {
+  useKnowledgeStatus,
+  type KnowledgeStatus,
+} from "@/hooks/useKnowledgeStatus";
 
 /** Within-group order follows the learner's saved arrangement: visible entries
  *  first (in their stored order), folded ones appended after — folding moves a
@@ -36,27 +41,38 @@ import { readNavLayout, resolveNavLayout } from "@/lib/sidebar-layout";
  *  two always agree. */
 export function useOrderedGroups(): TopNavGroup[] {
   const [groups, setGroups] = useState(TOP_NAV_GROUPS);
+  // 知识中心：服务未启用（或尚未探明）时入口隐藏（设计验收 3——不暴露失效入口）。
+  const knowledge = useKnowledgeStatus();
   useEffect(() => {
     const layout = readNavLayout();
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setGroups(
       TOP_NAV_GROUPS.map((group) => {
-        const resolved = resolveNavLayout(
-          group.entries.map((entry) => entry.href),
-          layout,
-        );
-        const byHref = new Map(group.entries.map((e) => [e.href, e]));
-        const ordered = [...resolved.visible, ...resolved.collapsed].flatMap(
-          (href) => {
-            const entry = byHref.get(href);
-            return entry ? [entry] : [];
-          },
-        );
+        const ordered = orderedGroupEntries(group, layout, knowledge);
         return ordered.length > 0 ? { ...group, entries: ordered } : group;
       }),
     );
-  }, []);
+  }, [knowledge]);
   return groups;
+}
+
+function orderedGroupEntries(
+  group: TopNavGroup,
+  layout: ReturnType<typeof readNavLayout>,
+  knowledge: KnowledgeStatus | null,
+): NavEntry[] {
+  const resolved = resolveNavLayout(
+    group.entries.map((entry) => entry.href),
+    layout,
+  );
+  const byHref = new Map(group.entries.map((e) => [e.href, e]));
+  return [...resolved.visible, ...resolved.collapsed].flatMap((href) => {
+    const entry = byHref.get(href);
+    if (!entry) return [];
+    if (entry.href === KNOWLEDGE_CENTER_HREF && knowledge?.enabled !== true)
+      return [];
+    return [entry];
+  });
 }
 
 /** Close on any outside pointer press or on Escape. Menu panels are plain

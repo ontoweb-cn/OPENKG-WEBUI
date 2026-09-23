@@ -27,6 +27,10 @@ import {
 import { UnifiedTurnClient } from "@/features/chat/transport/UnifiedTurnClient";
 import { buildStartTurnInput } from "@/features/chat/controllers/buildStartTurnInput";
 import {
+  getSessionKnowledgeSelection,
+  seedSessionKnowledgeSelection,
+} from "@/features/knowledge/session-selection";
+import {
   getSession,
   deleteMessage,
   updateBranchSelection,
@@ -1700,6 +1704,13 @@ export function ChatStateAdapterProvider({
         if (!local || local.isStreaming || local.status === "running") return;
       }
       const messages = hydrateMessages(session.messages ?? []);
+      // 知识中心勾选（Phase 1.5）：会话加载时把偏好里的勾选回填进会话级缓存，
+      // 发送时由 getSessionKnowledgeSelection 读取。
+      seedSessionKnowledgeSelection(
+        key,
+        (session.preferences as Record<string, unknown> | undefined)
+          ?.knowledge_base_ids,
+      );
       const loadedWorkspaceMode = normalizeWorkspaceMode(
         session.preferences?.workspace_mode,
         session.preferences?.capability,
@@ -2046,6 +2057,11 @@ export function ChatStateAdapterProvider({
             ? subagentConsultBudget
             : null,
         autoRoute: typeof autoRoute === "boolean" ? autoRoute : null,
+        // 知识中心勾选（Phase 1.5）：会话级选择 → runs 的 rag.knowledge_base_ids。
+        // 发送时读会话级缓存（加载时已由会话偏好回填，picker 勾选即时更新）。
+        knowledgeBases: getSessionKnowledgeSelection(
+          session.sessionId ?? "",
+        ),
         attachments: effectiveAttachments,
         language: effectiveLanguage,
         historyReferences: effectiveHistoryReferences,
