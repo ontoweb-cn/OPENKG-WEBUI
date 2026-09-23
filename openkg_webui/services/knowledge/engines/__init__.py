@@ -27,6 +27,18 @@ from .base import (
     KnowledgeEngine,
     UploadItem,
 )
+from .models import (
+    BinaryPayload,
+    DatasetPage,
+    DocumentPage,
+    IngestionLog,
+    KnowledgeDataset,
+    KnowledgeDocument,
+    SearchChunk,
+    SearchResult,
+    StructuredUploadResult,
+    UploadResult,
+)
 from .registry import (
     DEFAULT_ENGINE_ID,
     build_context,
@@ -37,6 +49,7 @@ from .registry import (
 )
 
 __all__ = [
+    "BinaryPayload",
     "CAP_CHAT_BINDING",
     "CAP_DELETE",
     "CAP_LOGS",
@@ -47,12 +60,21 @@ __all__ = [
     "CAP_STRUCTURED_UPLOAD",
     "CAP_UPLOAD",
     "DEFAULT_ENGINE_ID",
+    "DatasetPage",
+    "DocumentPage",
     "ENGINE_INTELLECT_RAG",
     "EngineContext",
+    "IngestionLog",
     "EngineError",
     "EngineErrorKind",
+    "KnowledgeDataset",
+    "KnowledgeDocument",
     "KnowledgeEngine",
+    "SearchChunk",
+    "SearchResult",
+    "StructuredUploadResult",
     "UploadItem",
+    "UploadResult",
     "build_context",
     "build_engine",
     "engine_id_for_dataset",

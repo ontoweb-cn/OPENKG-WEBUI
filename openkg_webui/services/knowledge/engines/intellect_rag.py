@@ -35,6 +35,18 @@ from .base import (
     EngineError,
     EngineErrorKind,
     UploadItem,
+    classify_upstream,
+)
+from .models import (
+    BinaryPayload,
+    DatasetPage,
+    DocumentPage,
+    IngestionLog,
+    KnowledgeDataset,
+    KnowledgeDocument,
+    SearchChunk,
+    SearchResult,
+    UploadResult,
 )
 
 #: 管理面流量：连接 60s / 读流 300s（大文档 preview）。
@@ -88,6 +100,112 @@ class IntellectRagEngine:
             transport=self._transport,
         )
 
+    # -- 助手：信封解包与域转换 -------------------------------------------
+
+    def _raise_for_status(self, resp: httpx.Response, *, allow_404: bool = False) -> None:
+        """HTTP 层错误归一（信封优先于 status，沿 T2 语义）。"""
+        if resp.status_code < 400:
+            return
+        if allow_404 and resp.status_code == 404:
+            raise EngineError(
+                EngineErrorKind.NOT_FOUND,
+                "resource not found",
+                upstream_status=404,
+            )
+        if resp.status_code in (401, 403):
+            raise EngineError(
+                EngineErrorKind.UNAUTHORIZED,
+                f"upstream rejected the request (HTTP {resp.status_code})",
+                upstream_status=resp.status_code,
+            )
+        if resp.status_code == 404:
+            raise EngineError(
+                EngineErrorKind.NOT_FOUND,
+                "resource not found",
+                upstream_status=404,
+            )
+        if resp.status_code < 500:
+            raise EngineError(
+                EngineErrorKind.INVALID,
+                f"upstream rejected the request (HTTP {resp.status_code})",
+                upstream_status=resp.status_code,
+            )
+        raise EngineError(
+            EngineErrorKind.UPSTREAM_ERROR,
+            f"upstream failure (HTTP {resp.status_code})",
+            upstream_status=resp.status_code,
+        )
+
+    def _unwrap(self, resp: httpx.Response, *, allow_404: bool = False) -> Any:
+        """解包 ``{code, data, message}`` 信封 → ``data``；错误转 :class:`EngineError`。
+
+        **信封优先**：HTTP 200 携带 ``code≠0`` 时按 code 分类（现状语义）；
+        HTTP 层异常且信封缺失时按 status（评审 P4 的优先级）。
+        """
+        self._raise_for_status(resp, allow_404=allow_404)
+        try:
+            body = resp.json()
+        except Exception:
+            raise EngineError(
+                EngineErrorKind.UPSTREAM_ERROR,
+                "upstream returned a non-JSON body",
+                upstream_status=resp.status_code,
+            ) from None
+        if not isinstance(body, dict) or "code" not in body:
+            # 无信封（少数端点）：直接返回解析后的 body
+            return body
+        code = body.get("code")
+        message = str(body.get("message") or "")
+        kind = classify_upstream(code if isinstance(code, int) else None, message)
+        if kind is not None:
+            raise EngineError(
+                kind, message or f"upstream error (code {code})", upstream_code=code
+            )
+        return body.get("data")
+
+    @staticmethod
+    def _dataset(raw: Any) -> KnowledgeDataset:
+        row = raw if isinstance(raw, dict) else {}
+        return KnowledgeDataset(
+            id=str(row.get("id") or ""),
+            name=str(row.get("name") or ""),
+            description=str(row.get("description") or ""),
+            permission=str(row.get("permission") or "me"),
+            document_count=int(row.get("document_count") or 0),
+            chunk_count=int(row.get("chunk_count") or 0),
+            token_count=int(row.get("token_count") or 0),
+            created_at=str(row.get("create_time") or ""),
+        )
+
+    @staticmethod
+    def _document(raw: Any) -> KnowledgeDocument:
+        row = raw if isinstance(raw, dict) else {}
+        run = str(row.get("run") or "").upper()
+        if run not in ("UNSTART", "RUNNING", "DONE", "FAIL", "CANCEL"):
+            run = "UNSTART"
+        try:
+            progress = float(row.get("progress") or 0.0)
+        except (TypeError, ValueError):
+            progress = 0.0
+        return KnowledgeDocument(
+            id=str(row.get("id") or ""),
+            name=str(row.get("name") or ""),
+            run=run,  # type: ignore[arg-type]
+            progress=max(0.0, min(100.0, progress)),
+            chunk_count=int(row.get("chunk_count") or 0),
+            token_count=int(row.get("token_count") or 0),
+            size=int(row.get("size") or 0),
+            location=str(row.get("location") or row.get("name") or ""),
+        )
+
+    async def health(self) -> bool:
+        """轻量探测：``GET /datasets`` 是否可达（不抛错，返回布尔）。"""
+        try:
+            await self.list_datasets(page=1, page_size=1)
+            return True
+        except Exception:
+            return False
+
     # -- 管理面 ----------------------------------------------------------
 
     async def request(
@@ -140,6 +258,246 @@ class IntellectRagEngine:
             data["parent_path"] = parent_path
         return await self.request(
             "POST", f"/datasets/{dataset_id}/documents", files=payload, data=data
+        )
+
+    # -- 管理面：类型化方法（T3；路径知识收回 provider 内部）----------------
+
+    async def list_datasets(self, *, page: int = 1, page_size: int = 30) -> DatasetPage:
+        """知识库分页。上游 total 在**信封顶层** ``total_datasets``（评审 P2）。"""
+        resp = await self.request(
+            "GET",
+            "/datasets",
+            params={"page": page, "page_size": page_size},
+        )
+        self._raise_for_status(resp)
+        try:
+            body = resp.json()
+        except Exception:
+            raise EngineError(
+                EngineErrorKind.UPSTREAM_ERROR, "upstream returned a non-JSON body"
+            ) from None
+        if isinstance(body, dict):
+            code = body.get("code")
+            message = str(body.get("message") or "")
+            kind = classify_upstream(code if isinstance(code, int) else None, message)
+            if kind is not None:
+                raise EngineError(
+                    kind, message or f"upstream error (code {code})", upstream_code=code
+                )
+            rows = body.get("data")
+            total = body.get("total_datasets")
+        else:
+            rows, total = body, None
+        datasets = [self._dataset(row) for row in (rows if isinstance(rows, list) else [])]
+        try:
+            total_int = int(total) if total is not None else len(datasets)
+        except (TypeError, ValueError):
+            total_int = len(datasets)
+        return DatasetPage(datasets=datasets, total=total_int)
+
+    async def get_dataset(self, dataset_id: str) -> KnowledgeDataset:
+        resp = await self.request("GET", f"/datasets/{dataset_id}")
+        return self._dataset(self._unwrap(resp))
+
+    async def create_dataset(
+        self,
+        *,
+        name: str,
+        description: str = "",
+        permission: str = "me",
+    ) -> KnowledgeDataset:
+        resp = await self.request(
+            "POST",
+            "/datasets",
+            json={"name": name, "description": description, "permission": permission},
+        )
+        data = self._unwrap(resp)
+        row = data.get("dataset") if isinstance(data, dict) and "dataset" in data else data
+        return self._dataset(row)
+
+    async def delete_dataset(self, dataset_id: str) -> None:
+        resp = await self.request("DELETE", f"/datasets/{dataset_id}")
+        self._unwrap(resp)
+
+    async def list_documents(
+        self, dataset_id: str, *, page: int = 1, page_size: int = 100
+    ) -> DocumentPage:
+        """文档分页（上游 ``data.docs`` + ``data.total``）。"""
+        resp = await self.request(
+            "GET",
+            f"/datasets/{dataset_id}/documents",
+            params={"page": page, "page_size": page_size},
+        )
+        data = self._unwrap(resp)
+        inner = data if isinstance(data, dict) else {}
+        rows = inner.get("docs") if isinstance(inner.get("docs"), list) else []
+        try:
+            total = int(inner.get("total") or len(rows))
+        except (TypeError, ValueError):
+            total = len(rows)
+        return DocumentPage(documents=[self._document(r) for r in rows], total=total)
+
+    async def get_document(self, dataset_id: str, document_id: str) -> KnowledgeDocument:
+        resp = await self.request(
+            "GET", f"/datasets/{dataset_id}/documents/{document_id}"
+        )
+        return self._document(self._unwrap(resp))
+
+    async def upload(
+        self,
+        dataset_id: str,
+        items: list[UploadItem],
+        *,
+        parent_path: str = "",
+        upload_type: str = "local",
+    ) -> UploadResult:  # type: ignore[override]
+        """上传一组文件；返回域形状结果。
+
+        **流式契约（决策 D4）**：``UploadItem.content`` 为 ``bytes | BinaryIO``——
+        直传路径传 file-like，httpx 分块读取（不 buffer）；结构化上传按设计传
+        bytes（zip 解包必然如此）。
+        """
+        payload = [
+            ("file", (item.name, item.content, item.content_type)) for item in items
+        ]
+        data: dict[str, Any] = {"type": upload_type}
+        if parent_path:
+            data["parent_path"] = parent_path
+        resp = await self.request(
+            "POST", f"/datasets/{dataset_id}/documents", files=payload, data=data
+        )
+        raw = self._unwrap(resp)
+        rows = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
+        documents = [self._document(r) for r in rows if isinstance(r, dict) and r.get("id")]
+        return UploadResult(uploaded=len(documents), documents=documents)
+
+    async def delete_documents(self, dataset_id: str, document_ids: list[str]) -> None:
+        resp = await self.request(
+            "DELETE",
+            f"/datasets/{dataset_id}/documents",
+            json={"ids": list(document_ids)},
+        )
+        self._unwrap(resp)
+
+    async def parse_documents(self, dataset_id: str, document_ids: list[str]) -> None:
+        resp = await self.request(
+            "POST",
+            f"/datasets/{dataset_id}/documents/parse",
+            json={"document_ids": list(document_ids)},
+        )
+        self._unwrap(resp)
+
+    async def stop_parsing(self, dataset_id: str, document_ids: list[str]) -> None:
+        resp = await self.request(
+            "POST",
+            f"/datasets/{dataset_id}/documents/stop",
+            json={"document_ids": list(document_ids)},
+        )
+        self._unwrap(resp)
+
+    async def search(
+        self,
+        dataset_id: str,
+        question: str,
+        *,
+        top_k: int = 1024,
+        similarity_threshold: float = 0.2,
+        vector_similarity_weight: float = 0.3,
+        page: int = 1,
+        size: int = 30,
+        **options: Any,
+    ) -> SearchResult:
+        """单库检索（含上游数据级权限信号 ``denied_dataset_ids``）。"""
+        body: dict[str, Any] = {
+            "question": question,
+            "page": page,
+            "size": size,
+            "top_k": top_k,
+            "similarity_threshold": similarity_threshold,
+            "vector_similarity_weight": vector_similarity_weight,
+            **options,
+        }
+        resp = await self.request(
+            "POST", f"/datasets/{dataset_id}/search", json=body
+        )
+        data = self._unwrap(resp)
+        inner = data if isinstance(data, dict) else {}
+        rows = inner.get("chunks") if isinstance(inner.get("chunks"), list) else []
+        chunks: list[SearchChunk] = []
+        for raw in rows:
+            row = raw if isinstance(raw, dict) else {}
+            try:
+                similarity = float(row.get("similarity") or 0.0)
+            except (TypeError, ValueError):
+                similarity = 0.0
+            chunks.append(
+                SearchChunk(
+                    # 上游实际字段名（运行时验收 R-6）：chunk_id/content_with_weight/docnm_kwd
+                    id=str(row.get("chunk_id") or row.get("id") or ""),
+                    content=str(row.get("content_with_weight") or row.get("content") or ""),
+                    similarity=similarity,
+                    document_name=str(row.get("docnm_kwd") or row.get("document_name") or ""),
+                )
+            )
+        denied = inner.get("denied_dataset_ids")
+        try:
+            total = int(inner.get("total") or len(chunks))
+        except (TypeError, ValueError):
+            total = len(chunks)
+        return SearchResult(
+            chunks=chunks,
+            total=total,
+            denied_dataset_ids=[str(x) for x in denied] if isinstance(denied, list) else [],
+        )
+
+    async def list_ingestions(
+        self, dataset_id: str, *, log_type: str = "file", page: int = 1, page_size: int = 5
+    ) -> list[IngestionLog]:
+        resp = await self.request(
+            "GET",
+            f"/datasets/{dataset_id}/ingestions",
+            params={"log_type": log_type, "page": page, "page_size": page_size},
+        )
+        data = self._unwrap(resp)
+        inner = data if isinstance(data, dict) else {}
+        rows = inner.get("logs") if isinstance(inner.get("logs"), list) else []
+        return [self._ingestion_log(r) for r in rows]
+
+    async def get_ingestion(self, dataset_id: str, log_id: str) -> IngestionLog:
+        resp = await self.request("GET", f"/datasets/{dataset_id}/ingestions/{log_id}")
+        return self._ingestion_log(self._unwrap(resp))
+
+    @staticmethod
+    def _ingestion_log(raw: Any) -> IngestionLog:
+        row = raw if isinstance(raw, dict) else {}
+        try:
+            progress = float(row.get("progress") or 0.0)
+        except (TypeError, ValueError):
+            progress = 0.0
+        return IngestionLog(
+            id=str(row.get("id") or ""),
+            progress=progress,
+            message=str(row.get("progress_msg") or ""),
+            status=str(row.get("operation_status") or ""),
+            document_name=str(row.get("document_name") or ""),
+        )
+
+    async def preview_document(self, document_id: str) -> BinaryPayload:
+        resp = await self.request("GET", f"/documents/{document_id}/preview")
+        self._raise_for_status(resp)
+        return BinaryPayload(
+            content=resp.content,
+            media_type=resp.headers.get("content-type", "application/octet-stream"),
+        )
+
+    async def thumbnail(self, document_id: str) -> BinaryPayload:
+        resp = await self.request(
+            "GET", "/thumbnails", params={"doc_id": document_id}
+        )
+        self._raise_for_status(resp)
+        return BinaryPayload(
+            content=resp.content,
+            media_type=resp.headers.get("content-type", "application/octet-stream"),
         )
 
     # -- 聊天面（P1-1：本引擎的 runs ``rag`` 块，intellect-team 网关契约）--

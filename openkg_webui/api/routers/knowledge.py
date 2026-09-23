@@ -32,6 +32,16 @@ from openkg_webui.services.knowledge import (
     get_knowledge_settings,
     knowledge_enabled,
 )
+from openkg_webui.services.knowledge.engines.models import (
+    DatasetPage,
+    DocumentPage,
+    IngestionLog,
+    KnowledgeDataset,
+    KnowledgeDocument,
+    SearchResult,
+    StructuredUploadResult,
+    UploadResult,
+)
 
 router = APIRouter()
 
@@ -84,12 +94,33 @@ def _require_same_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Cross-site request refused.")
 
 
-def _service_error(exc: Exception) -> HTTPException:
-    """设置/身份层错误 → 409（带机器可读 code 供设置页引导）；其余 502。"""
+def _http_error(exc: Exception) -> HTTPException:
+    """统一错误 → HTTP 映射（T3 方案 §三，按评审修订版）。
+
+    配置/身份层错误保持 409（设置页引导语义，1a 既有约定）；引擎错误按
+    :class:`EngineError.kind` 映射 403/404/400/502。上游 message 原文随
+    detail 透出供 UI 展示。
+    """
+    from openkg_webui.services.knowledge.engines import EngineError, EngineErrorKind
+
     if isinstance(exc, KnowledgeNotConfigured):
         return HTTPException(status_code=409, detail=f"knowledge_not_configured: {exc}")
     if isinstance(exc, KnowledgeIdentityUnavailable):
-        return HTTPException(status_code=409, detail=f"knowledge_identity_unavailable: {exc}")
+        return HTTPException(
+            status_code=409, detail=f"knowledge_identity_unavailable: {exc}"
+        )
+    if isinstance(exc, EngineError):
+        mapping = {
+            EngineErrorKind.UNAUTHORIZED: 403,
+            EngineErrorKind.NOT_FOUND: 404,
+            EngineErrorKind.INVALID: 400,
+            EngineErrorKind.UNREACHABLE: 502,
+            EngineErrorKind.UPSTREAM_ERROR: 502,
+        }
+        status_code = mapping.get(exc.kind, 502)
+        return HTTPException(
+            status_code=status_code, detail=f"knowledge_{exc.kind}: {exc}"
+        )
     return HTTPException(status_code=502, detail=f"knowledge_upstream_error: {exc}")
 
 
@@ -106,54 +137,19 @@ def _engine_for(dataset_id: str | None = None) -> Any:
     return build_engine(engine_id_for_dataset(dataset_id), ctx=ctx, transport=_transport)
 
 
-async def _upstream(
-    method: str,
-    path: str,
-    *,
-    json: Any = None,
-    params: dict[str, Any] | None = None,
-    files: list[tuple[str, Any]] | None = None,
-    data: dict[str, Any] | None = None,
-    dataset_id: str | None = None,
-) -> Response:
-    """经引擎执行一次带身份的请求并原样透传响应（含信封与业务状态码）。
+async def _engine_call(op: Any, *, dataset_id: str | None = None) -> Any:
+    """执行一次引擎调用并把异常归一为 HTTP（T3：路由只做门控与映射）。
 
-    T2 语义与重构前一致：信封、业务状态码、错误归一均不变；差异在于调用
-    改经 provider（多引擎路由的地基，评审 D1 分阶段策略）。``dataset_id``
-    用于解析该库所属引擎；管理面未提供时回落默认引擎。
+    ``op`` 是接收 provider 的协程函数：
+    ``await _engine_call(lambda e: e.list_documents(ds), dataset_id=ds)``
     """
     from openkg_webui.services.knowledge.engines import EngineError
 
-    # 路由层已能识别的库 id（路径参数）优先，供未来多引擎分流。
-    engine = _engine_for(dataset_id or _dataset_id_from_path(path))
+    engine = _engine_for(dataset_id)
     try:
-        upstream = await engine.request(
-            method,
-            path,
-            json=json,
-            params=params,
-            files=files,
-            data=data,
-        )
-    except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
-        raise _service_error(exc) from exc
-    except EngineError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"knowledge_upstream_error: {exc}"
-        ) from exc
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        media_type=upstream.headers.get("content-type", "application/json"),
-    )
-
-
-def _dataset_id_from_path(path: str) -> str | None:
-    """从 ``/datasets/<id>/...`` 形态的路径中提取库 id（供引擎路由）。"""
-    parts = [p for p in str(path or "").split("/") if p]
-    if len(parts) >= 2 and parts[0] == "datasets":
-        return parts[1]
-    return None
+        return await op(engine)
+    except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable, EngineError) as exc:
+        raise _http_error(exc) from exc
 
 
 async def _json_body(request: Request) -> Any:
@@ -219,30 +215,64 @@ async def knowledge_put_preferences(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/datasets")
-async def knowledge_list_datasets(request: Request) -> Response:
+@router.get("/datasets", response_model=DatasetPage)
+async def knowledge_list_datasets(
+    request: Request, page: int = 1, page_size: int = 30
+) -> Any:
     _require_enabled()
-    return await _upstream("GET", "/datasets", params=dict(request.query_params))
+    q = request.query_params
+    return await _engine_call(
+        lambda e: e.list_datasets(
+            page=int(q.get("page") or page),
+            page_size=int(q.get("page_size") or page_size),
+        )
+    )
 
 
-@router.post("/datasets")
-async def knowledge_create_dataset(request: Request) -> Response:
+@router.post("/datasets", response_model=KnowledgeDataset)
+async def knowledge_create_dataset(request: Request) -> Any:
     _require_enabled()
     _require_same_origin(request)
-    return await _upstream("POST", "/datasets", json=await _json_body(request))
+    body = await _json_body(request)
+    payload = body if isinstance(body, dict) else {}
+
+    async def _create(engine: Any) -> Any:
+        dataset = await engine.create_dataset(
+            name=str(payload.get("name") or ""),
+            description=str(payload.get("description") or ""),
+            permission=str(payload.get("permission") or "me"),
+        )
+        # 引擎 pin（T1/T2 遗留）：多引擎路由的地基；单引擎下行为中性
+        from openkg_webui.services.knowledge.engines import pin_dataset_engine
+
+        if getattr(dataset, "id", ""):
+            pin_dataset_engine(dataset.id, engine.engine_id)
+        return dataset
+
+    return await _engine_call(_create)
 
 
-@router.get("/datasets/{dataset_id}")
-async def knowledge_get_dataset(dataset_id: str) -> Response:
+@router.get("/datasets/{dataset_id}", response_model=KnowledgeDataset)
+async def knowledge_get_dataset(dataset_id: str) -> Any:
     _require_enabled()
-    return await _upstream("GET", f"/datasets/{dataset_id}")
+    return await _engine_call(
+        lambda e: e.get_dataset(dataset_id), dataset_id=dataset_id
+    )
 
 
 @router.delete("/datasets/{dataset_id}")
-async def knowledge_delete_dataset(dataset_id: str, request: Request) -> Response:
+async def knowledge_delete_dataset(dataset_id: str, request: Request) -> Any:
     _require_enabled()
     _require_same_origin(request)
-    return await _upstream("DELETE", f"/datasets/{dataset_id}")
+
+    async def _delete(engine: Any) -> dict[str, Any]:
+        await engine.delete_dataset(dataset_id)
+        from openkg_webui.services.knowledge.engines import unpin_dataset_engine
+
+        unpin_dataset_engine(dataset_id)
+        return {"deleted": True, "dataset_id": dataset_id}
+
+    return await _engine_call(_delete, dataset_id=dataset_id)
 
 
 # ---------------------------------------------------------------------------
@@ -250,15 +280,21 @@ async def knowledge_delete_dataset(dataset_id: str, request: Request) -> Respons
 # ---------------------------------------------------------------------------
 
 
-@router.get("/datasets/{dataset_id}/documents")
-async def knowledge_list_documents(dataset_id: str, request: Request) -> Response:
+@router.get("/datasets/{dataset_id}/documents", response_model=DocumentPage)
+async def knowledge_list_documents(dataset_id: str, request: Request) -> Any:
     _require_enabled()
-    return await _upstream(
-        "GET", f"/datasets/{dataset_id}/documents", params=dict(request.query_params)
+    q = request.query_params
+    return await _engine_call(
+        lambda e: e.list_documents(
+            dataset_id,
+            page=int(q.get("page") or 1),
+            page_size=int(q.get("page_size") or 100),
+        ),
+        dataset_id=dataset_id,
     )
 
 
-@router.post("/datasets/{dataset_id}/documents")
+@router.post("/datasets/{dataset_id}/documents", response_model=UploadResult)
 async def knowledge_upload_documents(
     dataset_id: str,
     request: Request,
@@ -272,15 +308,26 @@ async def knowledge_upload_documents(
     httpx 在异步上下文中经线程池分块读取，不会整体载入内存（风险注记见任务清单 §七）。"""
     _require_enabled()
     _require_same_origin(request)
-    payload = [
-        ("file", (f.filename or "file", f.file, f.content_type or "application/octet-stream"))
+    # D4 流式契约：直传路径传 **file-like**（SpooledTemporaryFile），由 httpx
+    # 分块读取——不得读入内存（1a 显式设计，任务清单 §七风险注记）。
+    from openkg_webui.services.knowledge.engines import UploadItem
+
+    items = [
+        UploadItem(
+            name=f.filename or "file",
+            content=f.file,  # type: ignore[arg-type]
+            content_type=f.content_type or "application/octet-stream",
+        )
         for f in file
     ]
-    data: dict[str, Any] = {"type": type_ or "local"}
-    if parent_path:
-        data["parent_path"] = parent_path
-    return await _upstream(
-        "POST", f"/datasets/{dataset_id}/documents", files=payload, data=data
+    return await _engine_call(
+        lambda e: e.upload(
+            dataset_id,
+            items,
+            parent_path=parent_path or "",
+            upload_type=type_ or "local",
+        ),
+        dataset_id=dataset_id,
     )
 
 
@@ -354,7 +401,10 @@ def _group_by_dir(entries: list[tuple[str, ...]]) -> dict[str, list[tuple[str, .
     return groups
 
 
-@router.post("/datasets/{dataset_id}/documents/structured")
+@router.post(
+    "/datasets/{dataset_id}/documents/structured",
+    response_model=list[StructuredUploadResult],
+)
 async def knowledge_upload_structured(
     dataset_id: str,
     request: Request,
@@ -413,28 +463,36 @@ async def knowledge_upload_structured(
             status_code=413,
             detail=f"too many directories ({len(groups)} > {_ZIP_MAX_DIRS})",
         )
-    results: list[dict[str, Any]] = []
+    # T3：聚合为域形状（取代 {directory, status, upstream} 的信封嵌套）。
+    # 逐目录容错（评审 P1 同一原则）：单目录失败不中断其余目录。
+    from openkg_webui.services.knowledge.engines import (
+        EngineError,
+        StructuredUploadResult,
+        UploadItem,
+    )
+
+    engine = _engine_for(dataset_id)
+    results: list[StructuredUploadResult] = []
     for directory, items in sorted(groups.items()):
-        files_payload = [
-            ("file", (posixpath.basename(name), content, ctype))
+        payload_items = [
+            UploadItem(
+                name=posixpath.basename(name), content=content, content_type=ctype
+            )
             for name, content, ctype in items
         ]
-        upstream = await _upstream(
-            "POST",
-            f"/datasets/{dataset_id}/documents",
-            files=files_payload,
-            data={"type": type_ or "local", "parent_path": directory or ""},
-        )
         try:
-            body = json.loads(upstream.body)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            body = {"raw": upstream.body.decode("utf-8", "replace")[:400]}
-        results.append({"directory": directory, "status": upstream.status_code, "upstream": body})
-    return Response(
-        content=json.dumps(results, ensure_ascii=False),
-        status_code=200,
-        media_type="application/json",
-    )
+            uploaded = await engine.upload(
+                dataset_id,
+                payload_items,
+                parent_path=directory or "",
+                upload_type=type_ or "local",
+            )
+            results.append(
+                StructuredUploadResult(directory=directory, uploaded=uploaded.uploaded)
+            )
+        except (EngineError, KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
+            results.append(StructuredUploadResult(directory=directory, error=str(exc)))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +672,7 @@ async def knowledge_sync_github_source(dataset_id: str, request: Request) -> dic
         # 预校验：配置/身份不可用时立刻 409（而不是任务里静默失败）
         _engine_for(dataset_id)._connection()
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
-        raise _service_error(exc) from exc
+        raise _http_error(exc) from exc
     store.set_status(user_id, dataset_id, "running")
     asyncio.create_task(_run_github_sync(user_id, dataset_id))
     return {"started": True}
@@ -785,7 +843,7 @@ async def knowledge_sync_web_source(dataset_id: str, request: Request) -> dict[s
     try:
         _engine_for(dataset_id)._connection()
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
-        raise _service_error(exc) from exc
+        raise _http_error(exc) from exc
     store.set_status(user_id, dataset_id, "running")
     asyncio.create_task(_run_web_sync(user_id, dataset_id))
     return {"started": True}
@@ -812,8 +870,7 @@ async def knowledge_stream_logs(
     try:
         engine._connection()  # 提前校验配置：未配置时以 409 拒绝而非静默空流
     except (KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
-        raise _service_error(exc) from exc
-    params = {"log_type": "file", "page": 1, "page_size": 5}
+        raise _http_error(exc) from exc
     max_ticks = max(1, min(max_ticks, 300))  # 生产上限 10 分钟；测试可调小
 
     from fastapi.responses import StreamingResponse
@@ -826,21 +883,18 @@ async def knowledge_stream_logs(
             if await request.is_disconnected():
                 return
             try:
-                resp = await engine.request(
-                    "GET",
-                    f"/datasets/{dataset_id}/ingestions",
-                    params=params,
+                # T3（D6）：日志条目域化——上游 progress_msg/operation_status
+                # 的映射在 provider 内完成，流内只出现域形状。
+                entries = await engine.list_ingestions(
+                    dataset_id, log_type="file", page=1, page_size=5
                 )
-                if resp.status_code == 200:
-                    logs = (resp.json().get("data") or {}).get("logs") or []
-                    signature = json.dumps(logs, ensure_ascii=False, sort_keys=True)
-                    if signature != last_signature:
-                        last_signature = signature
-                        yield f"data: {json.dumps({'logs': logs}, ensure_ascii=False)}\n\n"
-                    else:
-                        yield ": keepalive\n\n"
+                logs = [entry.model_dump() for entry in entries]
+                signature = json.dumps(logs, ensure_ascii=False, sort_keys=True)
+                if signature != last_signature:
+                    last_signature = signature
+                    yield f"data: {json.dumps({'logs': logs}, ensure_ascii=False)}\n\n"
                 else:
-                    yield f": upstream {resp.status_code}\n\n"
+                    yield ": keepalive\n\n"
             except (EngineError, asyncio.CancelledError):
                 return
             await asyncio.sleep(2.0)
@@ -853,36 +907,44 @@ async def knowledge_stream_logs(
 
 
 @router.delete("/datasets/{dataset_id}/documents")
-async def knowledge_delete_documents(dataset_id: str, request: Request) -> Response:
+async def knowledge_delete_documents(dataset_id: str, request: Request) -> Any:
     _require_enabled()
     _require_same_origin(request)
-    return await _upstream(
-        "DELETE", f"/datasets/{dataset_id}/documents", json=await _json_body(request)
+    body = await _json_body(request)
+    ids = [str(x) for x in ((body or {}).get("ids") or [])]
+    return await _engine_call(
+        lambda e: e.delete_documents(dataset_id, ids), dataset_id=dataset_id
     )
 
 
 @router.post("/datasets/{dataset_id}/documents/parse")
-async def knowledge_parse_documents(dataset_id: str, request: Request) -> Response:
+async def knowledge_parse_documents(dataset_id: str, request: Request) -> Any:
     _require_enabled()
     _require_same_origin(request)
-    return await _upstream(
-        "POST", f"/datasets/{dataset_id}/documents/parse", json=await _json_body(request)
+    body = await _json_body(request)
+    ids = [str(x) for x in ((body or {}).get("document_ids") or [])]
+    return await _engine_call(
+        lambda e: e.parse_documents(dataset_id, ids), dataset_id=dataset_id
     )
 
 
 @router.post("/datasets/{dataset_id}/documents/stop")
-async def knowledge_stop_documents(dataset_id: str, request: Request) -> Response:
+async def knowledge_stop_documents(dataset_id: str, request: Request) -> Any:
     _require_enabled()
     _require_same_origin(request)
-    return await _upstream(
-        "POST", f"/datasets/{dataset_id}/documents/stop", json=await _json_body(request)
+    body = await _json_body(request)
+    ids = [str(x) for x in ((body or {}).get("document_ids") or [])]
+    return await _engine_call(
+        lambda e: e.stop_parsing(dataset_id, ids), dataset_id=dataset_id
     )
 
 
-@router.get("/datasets/{dataset_id}/documents/{document_id}")
-async def knowledge_get_document(dataset_id: str, document_id: str) -> Response:
+@router.get("/datasets/{dataset_id}/documents/{document_id}", response_model=KnowledgeDocument)
+async def knowledge_get_document(dataset_id: str, document_id: str) -> Any:
     _require_enabled()
-    return await _upstream("GET", f"/datasets/{dataset_id}/documents/{document_id}")
+    return await _engine_call(
+        lambda e: e.get_document(dataset_id, document_id), dataset_id=dataset_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -890,35 +952,60 @@ async def knowledge_get_document(dataset_id: str, document_id: str) -> Response:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/datasets/{dataset_id}/ingestions")
-async def knowledge_list_ingestions(dataset_id: str, request: Request) -> Response:
+@router.get("/datasets/{dataset_id}/ingestions", response_model=list[IngestionLog])
+async def knowledge_list_ingestions(dataset_id: str, request: Request) -> Any:
     _require_enabled()
-    return await _upstream(
-        "GET", f"/datasets/{dataset_id}/ingestions", params=dict(request.query_params)
+    q = request.query_params
+    return await _engine_call(
+        lambda e: e.list_ingestions(
+            dataset_id,
+            log_type=str(q.get("log_type") or "file"),
+            page=int(q.get("page") or 1),
+            page_size=int(q.get("page_size") or 5),
+        ),
+        dataset_id=dataset_id,
     )
 
 
-@router.get("/datasets/{dataset_id}/ingestions/{log_id}")
-async def knowledge_get_ingestion(dataset_id: str, log_id: str) -> Response:
+@router.get("/datasets/{dataset_id}/ingestions/{log_id}", response_model=IngestionLog)
+async def knowledge_get_ingestion(dataset_id: str, log_id: str) -> Any:
     _require_enabled()
-    return await _upstream("GET", f"/datasets/{dataset_id}/ingestions/{log_id}")
+    return await _engine_call(
+        lambda e: e.get_ingestion(dataset_id, log_id), dataset_id=dataset_id
+    )
 
 
-@router.post("/datasets/{dataset_id}/search")
-async def knowledge_search_dataset(dataset_id: str, request: Request) -> Response:
+@router.post("/datasets/{dataset_id}/search", response_model=SearchResult)
+async def knowledge_search_dataset(dataset_id: str, request: Request) -> Any:
     _require_enabled()
-    return await _upstream(
-        "POST", f"/datasets/{dataset_id}/search", json=await _json_body(request)
+    body = await _json_body(request)
+    payload = body if isinstance(body, dict) else {}
+    return await _engine_call(
+        lambda e: e.search(
+            dataset_id,
+            str(payload.get("question") or ""),
+            top_k=int(payload.get("top_k") or 1024),
+            similarity_threshold=float(payload.get("similarity_threshold") or 0.2),
+            vector_similarity_weight=float(
+                payload.get("vector_similarity_weight") or 0.3
+            ),
+            page=int(payload.get("page") or 1),
+            size=int(payload.get("size") or 30),
+        ),
+        dataset_id=dataset_id,
     )
 
 
 @router.get("/documents/{document_id}/preview")
 async def knowledge_preview_document(document_id: str) -> Response:
     _require_enabled()
-    return await _upstream("GET", f"/documents/{document_id}/preview")
+    payload = await _engine_call(lambda e: e.preview_document(document_id))
+    return Response(content=payload.content, media_type=payload.media_type)
 
 
 @router.get("/thumbnails")
 async def knowledge_thumbnail(request: Request) -> Response:
     _require_enabled()
-    return await _upstream("GET", "/thumbnails", params=dict(request.query_params))
+    doc_id = str(request.query_params.get("doc_id") or "")
+    payload = await _engine_call(lambda e: e.thumbnail(doc_id))
+    return Response(content=payload.content, media_type=payload.media_type)

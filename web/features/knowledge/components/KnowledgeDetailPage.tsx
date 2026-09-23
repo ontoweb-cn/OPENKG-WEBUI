@@ -77,9 +77,10 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         };
         const lines = (payload.logs ?? [])
           .map((log) => {
+            // T3（D6）：SSE 帧为域形状——message 即上游 progress_msg 的归一
             const docName = typeof log.document_name === "string" ? log.document_name : "";
             const progress = typeof log.progress === "number" ? Math.floor(log.progress) : 0;
-            const message = typeof log.progress_msg === "string" ? log.progress_msg : "";
+            const message = typeof log.message === "string" ? log.message : "";
             const tail = message.split("\n").pop() ?? "";
             return `[${progress}%] ${docName}: ${tail}`;
           })

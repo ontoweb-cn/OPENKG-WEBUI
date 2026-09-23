@@ -41,18 +41,81 @@ CAP_MCP_BINDING = "mcp_binding"          # 提供会话 MCP 注入
 
 
 class EngineErrorKind:
-    """``EngineError`` 的分类（路由层据此映射 HTTP 状态，评审 P3 的错误模型）。"""
+    """``EngineError`` 的分类（路由层据此映射 HTTP 状态）。
 
-    UNREACHABLE = "unreachable"              # 传输层失败 → 502
-    UPSTREAM_ERROR = "upstream_error"        # 其他上游异常 → 502
+    映射表（T3 方案 §三，按评审修订版）：
+        unreachable    → 502   传输失败/超时
+        upstream_error → 502   上游 5xx / 未归类失败
+        unauthorized   → 403   认证/权限被拒（含 RetCode 108/109）
+        not_found      → 404   资源不存在
+        invalid        → 400   参数/请求错误（含 RetCode 101）
+    """
+
+    UNREACHABLE = "unreachable"
+    UPSTREAM_ERROR = "upstream_error"
+    UNAUTHORIZED = "unauthorized"
+    NOT_FOUND = "not_found"
+    INVALID = "invalid"
+
+
+#: 上游 RetCode（common/constants.py）中承载语义的取值。
+UPSTREAM_SUCCESS = 0
+UPSTREAM_EXCEPTION = 100
+UPSTREAM_ARGUMENT_ERROR = 101
+UPSTREAM_DATA_ERROR = 102  # 重载码：权限/存在性/参数三类语义共用
+UPSTREAM_CONNECTION_ERROR = 105
+UPSTREAM_PERMISSION_ERROR = 108
+UPSTREAM_AUTHENTICATION_ERROR = 109
+
+
+def classify_upstream(code: int | None, message: str = "") -> str | None:
+    """把上游信号归类为 :class:`EngineErrorKind`；``None`` = 无错误。
+
+    102 是重载码（实测：``"No authorization"`` / ``"lacks permission"`` 与
+    ``"Document not found"`` / ``"Invalid filename"`` 同走该码），因此必须按
+    message 关键词细分——否则权限拒绝会被误报为"不存在"（评审 P1）。
+    """
+    if code in (None, UPSTREAM_SUCCESS):
+        return None
+    text = (message or "").lower()
+    if code in (UPSTREAM_PERMISSION_ERROR, UPSTREAM_AUTHENTICATION_ERROR):
+        return EngineErrorKind.UNAUTHORIZED
+    if code in (UPSTREAM_ARGUMENT_ERROR,):
+        return EngineErrorKind.INVALID
+    if code in (UPSTREAM_EXCEPTION, UPSTREAM_CONNECTION_ERROR):
+        return (
+            EngineErrorKind.UNREACHABLE
+            if code == UPSTREAM_CONNECTION_ERROR
+            else EngineErrorKind.UPSTREAM_ERROR
+        )
+    if code == UPSTREAM_DATA_ERROR:
+        if "not found" in text or "not exist" in text or "no such" in text:
+            return EngineErrorKind.NOT_FOUND
+        if "permission" in text or "no authorization" in text or "unauthorized" in text:
+            return EngineErrorKind.UNAUTHORIZED
+        return EngineErrorKind.INVALID
+    return EngineErrorKind.UPSTREAM_ERROR
 
 
 class EngineError(RuntimeError):
-    """引擎调用失败；``kind`` 供路由层做 HTTP 映射。"""
+    """引擎调用失败。
 
-    def __init__(self, kind: str, message: str) -> None:
+    携带上游原始信号（评审 P4）供路由层映射与日志归因：
+    ``upstream_code`` = 信封 code，``upstream_status`` = HTTP 状态码。
+    """
+
+    def __init__(
+        self,
+        kind: str,
+        message: str,
+        *,
+        upstream_code: int | None = None,
+        upstream_status: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
+        self.upstream_code = upstream_code
+        self.upstream_status = upstream_status
 
 
 @dataclass

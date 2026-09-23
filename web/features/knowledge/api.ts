@@ -2,13 +2,17 @@
  * 知识中心 transport（docs/knowledge-center-port-design.md §三；Phase 1a T5）。
  *
  * 一律走 requestJson/apiFetch（cookie 鉴权、401 跳转、ApiError 归一），错误
- * scope 归入 "knowledge"；URL 保持 app 相对路径（/api/knowledge 薄代理），
- * 由 apiFetch 层统一处理子路径部署。上游 `{code, data, message}` 信封在
- * unwrapEnvelope 解包；上传用 FormData（apiFetch 不覆写 Content-Type，
- * fetch 自动带 boundary）。
+ * scope 归入 "knowledge"；URL 保持 app 相对路径（/api/knowledge-center 代理），
+ * 由 apiFetch 层统一处理子路径部署。
+ *
+ * Phase 3 T3：后端出站为**域形状**（信封在 provider 内解包、错误映射为 HTTP
+ * 状态码），因此本层不再有 unwrapEnvelope / KnowledgeApiError——上游错误直接
+ * 表现为 ApiError（status + detail）。上传用 FormData（apiFetch 不覆写
+ * Content-Type，fetch 自动带 boundary）。
  */
 
 import { requestJson } from "@/shared/api/client";
+import { ApiError } from "@/shared/api/errors";
 
 import {
   parseIngestionLogs,
@@ -21,41 +25,12 @@ import {
   type KnowledgeSearchChunk,
 } from "./model";
 
-class KnowledgeApiError extends Error {
-  readonly code: number;
-  constructor(code: number, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-/** rag-app 信封：code=0 成功；否则按业务错误抛出（message 来自上游）。 */
-function unwrapEnvelope<T>(payload: unknown): T {
-  if (payload && typeof payload === "object" && "code" in (payload as Record<string, unknown>)) {
-    const envelope = payload as { code?: unknown; data?: unknown; message?: unknown };
-    const code = typeof envelope.code === "number" ? envelope.code : 0;
-    if (code !== 0) {
-      throw new KnowledgeApiError(
-        code,
-        typeof envelope.message === "string" && envelope.message
-          ? envelope.message
-          : `Upstream error (code ${code})`,
-      );
-    }
-    return envelope.data as T;
-  }
-  return payload as T;
-}
-
+/** 统一带上 knowledge 错误 scope 的薄封装（T3：不再解信封）。 */
 async function requestKnowledge<T>(
   path: string,
   init: Parameters<typeof requestJson>[1] = {},
 ): Promise<T> {
-  const payload = await requestJson<unknown>(path, {
-    ...init,
-    scope: "knowledge",
-  });
-  return unwrapEnvelope<T>(payload);
+  return requestJson<T>(path, { ...init, scope: "knowledge" });
 }
 
 // —— 状态 ——
@@ -79,7 +54,7 @@ export async function fetchDatasets(signal?: AbortSignal): Promise<KnowledgeData
     cache: "no-store",
     signal,
   });
-  return parseKnowledgeDatasets({ data });
+  return parseKnowledgeDatasets(data);
 }
 
 export async function createDataset(body: {
@@ -95,7 +70,7 @@ export async function createDataset(body: {
   const row = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   // 上游 create 返回单行（可能包 collection 形状），宽松取 id/name
   const inner = (row.dataset ?? row) as Record<string, unknown>;
-  return parseKnowledgeDatasets({ data: [inner] })[0] ?? null;
+  return parseKnowledgeDatasets({ datasets: [inner] })[0] ?? null;
 }
 
 export async function deleteDataset(datasetId: string): Promise<void> {
@@ -111,7 +86,7 @@ export async function fetchDataset(datasetId: string): Promise<KnowledgeDataset 
   );
   const row = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
   const inner = (row.dataset ?? row) as Record<string, unknown>;
-  return parseKnowledgeDatasets({ data: [inner] })[0] ?? null;
+  return parseKnowledgeDatasets({ datasets: [inner] })[0] ?? null;
 }
 
 // —— 文档 ——
@@ -124,7 +99,7 @@ export async function fetchDocuments(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents?page=1&page_size=100`,
     { cache: "no-store", signal },
   );
-  return parseKnowledgeDocuments({ data });
+  return parseKnowledgeDocuments(data);
 }
 
 export async function uploadDocuments(
@@ -135,11 +110,10 @@ export async function uploadDocuments(
   // 上游 document_api 读 files.getlist("file")——字段名单数（评审 R-1）
   for (const file of files) form.append("file", file, file.name);
   form.append("type", "local");
-  const payload = await requestJson<unknown>(
+  await requestJson<unknown>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents`,
     { method: "POST", body: form, scope: "knowledge" },
   );
-  unwrapEnvelope(payload);
 }
 
 export async function deleteDocuments(
@@ -211,8 +185,6 @@ export async function searchDataset(
   return parseSearchChunks(payload);
 }
 
-export { KnowledgeApiError };
-
 // —— Phase 2：结构化上传 / SSE 日志流 / GitHub 源 ——
 
 export interface StructuredEntry {
@@ -234,11 +206,10 @@ export async function uploadStructured(
   }
   form.append("rel_paths", JSON.stringify(relPaths));
   form.append("type", "local");
-  const payload = await requestJson<unknown>(
+  await requestJson<unknown>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/structured`,
     { method: "POST", body: form, scope: "knowledge" },
   );
-  unwrapEnvelope(payload);
 }
 
 /** 解析日志 SSE 流地址（EventSource 同源带 cookie）。 */
@@ -263,9 +234,10 @@ export async function fetchGithubSource(
       `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github`,
       { cache: "no-store", scope: "knowledge" },
     );
-    return unwrapEnvelope(payload) ?? null;
+    return payload ?? null;
   } catch (error) {
-    if (error instanceof KnowledgeApiError && error.code === 404) return null;
+    // T3：404 由后端映射为 HTTP 状态（不再靠信封 code）
+    if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
 }
@@ -278,7 +250,7 @@ export async function saveGithubSource(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github`,
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), scope: "knowledge" },
   );
-  return unwrapEnvelope(payload) as GithubSource;
+  return payload as GithubSource;
 }
 
 export async function deleteGithubSource(datasetId: string): Promise<void> {
@@ -293,7 +265,7 @@ export async function syncGithubSource(datasetId: string): Promise<{ started: bo
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/github/sync`,
     { method: "POST", scope: "knowledge" },
   );
-  return unwrapEnvelope(payload) as { started: boolean };
+  return payload as { started: boolean };
 }
 
 // —— Phase 2 T5：Web 爬取源 ——
@@ -312,9 +284,9 @@ export async function fetchWebSource(datasetId: string): Promise<WebSource | nul
       `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web`,
       { cache: "no-store", scope: "knowledge" },
     );
-    return unwrapEnvelope(payload) ?? null;
+    return payload ?? null;
   } catch (error) {
-    if (error instanceof KnowledgeApiError && error.code === 404) return null;
+    if (error instanceof ApiError && error.status === 404) return null;
     throw error;
   }
 }
@@ -327,7 +299,7 @@ export async function saveWebSource(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web`,
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), scope: "knowledge" },
   );
-  return unwrapEnvelope(payload) as WebSource;
+  return payload as WebSource;
 }
 
 export async function deleteWebSource(datasetId: string): Promise<void> {
@@ -342,5 +314,5 @@ export async function syncWebSource(datasetId: string): Promise<{ started: boole
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/sources/web/sync`,
     { method: "POST", scope: "knowledge" },
   );
-  return unwrapEnvelope(payload) as { started: boolean };
+  return payload as { started: boolean };
 }

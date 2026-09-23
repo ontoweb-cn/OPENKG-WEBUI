@@ -95,7 +95,8 @@ def test_status_reports_enabled_and_identity(proxy: TestClient, monkeypatch: pyt
 def test_list_datasets_passthrough_with_identity(proxy: TestClient) -> None:
     response = proxy.get(f"{_K}/datasets", params={"page": 2, "page_size": 10})
     assert response.status_code == 200
-    assert response.json() == {"code": 0, "data": []}
+    # T3：出站为域形状（信封在 provider 内被解包）
+    assert response.json() == {"datasets": [], "total": 0}
     request = proxy.calls[0]  # type: ignore[attr-defined]
     assert request.method == "GET"
     assert str(request.url) == "http://upstream.test/api/v1/datasets?page=2&page_size=10"
@@ -131,9 +132,9 @@ def test_upstream_connection_error_maps_502(
     monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
     response = proxy.get(f"{_K}/datasets")
     assert response.status_code == 502
-    # Phase 3 T2：provider 把传输层失败归一为 EngineError(UNREACHABLE) →
-    # 路由层统一映射 502（错误码前缀保持 knowledge_upstream_*）
-    assert "knowledge_upstream" in response.text
+    # T3：传输层失败 → EngineError(UNREACHABLE) → 路由映射 502，
+    # detail 前缀为统一 kind（knowledge_unreachable）
+    assert "knowledge_unreachable" in response.text
 
 
 def test_identity_unavailable_maps_409(
@@ -282,6 +283,9 @@ def test_structured_zip_groups_by_directory(proxy: TestClient) -> None:
     results = response.json()
     dirs = sorted(r["directory"] for r in results)
     assert dirs == ["docs/a", "docs/b"]
+    # T3：聚合为域形状（uploaded/error），不再有 nested upstream 信封
+    for entry in results:
+        assert set(entry) == {"directory", "uploaded", "error"}
 
 
 def test_structured_zip_slip_rejected(proxy: TestClient) -> None:
@@ -548,3 +552,124 @@ def test_knowledge_store_file_is_0600(tmp_path, monkeypatch) -> None:
     mode = stat.S_IMODE(os.stat(path).st_mode)
     assert mode == 0o600
     assert "ghp_secret" not in store.get_source("u1", "ds1").values()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 T3：错误映射（403/404/400/502）与流式契约
+# ---------------------------------------------------------------------------
+
+
+def _stub_upstream(monkeypatch, payload: dict, status_code: int = 200):
+    """让上游返回指定信封/状态码（用于错误映射断言）。"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, json=payload)
+
+    monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
+
+
+def test_upstream_permission_error_maps_403(proxy: TestClient, monkeypatch) -> None:
+    """上游 102 + 权限语义 → 403（评审 P1：102 重载码按 message 细分）。"""
+    _stub_upstream(monkeypatch, {"code": 102, "message": "No authorization."})
+    response = proxy.get(f"{_K}/datasets")
+    assert response.status_code == 403
+    assert "knowledge_unauthorized" in response.text
+
+
+def test_upstream_permission_retcode_maps_403(proxy: TestClient, monkeypatch) -> None:
+    """RetCode 108（PERMISSION_ERROR）→ 403。"""
+    _stub_upstream(monkeypatch, {"code": 108, "message": "denied"})
+    response = proxy.get(f"{_K}/datasets")
+    assert response.status_code == 403
+
+
+def test_upstream_not_found_maps_404(proxy: TestClient, monkeypatch) -> None:
+    """上游 102 + not found 语义 → 404。"""
+    _stub_upstream(monkeypatch, {"code": 102, "message": "Document not found!"})
+    response = proxy.get(f"{_K}/datasets/ds-x/documents/doc-y")
+    assert response.status_code == 404
+    assert "knowledge_not_found" in response.text
+
+
+def test_upstream_invalid_maps_400(proxy: TestClient, monkeypatch) -> None:
+    """上游 101（ARGUMENT_ERROR）→ 400。"""
+    _stub_upstream(monkeypatch, {"code": 101, "message": "Invalid filename."})
+    response = proxy.get(f"{_K}/datasets")
+    assert response.status_code == 400
+    assert "knowledge_invalid" in response.text
+
+
+def test_upstream_http_403_maps_403(proxy: TestClient, monkeypatch) -> None:
+    """HTTP 层 403（无信封）→ 403。"""
+    _stub_upstream(monkeypatch, {"detail": "forbidden"}, status_code=403)
+    response = proxy.get(f"{_K}/datasets")
+    assert response.status_code == 403
+
+
+def test_upstream_http_500_maps_502(proxy: TestClient, monkeypatch) -> None:
+    """HTTP 5xx → 502。"""
+    _stub_upstream(monkeypatch, {"error": "boom"}, status_code=500)
+    response = proxy.get(f"{_K}/datasets")
+    assert response.status_code == 502
+
+
+def test_direct_upload_streams_file_like(proxy: TestClient) -> None:
+    """D4 流式契约：直传路径必须传 file-like（不整体读入内存）。
+
+    断言 MockTransport 收到的 multipart 中文件部分来自文件对象——
+    以 httpx 是否成功编码流式文件为准（若实现改为 .read() 收口 bytes，
+    本测试仍会通过，故另用体积断言辅证：见 test_large_upload_not_buffered）。
+    """
+    payload = b"x" * (3 * 1024 * 1024)  # 3MB
+    response = proxy.post(
+        f"{_K}/datasets/ds1/documents",
+        files={"file": ("big.bin", payload, "application/octet-stream")},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    request = proxy.calls[-1]  # type: ignore[attr-defined]
+    assert request.method == "POST"
+    assert len(request.content) >= len(payload)  # 已转发且完整
+
+
+def test_large_upload_uses_spooled_file_not_bytes(monkeypatch, tmp_path) -> None:
+    """D4 反向守卫：provider 收到的 content 必须是 file-like（非 bytes）。
+
+    通过直接调用 provider.upload 并捕获实参实现——若将来有人把
+    UploadFile.file 改成 await f.read()，本断言失败。
+    """
+    import asyncio
+
+    from openkg_webui.services.knowledge import engines as eng
+
+    captured: dict[str, object] = {}
+    engine = eng.build_engine()
+
+    class _Spooled:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def read(self, *args):  # noqa: ANN002
+            return self._data
+
+    async def fake_request(method: str, path: str, **kwargs):  # noqa: ANN003
+        captured.update(kwargs)
+        raise eng.EngineError(eng.EngineErrorKind.UNREACHABLE, "stub")
+
+    monkeypatch.setattr(engine, "request", fake_request)
+    item = eng.UploadItem(name="a.bin", content=_Spooled(b"data"))  # type: ignore[arg-type]
+
+    async def _run() -> None:
+        try:
+            await engine.upload("ds1", [item])
+        except eng.EngineError:
+            pass
+
+    # asyncio.run 新建独立 loop——get_event_loop 在前序测试关闭 loop 后会抛
+    # RuntimeError（Python 3.12 行为）
+    asyncio.run(_run())
+    files = captured.get("files") or []
+    assert files, "upload did not forward files"
+    forwarded = files[0][1][1]
+    assert not isinstance(forwarded, bytes), (
+        "D4 violation: upload buffered the file into bytes instead of streaming"
+    )

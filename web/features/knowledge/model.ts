@@ -57,8 +57,14 @@ export function parseKnowledgeDataset(raw: unknown): KnowledgeDataset {
 }
 
 export function parseKnowledgeDatasets(payload: unknown): KnowledgeDataset[] {
-  const data = record(payload).data;
-  const list = Array.isArray(data) ? data : Array.isArray(payload) ? payload : [];
+  // T3：后端出站为域形状 `{datasets, total}`（信封已在 provider 内解包）；
+  // 保留裸数组兜底作为廉价保险。
+  const inner = record(payload);
+  const list = Array.isArray(inner.datasets)
+    ? inner.datasets
+    : Array.isArray(payload)
+      ? payload
+      : [];
   return list
     .map(parseKnowledgeDataset)
     .filter((item) => item.id && item.name);
@@ -106,9 +112,13 @@ export function parseKnowledgeDocument(raw: unknown): KnowledgeDocument {
 export function parseKnowledgeDocuments(
   payload: unknown,
 ): { documents: KnowledgeDocument[]; total: number } {
-  const data = record(payload).data;
-  const inner = record(data);
-  const docs = Array.isArray(inner.docs) ? inner.docs : [];
+  // T3：域形状 `{documents, total}`（原 `data.docs`）
+  const inner = record(payload);
+  const docs = Array.isArray(inner.documents)
+    ? inner.documents
+    : Array.isArray(record(payload).docs)
+      ? (record(payload).docs as unknown[])
+      : [];
   return {
     documents: docs.map(parseKnowledgeDocument).filter((item) => item.id),
     total: num(inner.total),
@@ -130,15 +140,19 @@ export interface KnowledgeIngestionLog {
 }
 
 export function parseIngestionLogs(payload: unknown): KnowledgeIngestionLog[] {
-  const data = record(record(payload).data);
-  const logs = Array.isArray(data.logs) ? data.logs : [];
+  // T3：域形状为裸数组 `[IngestionLog]`；兼容携 logs 键的包装（SSE 流帧）
+  const direct = Array.isArray(payload) ? payload : null;
+  const wrapped = record(payload);
+  const logs = direct ?? (Array.isArray(wrapped.logs) ? wrapped.logs : []);
   return logs.map((raw) => {
     const row = record(raw);
     return {
       id: text(row.id),
       progress: num(row.progress),
-      message: text(row.progress_msg),
-      status: text(row.operation_status),
+      // T3：域模型字段为 message/status（provider 内由 progress_msg/
+      // operation_status 归一）；保留上游名兜底作为廉价保险。
+      message: text(row.message ?? row.progress_msg),
+      status: text(row.status ?? row.operation_status),
       documentName: text(row.document_name),
     };
   });
@@ -154,8 +168,9 @@ export interface KnowledgeSearchChunk {
 }
 
 export function parseSearchChunks(payload: unknown): KnowledgeSearchChunk[] {
-  const data = record(record(payload).data);
-  const chunks = Array.isArray(data.chunks) ? data.chunks : [];
+  // T3：域形状 `{chunks, total, denied_dataset_ids}`（provider 内完成字段映射）
+  const inner = record(payload);
+  const chunks = Array.isArray(inner.chunks) ? inner.chunks : [];
   return chunks.map((raw) => {
     const row = record(raw);
     return {

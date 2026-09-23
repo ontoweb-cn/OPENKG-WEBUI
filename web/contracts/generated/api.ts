@@ -2751,6 +2751,26 @@ export interface components {
       readonly trace_count: number;
     };
     /**
+     * DatasetPage
+     * @description 知识库分页。
+     *
+     *     注（评审 P2）：上游 ``GET /datasets`` 的 total 位于**信封顶层**
+     *     ``total_datasets``（``data`` 是裸列表）——与文档列表的 ``data.total``
+     *     不同，provider 负责在各自端点取正确位置。
+     */
+    readonly DatasetPage: {
+      /**
+       * Datasets
+       * @default []
+       */
+      readonly datasets: readonly components["schemas"]["KnowledgeDataset"][];
+      /**
+       * Total
+       * @default 0
+       */
+      readonly total: number;
+    };
+    /**
      * DoclingRemoteTest
      * @description Draft Docling remote-server test. ``api_token`` is tri-state: ``None``
      *     falls back to the stored key, ``""`` clears it, a string supplies it (so
@@ -2764,6 +2784,22 @@ export interface components {
       readonly api_base_url: string;
       /** Api Token */
       readonly api_token?: string | null;
+    };
+    /**
+     * DocumentPage
+     * @description 文档分页（上游 ``data.docs`` + ``data.total``）。
+     */
+    readonly DocumentPage: {
+      /**
+       * Documents
+       * @default []
+       */
+      readonly documents: readonly components["schemas"]["KnowledgeDocument"][];
+      /**
+       * Total
+       * @default 0
+       */
+      readonly total: number;
     };
     /**
      * DocumentParsingInstall
@@ -2913,6 +2949,36 @@ export interface components {
       readonly title: string;
       /** Updated At */
       readonly updated_at: number;
+    };
+    /**
+     * IngestionLog
+     * @description 摄取（解析）日志——进度与日志文本。
+     *
+     *     ``message`` 对应上游 ``progress_msg``（多行累积文本）。
+     */
+    readonly IngestionLog: {
+      /**
+       * Document Name
+       * @default
+       */
+      readonly document_name: string;
+      /** Id */
+      readonly id: string;
+      /**
+       * Message
+       * @default
+       */
+      readonly message: string;
+      /**
+       * Progress
+       * @default 0
+       */
+      readonly progress: number;
+      /**
+       * Status
+       * @default
+       */
+      readonly status: string;
     };
     /**
      * KagBuildRequest
@@ -3099,6 +3165,87 @@ export interface components {
       readonly name_zh: string;
       /** Object Type Name */
       readonly object_type_name: string;
+    };
+    /**
+     * KnowledgeDataset
+     * @description 知识库（域模型；`engine_id` 由路由层按需附加，不属引擎出站形状）。
+     */
+    readonly KnowledgeDataset: {
+      /**
+       * Chunk Count
+       * @default 0
+       */
+      readonly chunk_count: number;
+      /**
+       * Created At
+       * @default
+       */
+      readonly created_at: string;
+      /**
+       * Description
+       * @default
+       */
+      readonly description: string;
+      /**
+       * Document Count
+       * @default 0
+       */
+      readonly document_count: number;
+      /** Id */
+      readonly id: string;
+      /** Name */
+      readonly name: string;
+      /**
+       * Permission
+       * @default me
+       */
+      readonly permission: string;
+      /**
+       * Token Count
+       * @default 0
+       */
+      readonly token_count: number;
+    };
+    /**
+     * KnowledgeDocument
+     * @description 文档（域模型；`run` 为归一后的解析状态）。
+     */
+    readonly KnowledgeDocument: {
+      /**
+       * Chunk Count
+       * @default 0
+       */
+      readonly chunk_count: number;
+      /** Id */
+      readonly id: string;
+      /**
+       * Location
+       * @default
+       */
+      readonly location: string;
+      /** Name */
+      readonly name: string;
+      /**
+       * Progress
+       * @default 0
+       */
+      readonly progress: number;
+      /**
+       * Run
+       * @default UNSTART
+       * @enum {string}
+       */
+      readonly run: "UNSTART" | "RUNNING" | "DONE" | "FAIL" | "CANCEL";
+      /**
+       * Size
+       * @default 0
+       */
+      readonly size: number;
+      /**
+       * Token Count
+       * @default 0
+       */
+      readonly token_count: number;
     };
     /**
      * KnowledgeSelectionRequest
@@ -3394,6 +3541,50 @@ export interface components {
       /** Worker Id */
       readonly worker_id: string;
     };
+    /**
+     * SearchChunk
+     * @description 检索命中的分块。
+     */
+    readonly SearchChunk: {
+      /** Content */
+      readonly content: string;
+      /**
+       * Document Name
+       * @default
+       */
+      readonly document_name: string;
+      /** Id */
+      readonly id: string;
+      /**
+       * Similarity
+       * @default 0
+       */
+      readonly similarity: number;
+    };
+    /**
+     * SearchResult
+     * @description 检索结果（含上游的数据级权限信号 ``denied_dataset_ids``）。
+     *
+     *     该信号当前前端未消费，纳入契约是为未来"勾选的库无权访问"的结构化提示
+     *     留位置（1.5 评审 R4 曾因它只存在于检索文本而把验收降级为"由 agent 说明"）。
+     */
+    readonly SearchResult: {
+      /**
+       * Chunks
+       * @default []
+       */
+      readonly chunks: readonly components["schemas"]["SearchChunk"][];
+      /**
+       * Denied Dataset Ids
+       * @default []
+       */
+      readonly denied_dataset_ids: readonly string[];
+      /**
+       * Total
+       * @default 0
+       */
+      readonly total: number;
+    };
     /** SessionDetail */
     readonly SessionDetail: {
       /** @default null */
@@ -3482,6 +3673,24 @@ export interface components {
       readonly extensions?: {
         readonly [key: string]: unknown;
       };
+    };
+    /**
+     * StructuredUploadResult
+     * @description 结构化上传按目录分组的聚合结果（T3 前为 ``{directory, status, upstream}``）。
+     */
+    readonly StructuredUploadResult: {
+      /** Directory */
+      readonly directory: string;
+      /**
+       * Error
+       * @default
+       */
+      readonly error: string;
+      /**
+       * Uploaded
+       * @default 0
+       */
+      readonly uploaded: number;
     };
     /** TestResponse */
     readonly TestResponse: {
@@ -3810,6 +4019,22 @@ export interface components {
       readonly enabled: boolean;
     };
     /**
+     * UploadResult
+     * @description 上传结果（直传与结构化上传共用）。
+     */
+    readonly UploadResult: {
+      /**
+       * Documents
+       * @default []
+       */
+      readonly documents: readonly components["schemas"]["KnowledgeDocument"][];
+      /**
+       * Uploaded
+       * @default 0
+       */
+      readonly uploaded: number;
+    };
+    /**
      * UserInfo
      * @description Single user record returned by the GET /users and /profile endpoints.
      */
@@ -3895,8 +4120,10 @@ export type SchemaChatResponseTimeoutUpdate =
   components["schemas"]["ChatResponseTimeoutUpdate"];
 export type SchemaChatStarterSettingsUpdate =
   components["schemas"]["ChatStarterSettingsUpdate"];
+export type SchemaDatasetPage = components["schemas"]["DatasetPage"];
 export type SchemaDoclingRemoteTest =
   components["schemas"]["DoclingRemoteTest"];
+export type SchemaDocumentPage = components["schemas"]["DocumentPage"];
 export type SchemaDocumentParsingInstall =
   components["schemas"]["DocumentParsingInstall"];
 export type SchemaDocumentParsingTest =
@@ -3913,6 +4140,7 @@ export type SchemaIdentityLinkRequest =
   components["schemas"]["IdentityLinkRequest"];
 export type SchemaImportedMessage = components["schemas"]["ImportedMessage"];
 export type SchemaImportedSession = components["schemas"]["ImportedSession"];
+export type SchemaIngestionLog = components["schemas"]["IngestionLog"];
 export type SchemaKagBuildRequest = components["schemas"]["KagBuildRequest"];
 export type SchemaKagConceptRuleDefineRequest =
   components["schemas"]["KagConceptRuleDefineRequest"];
@@ -3928,6 +4156,9 @@ export type SchemaKagSchemaEditRequest =
   components["schemas"]["KagSchemaEditRequest"];
 export type SchemaKagSchemaRelationAdd =
   components["schemas"]["KagSchemaRelationAdd"];
+export type SchemaKnowledgeDataset = components["schemas"]["KnowledgeDataset"];
+export type SchemaKnowledgeDocument =
+  components["schemas"]["KnowledgeDocument"];
 export type SchemaKnowledgeSelectionRequest =
   components["schemas"]["KnowledgeSelectionRequest"];
 export type SchemaLanguageUpdate = components["schemas"]["LanguageUpdate"];
@@ -3949,6 +4180,8 @@ export type SchemaReadingReference = components["schemas"]["ReadingReference"];
 export type SchemaReadingViewport = components["schemas"]["ReadingViewport"];
 export type SchemaRegisterRequest = components["schemas"]["RegisterRequest"];
 export type SchemaRuntimeStatus = components["schemas"]["RuntimeStatus"];
+export type SchemaSearchChunk = components["schemas"]["SearchChunk"];
+export type SchemaSearchResult = components["schemas"]["SearchResult"];
 export type SchemaSessionDetail = components["schemas"]["SessionDetail"];
 export type SchemaSessionOrganizationRequest =
   components["schemas"]["SessionOrganizationRequest"];
@@ -3958,6 +4191,8 @@ export type SchemaSessionSummary = components["schemas"]["SessionSummary"];
 export type SchemaSetRoleRequest = components["schemas"]["SetRoleRequest"];
 export type SchemaSettingsDraftPayload =
   components["schemas"]["SettingsDraftPayload"];
+export type SchemaStructuredUploadResult =
+  components["schemas"]["StructuredUploadResult"];
 export type SchemaTestResponse = components["schemas"]["TestResponse"];
 export type SchemaThemeUpdate = components["schemas"]["ThemeUpdate"];
 export type SchemaTikaRemoteTest = components["schemas"]["TikaRemoteTest"];
@@ -3976,6 +4211,7 @@ export type SchemaUpdateProfileRequest =
   components["schemas"]["UpdateProfileRequest"];
 export type SchemaUpdateSettingsRequest =
   components["schemas"]["UpdateSettingsRequest"];
+export type SchemaUploadResult = components["schemas"]["UploadResult"];
 export type SchemaUserInfo = components["schemas"]["UserInfo"];
 export type SchemaValidationError = components["schemas"]["ValidationError"];
 export type SchemaVoiceAutoplayUpdate =
@@ -5329,7 +5565,10 @@ export interface operations {
   };
   readonly knowledge_list_datasets_api_knowledge_center_datasets_get: {
     readonly parameters: {
-      readonly query?: never;
+      readonly query?: {
+        readonly page?: number;
+        readonly page_size?: number;
+      };
       readonly header?: {
         readonly Authorization?: string | null;
       };
@@ -5346,7 +5585,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["DatasetPage"];
         };
       };
       /** @description Validation Error */
@@ -5379,7 +5618,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["KnowledgeDataset"];
         };
       };
       /** @description Validation Error */
@@ -5414,7 +5653,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["KnowledgeDataset"];
         };
       };
       /** @description Validation Error */
@@ -5484,7 +5723,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["DocumentPage"];
         };
       };
       /** @description Validation Error */
@@ -5523,7 +5762,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["UploadResult"];
         };
       };
       /** @description Validation Error */
@@ -5594,7 +5833,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["KnowledgeDocument"];
         };
       };
       /** @description Validation Error */
@@ -5703,7 +5942,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": readonly components["schemas"]["StructuredUploadResult"][];
         };
       };
       /** @description Validation Error */
@@ -5738,7 +5977,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": readonly components["schemas"]["IngestionLog"][];
         };
       };
       /** @description Validation Error */
@@ -5774,7 +6013,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["IngestionLog"];
         };
       };
       /** @description Validation Error */
@@ -5846,7 +6085,7 @@ export interface operations {
           readonly [name: string]: unknown;
         };
         content: {
-          readonly "application/json": unknown;
+          readonly "application/json": components["schemas"]["SearchResult"];
         };
       };
       /** @description Validation Error */
