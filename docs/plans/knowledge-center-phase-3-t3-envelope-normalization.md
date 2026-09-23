@@ -361,6 +361,19 @@ T3 后 `DatasetPage.total` 即该字段的归宿，前端分页可用。
 - datasets 上游 `data` 为裸列表 + 顶层 `total_datasets` ✓（前端 `parseKnowledgeDatasets`
   的 `Array.isArray(data) ? data : payload` 双分支正是为该形状写的兜底）。
 
+## 十、决策记录（2026-09-23 定稿）
+
+| # | 决策点 | 决策 |
+| --- | --- | --- |
+| D1 | 字段命名 snake_case | **采纳**（前端零字段改动，仅删信封解包） |
+| D2 | 错误映射表 | **按评审修订版采纳**：以 RetCode 全集为准（含 108/105/101/100），102 重载码按 message 关键词细分（`not found`→404 / `permission`·`no authorization`→403 / `invalid`·`not supported`→400 / 其他→400） |
+| D3 | 不做双形状兼容 | **采纳**（单仓库同版本部署 + `KnowledgeApiError` 无消费者） |
+| D4 | 流式契约 | **采纳修订版**：仅**直传路径**保持流式（`UploadSource` 允许 BinaryIO）；结构化上传按设计显式 buffer |
+| D5 | 前端不用生成类型 | **采纳**（手写域模型 + 容错解析；生成类型仅进 CI 契约门禁） |
+| D6 | SSE 端点一并域化 | **采纳** |
+
+评审 P1（逐项容错）与 P2（total 取值点 + 关闭 R-4）纳入 T3.3 实施范围。
+
 ## 十、待评审决策点
 
 - **D1 字段命名 snake_case**（沿用现有前端读取，最小改动）——建议采纳；
