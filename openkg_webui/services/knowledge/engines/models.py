@@ -24,7 +24,13 @@ class KnowledgeDataset(BaseModel):
     id: str
     name: str
     description: str = ""
-    permission: str = "me"  # "me" | "team"（可见范围）
+    #: legacy 字段（上游 ``permission`` 列）：创建时的期望值，**不参与访问
+    #: 控制**，故不能作为实际可见范围展示（评审 P1-3）。
+    permission: str = "me"  # "me" | "team"
+    #: 实际可见范围（上游 ``visibility`` 列，由 ownership 注入决定，是访问控制
+    #: 依据）："private" | "tenant" | "team" | "project"。缺省 private——对未知
+    #: 行按更保守的一侧展示，避免做出"比实际更可见"的承诺。
+    visibility: str = "private"
     document_count: int = 0
     chunk_count: int = 0
     token_count: int = 0

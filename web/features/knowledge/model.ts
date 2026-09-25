@@ -34,12 +34,24 @@ export interface KnowledgeDataset {
   id: string;
   name: string;
   description: string;
-  /** "me" | "team"（上游 ownership 注入；缺省按私有展示） */
+  /** legacy 创建期望值（"me" | "team"）；**不参与访问控制**，勿作徽标数据源 */
   permission: string;
+  /** 实际可见范围（访问控制依据） */
+  visibility: KnowledgeVisibility;
   documentCount: number;
   chunkCount: number;
   tokenCount: number;
   createdAt: string;
+}
+
+/** 上游 `visibility` 列：private | tenant | team | project */
+export type KnowledgeVisibility = "private" | "tenant" | "team" | "project";
+
+function normalizeVisibility(value: unknown): KnowledgeVisibility {
+  const v = text(value).toLowerCase();
+  if (v === "tenant" || v === "team" || v === "project") return v;
+  // 未知/缺失按 private 展示（保守；不暗示比实际更宽的范围）
+  return "private";
 }
 
 export function parseKnowledgeDataset(raw: unknown): KnowledgeDataset {
@@ -49,6 +61,7 @@ export function parseKnowledgeDataset(raw: unknown): KnowledgeDataset {
     name: text(row.name),
     description: text(row.description),
     permission: text(row.permission) || "me",
+    visibility: normalizeVisibility(row.visibility),
     documentCount: num(row.document_count),
     chunkCount: num(row.chunk_count),
     tokenCount: num(row.token_count),

@@ -23,7 +23,6 @@ from openkg_webui.api.routers import settings as settings_router
 from openkg_webui.services.config.runtime_settings import RuntimeSettingsService
 from openkg_webui.services.knowledge import KnowledgeIdentityUnavailable
 
-
 # ---------------------------------------------------------------------------
 # 代理路由
 # ---------------------------------------------------------------------------
@@ -43,9 +42,9 @@ def proxy(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(knowledge_router, "_current_user", lambda: SimpleNamespace(id="u1"))
     monkeypatch.setattr(knowledge_router, "knowledge_enabled", lambda block=None: True)
     # Phase 3 T2：连接与身份解析落在 provider 内（引擎抽象），夹具随之下移。
+    import openkg_webui.services.knowledge as knowledge_service
     from openkg_webui.services.knowledge import engines as engines_pkg
     from openkg_webui.services.knowledge.engines import intellect_rag as ir_engine
-    import openkg_webui.services.knowledge as knowledge_service
 
     monkeypatch.setattr(
         knowledge_service,
@@ -79,7 +78,13 @@ def test_disabled_returns_403(proxy: TestClient, monkeypatch: pytest.MonkeyPatch
 
 def test_status_reports_enabled_and_identity(proxy: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     payload = proxy.get(_K).json()
-    assert payload == {"enabled": True, "identity_ok": True}
+    # 夹具只带 X-Intellect-User（无 Team/Project 头），故新建库实际落 private。
+    # create_visibility 与创建时上游据以计算 visibility 的头同源。
+    assert payload == {
+        "enabled": True,
+        "identity_ok": True,
+        "create_visibility": "private",
+    }
 
     def _boom(user_id=None):
         raise KnowledgeIdentityUnavailable("not linked")
@@ -89,7 +94,57 @@ def test_status_reports_enabled_and_identity(proxy: TestClient, monkeypatch: pyt
 
     monkeypatch.setattr(knowledge_service, "resolve_request_auth", _boom)
     payload = proxy.get(_K).json()
-    assert payload == {"enabled": True, "identity_ok": False}
+    assert payload == {
+        "enabled": True,
+        "identity_ok": False,
+        "create_visibility": "private",
+    }
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"X-Intellect-Team": "team_1"}, "team"),
+        # Project 头单独存在时上游同样落 visibility="project"（评审 P1-1：
+        # 只查 Team 会漏判，UI 会错误地声称只能建私有库）
+        ({"X-Intellect-Project": "proj_1"}, "project"),
+        # Team 优先于 Project（上游 _compute_visibility 的分支顺序）
+        ({"X-Intellect-Team": "t", "X-Intellect-Project": "p"}, "team"),
+        # 空值不算（上游把空白头视为缺失）
+        ({"X-Intellect-Team": "   "}, "private"),
+    ],
+)
+def test_status_derives_create_visibility_from_identity_headers(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch, headers: dict, expected: str
+) -> None:
+    """新建库的实际范围由归因头决定，UI 据此陈述而非让用户选择。"""
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "resolve_request_auth",
+        lambda user_id=None: ("svc-key", headers),
+    )
+    assert proxy.get(_K).json()["create_visibility"] == expected
+
+
+def test_dataset_visibility_normalization() -> None:
+    """域模型出站 visibility：优先权威列，legacy 行按**归属 id** 推导。"""
+    from openkg_webui.services.knowledge.engines.intellect_rag import _dataset_visibility
+
+    assert _dataset_visibility({"visibility": "tenant"}) == "tenant"
+    assert _dataset_visibility({"visibility": "private"}) == "private"
+    # legacy 行（无 visibility）：有 team_id/project_id 说明归属明确，按之
+    # 上报——若一律落 tenant 会比实际更宽（评审 P2-3）
+    assert _dataset_visibility({"permission": "team", "team_id": "t1"}) == "team"
+    assert _dataset_visibility({"permission": "team", "project_id": "p1"}) == "project"
+    # 无归属 id 的 legacy team 行在上游是租户可见，不能显示成团队
+    assert _dataset_visibility({"permission": "team"}) == "tenant"
+    assert _dataset_visibility({"permission": "team", "team_id": "  "}) == "tenant"
+    assert _dataset_visibility({"permission": "me"}) == "private"
+    # 未知/缺失一律保守为 private
+    assert _dataset_visibility({}) == "private"
+    assert _dataset_visibility({"visibility": "shared-ish"}) == "private"
 
 
 def test_list_datasets_passthrough_with_identity(proxy: TestClient) -> None:
@@ -121,6 +176,66 @@ def test_create_requires_same_origin(proxy: TestClient) -> None:
     request = proxy.calls[0]  # type: ignore[attr-defined]
     assert request.method == "POST"
     assert str(request.url) == "http://upstream.test/api/v1/datasets"
+
+
+def test_create_clamps_team_permission_without_team_identity(proxy: TestClient) -> None:
+    """身份无 team/project 上下文时，请求里的 team 落为 me（评审 P1-1）。
+
+    否则上游会把 visibility 落成 private，而 legacy permission 却写着 team，
+    留下"看着是团队、实际私有"的记录。
+    """
+    response = proxy.post(
+        f"{_K}/datasets",
+        json={"name": "kb", "permission": "team"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    body = json.loads(proxy.calls[-1].content)  # type: ignore[attr-defined]
+    assert body["permission"] == "me"
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"X-Intellect-Team": "team_1"}, "team"),
+        # Project 头单独存在时上游也落 project —— 只查 Team 会误判为 me
+        ({"X-Intellect-Project": "proj_1"}, "team"),
+    ],
+)
+def test_create_reports_actual_scope_from_identity(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch, headers: dict, expected: str
+) -> None:
+    """有 Team/Project 头时上游必落 team/project，legacy permission 如实上报。
+
+    请求里写 me 也不改变上游结果（它忽略 permission），所以这里上报 team 而
+    非用户所填——这正是评审 P1-1 指出的"选私有却建出共享库"的反向情形。
+    """
+    import openkg_webui.services.knowledge as knowledge_service
+
+    monkeypatch.setattr(
+        knowledge_service,
+        "resolve_request_auth",
+        lambda user_id=None: ("svc-key", headers),
+    )
+    response = proxy.post(
+        f"{_K}/datasets",
+        json={"name": "kb", "permission": "me"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    body = json.loads(proxy.calls[-1].content)  # type: ignore[attr-defined]
+    assert body["permission"] == expected
+
+
+def test_create_rejects_unknown_permission(proxy: TestClient) -> None:
+    """非法 permission 退回 400，不再静默折叠成 me 后"成功"建库（评审 P3-4）。"""
+    response = proxy.post(
+        f"{_K}/datasets",
+        json={"name": "kb", "permission": "public"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 400
+    assert proxy.calls == []  # type: ignore[attr-defined]  # 未触达上游
 
 
 def test_upstream_connection_error_maps_502(
@@ -357,6 +472,7 @@ def test_web_extractor_produces_markdown_and_links() -> None:
 @pytest.mark.asyncio
 async def test_web_crawl_bfs_same_site() -> None:
     import httpx as _httpx
+
     from openkg_webui.services.knowledge.sources import web
 
     pages = {
@@ -514,6 +630,7 @@ def test_web_crawl_blocks_redirect_to_private_host() -> None:
     import asyncio as _asyncio
 
     import httpx as _httpx
+
     from openkg_webui.services.knowledge.sources import web
 
     def factory() -> _httpx.AsyncClient:
@@ -537,8 +654,8 @@ def test_web_crawl_blocks_redirect_to_private_host() -> None:
 def test_knowledge_store_file_is_0600(tmp_path, monkeypatch) -> None:
     """含 GitHub PAT 的 store 必须 0600 且原子写。"""
     import os
-    import stat
     from pathlib import Path
+    import stat
 
     from openkg_webui.services import path_service
     from openkg_webui.services.knowledge.sources import store

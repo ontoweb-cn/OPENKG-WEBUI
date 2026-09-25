@@ -13,7 +13,7 @@ import {
   deleteDataset,
   fetchDatasets,
 } from "../api";
-import type { KnowledgeDataset } from "../model";
+import type { KnowledgeDataset, KnowledgeVisibility } from "../model";
 import {
   KnowledgePageBody,
   KnowledgePageHeader,
@@ -24,7 +24,31 @@ import {
  * 知识中心列表页（Phase 1a T7）：知识库卡片列表 + 创建（D2：单引擎简化
  * 表单，无 connect/probe）+ 删除确认。加载/出错/未配置状态沿 KagStateView
  * 语义；未启用时给设置引导（验收 3）。
+ *
+ * 可见范围（评审 P1/D5）：徽标读 `visibility`（访问控制依据），不读 legacy
+ * `permission`——后者不参与鉴权，曾导致"显示团队、实际私有"的错配。
  */
+
+/**
+ * 可见范围 → i18n 标签。
+ *
+ * 刻意不用 `t("Project")`：该键已被设置页用作**区块标题**（zh 为"项目资源"），
+ * 复用会让徽标显示成"项目资源"（评审 P3-1）。这里改用 "Project only" 独立
+ * 词条。同时每个键都是字面量，i18n 审计脚本（只解析 `t("…")`）才能看到它们——
+ * 此前用 `t(VISIBILITY_LABELS[value])` 的查表形式对审计不可见。
+ */
+function visibilityLabel(t: (key: string) => string, value: KnowledgeVisibility): string {
+  switch (value) {
+    case "tenant":
+      return t("Tenant");
+    case "team":
+      return t("Team");
+    case "project":
+      return t("Project only");
+    default:
+      return t("Private");
+  }
+}
 
 export default function KnowledgeHomePage() {
   const { t } = useTranslation();
@@ -147,7 +171,7 @@ export default function KnowledgeHomePage() {
                     {dataset.name}
                   </span>
                   <span className="shrink-0 rounded-md border border-[var(--border)]/60 px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)]">
-                    {dataset.permission === "team" ? t("Team") : t("Private")}
+                    {visibilityLabel(t, dataset.visibility)}
                   </span>
                 </div>
                 {dataset.description ? (
@@ -189,7 +213,12 @@ export default function KnowledgeHomePage() {
       ) : null}
 
       {creating ? (
-        <CreateDatasetDialog busy={busy} onCancel={() => setCreating(false)} onCreate={onCreate} />
+        <CreateDatasetDialog
+          busy={busy}
+          onCancel={() => setCreating(false)}
+          onCreate={onCreate}
+          createVisibility={status?.create_visibility ?? "private"}
+        />
       ) : null}
 
       <ConfirmDialog
@@ -214,15 +243,21 @@ function CreateDatasetDialog({
   busy,
   onCancel,
   onCreate,
+  createVisibility,
 }: {
   busy: boolean;
   onCancel: () => void;
   onCreate: (form: { name: string; description: string; permission: "me" | "team" }) => void;
+  /** 新建库实际会得到的可见范围（由后端按身份归因头推导） */
+  createVisibility: KnowledgeVisibility;
 }) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [permission, setPermission] = useState<"me" | "team">("me");
+  // 上游按 Team/Project 头决定 visibility 并忽略请求体的 permission，所以这里
+  // 不是"用户选择"而是"如实上报"：回传与之一致的 legacy 值即可（评审 P1-1）。
+  const permission: "me" | "team" =
+    createVisibility === "team" || createVisibility === "project" ? "team" : "me";
 
   return (
     <div
@@ -257,32 +292,20 @@ function CreateDatasetDialog({
             className="mt-1 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[13px] text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
           />
         </label>
-        <fieldset className="mt-3">
-          <legend className="text-[12.5px] font-medium text-[var(--foreground)]">
+        <div className="mt-3">
+          <span className="text-[12.5px] font-medium text-[var(--foreground)]">
             {t("Visibility")}
-          </legend>
-          <div className="mt-1.5 flex gap-2">
-            {(
-              [
-                ["me", t("Private to me")],
-                ["team", t("Shared with team")],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setPermission(value)}
-                className={`rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors ${
-                  permission === value
-                    ? "border-[var(--primary)]/60 bg-[var(--accent)] font-medium text-[var(--foreground)]"
-                    : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+          </span>
+          {/* 陈述而非选择：范围由身份（Team/Project 归因）决定，上游忽略请求体 */}
+          <span className="ml-2 rounded-md border border-[var(--border)]/60 px-1.5 py-0.5 text-[11.5px] text-[var(--muted-foreground)]">
+            {visibilityLabel(t, createVisibility)}
+          </span>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--muted-foreground)]">
+            {createVisibility === "private"
+              ? t("Only you can see this knowledge base.")
+              : t("Everyone in this scope can see the knowledge base.")}
+          </p>
+        </div>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" onClick={onCancel} disabled={busy}>
             {t("Cancel")}

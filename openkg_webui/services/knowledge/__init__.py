@@ -14,6 +14,17 @@ from __future__ import annotations
 
 from typing import Any
 
+#: 主体归因头。契约名与 ``services/agent_loop/identity.py`` 的 ``_HEADER_USER``
+#: 一致（该模块是身份桥接的唯一决策点）；此处以字面量复用以避免跨模块引用
+#: 私有名——两处的同步由 `tests/services/knowledge/test_request_auth.py::
+#: test_header_literal_matches_identity_module` 守卫。
+#:
+#: 另注：``identity.py`` 的 member 路径**有意丢弃**该头（"sending one would
+#: only be misleading"），因为对 turn 目标服务而言令牌即身份。知识中心是
+#: 另一个下游（rag-app 的 owner 短路需要主体 id），所以这里把它补回来——
+#: 不是与上游决策冲突，而是服务不同目标。
+_IDENTITY_USER_HEADER = "X-Intellect-User"
+
 
 class KnowledgeNotConfigured(Exception):
     """knowledge 未启用，或上游连接（base_url/api_key）未配置。"""
@@ -145,10 +156,17 @@ def resolve_request_auth(user_id: str | None = None) -> tuple[str, dict[str, str
 
     身份派生完全复用 agent-loop 的 :func:`resolve_backend_identity`（P1-1）：
 
-    - ``token``/``token_required`` 模式：Bearer = 该用户的 member token
-      （rag-app 的 imt_ 鉴权路径接受），headers 携带 X-Intellect-Team/Project；
+    - ``token``/``token_required`` **且已链接**：Bearer = 该用户的 member token
+      （rag-app 的 imt_ 鉴权路径接受），headers 携带 X-Intellect-User（主体）
+      与 X-Intellect-Team/Project（链接记录有值时才带）；
     - ``header``/``off`` 模式：Bearer = 服务 key（与 team 同一把），headers
       携带 X-Intellect-User/Team/Project 做归因。
+
+    注意 ``token`` 模式下**未链接**的用户会降级为归因形态（``tier="header"``、
+    ``degraded=True``），此时 Bearer 是**服务 key**——权限比 member token 大。
+    本函数原样返回该降级结果（turn 路径的既有语义，见 identity.py 模块文档），
+    因此调用方不能用"Bearer 非空"推断"身份是受限的"。``token_required`` 模式
+    不会降级：未链接直接抛 :class:`KnowledgeIdentityUnavailable`。
 
     ``user_id=None`` 时由 identity 层从请求上下文取当前用户。
     """
@@ -170,10 +188,31 @@ def resolve_request_auth(user_id: str | None = None) -> tuple[str, dict[str, str
     if identity is None:
         raise KnowledgeIdentityUnavailable("Identity resolution returned nothing.")
     mode = normalize_identity_mode(profile.get("identity_mode"))
+    headers = dict(getattr(identity, "headers", None) or {})
     if mode in {"token", "token_required"}:
         bearer = str(getattr(identity, "api_key", "") or "")
         if not bearer:
             raise KnowledgeIdentityUnavailable("Linked identity token missing.")
+        # 主体钉定：token 模式不携带 X-Intellect-User 时，rag-app 侧的主体
+        # 会退化为 X-Intellect-Tenant（resolve_tenant_id）的解析值——owner
+        # 短路与取数租户集合都会用错身份（设了 INTELLECT_TENANT_ID 的部署里
+        # private 库会整体不可见，并集修复也会以错误的 basis 扩大可见集）。
+        # 这里补发 member token 自己的 member_id。
+        #
+        # 安全：rag-app 的 resolve_subject_id → bind_subject_id 会把与已认证
+        # 主体不一致的头钳制为已认证主体（imt_ 路径不享服务 key/可信 BFF 的
+        # 透传豁免），且 sync_membership 的 token 路径忽略该头做身份——
+        # 因此补发既不能让调用方冒充他人，也不改变成员关系写入。
+        #
+        # 命名空间一致性（2026-09-25 复核）：rag-app 解析出的主体是 authed_id
+        # （`verify_member_token` → GET /api/members/me 的 id/member_id），
+        # 与本函数补发的值来自**同一个端点**，因此同一次令牌委托下二者相等，
+        # 主体不会落到另一命名空间。上游对旧行另有 fallback owner 短路兜底。
+        member_id = str(getattr(identity, "member_id", "") or "")
+        if member_id and not any(
+            k.lower() == _IDENTITY_USER_HEADER.lower() for k in headers
+        ):
+            headers[_IDENTITY_USER_HEADER] = member_id
     else:
         bearer = service_key
-    return bearer, dict(getattr(identity, "headers", None) or {})
+    return bearer, headers

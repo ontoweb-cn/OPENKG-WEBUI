@@ -4983,5 +4983,9 @@
   "Site URL": "站点 URL",
   "Max depth": "最大深度",
   "Sync status:": "同步状态：",
-  "Live parse logs": "实时解析日志"
+  "Live parse logs": "实时解析日志",
+  "Tenant": "租户",
+  "Only you can see this knowledge base.": "仅你自己可见。",
+  "Everyone in this scope can see the knowledge base.": "该范围内的所有人可见。",
+  "Project only": "仅项目"
 }

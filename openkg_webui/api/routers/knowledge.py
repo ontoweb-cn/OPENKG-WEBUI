@@ -17,14 +17,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 import io
 import json
 import posixpath
-import zipfile
-from collections import defaultdict
 from typing import Any
+import zipfile
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
+import httpx
 
 from openkg_webui.services.knowledge import (
     KnowledgeIdentityUnavailable,
@@ -42,6 +43,7 @@ from openkg_webui.services.knowledge.engines.models import (
     StructuredUploadResult,
     UploadResult,
 )
+from openkg_webui.services.knowledge.engines.registry import engine_id_for_dataset
 
 router = APIRouter()
 
@@ -131,7 +133,6 @@ def _engine_for(dataset_id: str | None = None) -> Any:
     agent-loop 身份解析（P1-1）。
     """
     from openkg_webui.services.knowledge.engines import build_context, build_engine
-    from openkg_webui.services.knowledge.engines.registry import engine_id_for_dataset
 
     ctx = build_context(user_id=_user_id())
     return build_engine(engine_id_for_dataset(dataset_id), ctx=ctx, transport=_transport)
@@ -152,6 +153,35 @@ async def _engine_call(op: Any, *, dataset_id: str | None = None) -> Any:
         raise _http_error(exc) from exc
 
 
+def _visibility_from_headers(headers: dict[str, str] | None) -> str:
+    """新建知识库**实际**会得到的可见范围："private" | "team" | "project"。
+
+    判定依据是「本次请求实际会携带的归因头」——与上游创建时写入
+    ``visibility`` 的输入同源（``build_ownership_fields`` 读
+    ``subject_context.team_id/project_id``，即 X-Intellect-Team/Project）。
+
+    为什么返回字符串而不是"能否共享"的布尔值（评审 P1-1）：上游**忽略**
+    创建请求体里的 ``permission``，visibility 完全由头决定。所以
+    - 无 Team/Project 头 → 只能建 private（请求里的 team 无效）；
+    - 有 Team 或 Project 头 → 只能建 team/project（请求里的 me 无效）。
+    两个方向都不可选，因此 UI 应当**陈述**范围而不是让用户选一个兑现不了的值。
+    注意 Project 头单独存在时上游也落 ``visibility="project"``
+    （``_compute_visibility`` 的三分支），只查 Team 会漏判。
+
+    传入 headers 而非 engine，是为了让调用方只解析一次身份（评审 P2-4：
+    每次 _auth() 都要重读 system.json 与凭据文件）。
+    """
+    lowered = {
+        str(key).lower(): str(value or "").strip()
+        for key, value in (headers or {}).items()
+    }
+    if lowered.get("x-intellect-team"):
+        return "team"
+    if lowered.get("x-intellect-project"):
+        return "project"
+    return "private"
+
+
 async def _json_body(request: Request) -> Any:
     try:
         return await request.json()
@@ -169,14 +199,23 @@ async def knowledge_status() -> dict[str, Any]:
     block = get_knowledge_settings()
     enabled = knowledge_enabled(block)
     identity_ok: bool | None = None
+    create_visibility = "private"
     if enabled:
         try:
-            # Phase 3 T2：身份可用性经默认引擎的 provider 校验（P1-1 同一身份源）
-            _engine_for(None)._auth()
+            # Phase 3 T2：身份可用性经默认引擎的 provider 校验（P1-1 同一身份源）。
+            # 解析成功即可用：token 模式缺 bearer 时 resolve_request_auth 会抛错，
+            # header/off 模式以服务 key 认证。此处的返回值不再被真值化（评审 P2-4：
+            # 对元组取 bool 恒为 True，读起来像检查实际没检查）。
+            _bearer, headers = _engine_for(None)._auth()
             identity_ok = True
+            create_visibility = _visibility_from_headers(headers)
         except Exception:
             identity_ok = False
-    return {"enabled": enabled, "identity_ok": identity_ok}
+    return {
+        "enabled": enabled,
+        "identity_ok": identity_ok,
+        "create_visibility": create_visibility,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +275,27 @@ async def knowledge_create_dataset(request: Request) -> Any:
     body = await _json_body(request)
     payload = body if isinstance(body, dict) else {}
 
+    requested = str(payload.get("permission") or "").strip().lower()
+    if requested and requested not in {"me", "team"}:
+        # 上游 CreateDatasetReq.permission 是 Literal["me","team"]，非法值会
+        # 在那边 400。此前本层把任意非法值静默折叠成 "me" 并"成功"建库——
+        # 用户以为生效、实际被忽略。改为同口径拒绝（评审 P3-4）。
+        raise HTTPException(status_code=400, detail="Invalid permission value.")
+
     async def _create(engine: Any) -> Any:
+        # legacy `permission` 只是创建时的期望值，**上游不据此计算 visibility**
+        # （由 Team/Project 头决定，见 _visibility_from_headers）。因此它必须与
+        # 实际范围一致，否则留下"看着是团队、实际私有"（或反向）的记录。
+        # 无团队范围时钳制为 me；有则即便请求说 me 上游也会落 team/project，
+        # 这里如实上报（评审 P1-1）。
+        _bearer, headers = engine._auth()
+        permission = (
+            "team" if _visibility_from_headers(headers) in {"team", "project"} else "me"
+        )
         dataset = await engine.create_dataset(
             name=str(payload.get("name") or ""),
             description=str(payload.get("description") or ""),
-            permission=str(payload.get("permission") or "me"),
+            permission=permission,
         )
         # 引擎 pin（T1/T2 遗留）：多引擎路由的地基；单引擎下行为中性
         from openkg_webui.services.knowledge.engines import pin_dataset_engine

@@ -56,6 +56,39 @@ UPSTREAM_TIMEOUT = httpx.Timeout(60.0, read=300.0)
 MCP_SERVER_NAME = "intellect-knowledge"
 MCP_TOOL_NAME = "intellect_retrieval"
 
+#: 上游 visibility 的合法取值（访问控制依据）。
+_VISIBILITIES = frozenset({"private", "tenant", "team", "project"})
+
+
+def _dataset_visibility(row: dict[str, Any]) -> str:
+    """归一上游可见范围（评审 D5）。
+
+    优先 ``visibility``（权威列，与 ``can_access_resource`` 同源）。
+
+    缺失时从 legacy ``permission`` 推导，且必须**先看归属 id**，否则会把
+    比实际更宽的范围报给用户（评审 P2-3）：
+      - 有 ``team_id`` → ``"team"``；有 ``project_id`` → ``"project"``
+        （上游的实际分支就是这两个字段，不看 permission）；
+      - 只有 ``permission=="team"`` 而无归属 id → ``"tenant"``：上游把这类
+        legacy 行按租户可见处理（无 team 分支可命中，租户成员可见）；
+      - 其余（``permission=="me"``/缺失）→ ``"private"``。
+
+    注：上游对 ``visibility`` 为 NULL/空的行按 ``"tenant"`` 兜底
+    （``can_access_resource`` 的 ``_get("visibility", "tenant")``），而这里
+    返回 ``"private"``——徽标宁可少承诺（"仅自己可见"实为租户可见）也不
+    反向误导，且这类行在本部署为 0。
+    """
+    value = str(row.get("visibility") or "").strip().lower()
+    if value in _VISIBILITIES:
+        return value
+    if str(row.get("team_id") or "").strip():
+        return "team"
+    if str(row.get("project_id") or "").strip():
+        return "project"
+    if str(row.get("permission") or "").strip().lower() == "team":
+        return "tenant"
+    return "private"
+
 
 class IntellectRagEngine:
     """intellect-rag-app（REST ``/api/v1/*``）引擎 provider。"""
@@ -171,6 +204,10 @@ class IntellectRagEngine:
             name=str(row.get("name") or ""),
             description=str(row.get("description") or ""),
             permission=str(row.get("permission") or "me"),
+            # 可见范围以 visibility 为准；缺失时回退 permission（"team" 是
+            # 旧行的租户级语义——上游把无 team_id 的 legacy team 行当
+            # tenant 可见），再回退 private。
+            visibility=_dataset_visibility(row),
             document_count=int(row.get("document_count") or 0),
             chunk_count=int(row.get("chunk_count") or 0),
             token_count=int(row.get("token_count") or 0),
@@ -240,25 +277,10 @@ class IntellectRagEngine:
                 EngineErrorKind.UNREACHABLE, f"knowledge upstream unreachable: {exc}"
             ) from exc
 
-    async def upload(
-        self,
-        dataset_id: str,
-        items: list[UploadItem],
-        *,
-        parent_path: str = "",
-        upload_type: str = "local",
-    ) -> httpx.Response:
-        """上传一组文件到指定知识库（上游单请求支持多文件；``parent_path``
-        为存储前缀，分组由调用方负责）。"""
-        payload = [
-            ("file", (item.name, item.content, item.content_type)) for item in items
-        ]
-        data: dict[str, Any] = {"type": upload_type}
-        if parent_path:
-            data["parent_path"] = parent_path
-        return await self.request(
-            "POST", f"/datasets/{dataset_id}/documents", files=payload, data=data
-        )
+    # 注：T2 时期此处另有一个返回 ``httpx.Response`` 的 ``upload``（原样透传
+    # 信封给路由）。T3 域化后它被下方返回 ``UploadResult`` 的实现取代，但当时
+    # 未删——同名方法在类体里后者覆盖前者，旧实现成为不可达死代码，且触发
+    # ruff F811。已删除（2026-09-26）。
 
     # -- 管理面：类型化方法（T3；路径知识收回 provider 内部）----------------
 

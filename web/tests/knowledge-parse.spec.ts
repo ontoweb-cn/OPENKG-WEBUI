@@ -50,6 +50,31 @@ describe("parseKnowledgeDatasets", () => {
   it("drops rows without id or name", () => {
     expect(parseKnowledgeDatasets({ datasets: [{ id: "x" }, { name: "y" }] })).toEqual([]);
   });
+
+  it("carries visibility as the badge source, separate from legacy permission", () => {
+    const [row] = parseKnowledgeDatasets({
+      datasets: [
+        {
+          id: "kb-tenant",
+          name: "Tenant KB",
+          // legacy 列写着 team，实际范围是 tenant —— 徽标必须跟随后者
+          permission: "team",
+          visibility: "tenant",
+        },
+      ],
+    });
+    expect(row.visibility).toBe("tenant");
+    expect(row.permission).toBe("team");
+  });
+
+  it("normalizes unknown or missing visibility to private", () => {
+    const [missing] = parseKnowledgeDatasets({ datasets: [{ id: "a", name: "A" }] });
+    expect(missing.visibility).toBe("private");
+    const [weird] = parseKnowledgeDatasets({
+      datasets: [{ id: "b", name: "B", visibility: "shared-ish" }],
+    });
+    expect(weird.visibility).toBe("private");
+  });
 });
 
 describe("parseKnowledgeDocuments", () => {

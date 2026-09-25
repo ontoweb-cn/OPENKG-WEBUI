@@ -38,6 +38,11 @@ async function requestKnowledge<T>(
 export interface KnowledgeStatus {
   enabled: boolean;
   identity_ok: boolean | null;
+  /**
+   * 新建知识库**实际**会得到的可见范围。上游按 Team/Project 头决定 visibility
+   * 并忽略请求体里的 permission，所以创建时无可选项——UI 应陈述该值。
+   */
+  create_visibility?: "private" | "team" | "project";
 }
 
 export function fetchKnowledgeStatus(): Promise<KnowledgeStatus> {
