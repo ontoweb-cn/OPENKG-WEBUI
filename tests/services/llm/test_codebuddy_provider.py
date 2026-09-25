@@ -146,7 +146,7 @@ async def test_codebuddy_provider_maps_sdk_mcp_tool_calls(monkeypatch) -> None:
             [
                 FakeToolUseBlock(
                     "tool-1",
-                    "mcp__openkg_webui__web_search",
+                    "mcp__openkg-webui__web_search",
                     {"query": "latest news"},
                 )
             ]
@@ -187,7 +187,7 @@ async def test_codebuddy_provider_maps_sdk_mcp_tool_calls(monkeypatch) -> None:
     assert response.tool_calls[0].name == "web_search"
     assert response.tool_calls[0].arguments == {"query": "latest news"}
     option_kwargs = captured["options"].kwargs
-    assert option_kwargs["tools"] == ["mcp__openkg_webui__web_search"]
+    assert option_kwargs["tools"] == ["mcp__openkg-webui__web_search"]
     assert "openkg-webui" in option_kwargs["mcp_servers"]
 
 
@@ -330,7 +330,7 @@ async def test_codebuddy_session_drains_interrupt_before_tool_result_round(monke
                     [
                         FakeToolUseBlock(
                             "tool-1",
-                            "mcp__openkg_webui__web_search",
+                            "mcp__openkg-webui__web_search",
                             {"query": "latest news"},
                         )
                     ]
@@ -460,6 +460,46 @@ def test_codebuddy_ignores_openkg_webui_no_key_placeholder() -> None:
     provider = CodeBuddyProvider(api_key="sk-no-key-required")
 
     assert provider.api_key is None
+
+
+def test_codebuddy_advertised_tool_names_round_trip_through_the_parser() -> None:
+    """`_build_tool_options` 放行的名字必须能被 `_assistant_tool_calls` 解析回来。
+
+    这两处是同一契约的两端：前者把 `mcp__<server>__<tool>` 交给 CLI 声明可用工具，
+    后者从 SDK 回传的 tool_use 块里剥前缀还原工具名。任一侧单独漂移都会让工具调用
+    静默失效——症状是 finish_reason 落成 "stop" 而非 "tool_calls"（2026-09-26 修的
+    正是这一类：测试字面量写成包名 `openkg_webui`，而传给 CLI 的是 server 名
+    `openkg-webui`，SDK 逐字拼接不做规范化）。
+
+    断言锁的是"两侧同源"而非某个固定字面量：改常量不会误报，只改一侧才会。
+    """
+    from openkg_webui.services.llm.provider_core.codebuddy_provider import (
+        _assistant_tool_calls,
+        _build_tool_options,
+    )
+
+    schema = {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+    options = _build_tool_options(
+        SimpleNamespace(tool=fake_tool, create_sdk_mcp_server=fake_mcp_server),
+        [schema],
+    )
+    advertised = options["tools"]
+
+    assert advertised == [f"mcp__{next(iter(options['mcp_servers']))}__web_search"], (
+        "放行的工具名必须由交给 CLI 的同一个 server 名拼出"
+    )
+
+    calls = _assistant_tool_calls(
+        FakeAssistantMessage([FakeToolUseBlock("tool-1", advertised[0], {"query": "q"})])
+    )
+    assert [(c.name, c.arguments) for c in calls] == [("web_search", {"query": "q"})]
 
 
 async def _append_async(items: list[str], text: str) -> None:
