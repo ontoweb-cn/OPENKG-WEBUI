@@ -31,11 +31,15 @@ const ROUTE_TARGETS = [
   { route: "/settings/models", requestPath: "/settings/models", budgetKb: 360 },
   { route: "/settings/knowledge", requestPath: "/settings/knowledge", budgetKb: 360 },
   { route: "/settings/agent-loop", requestPath: "/settings/agent-loop", budgetKb: 360 },
-  // KAG 管理台（设计 §5.4 注意事项 1）：M2.4 无图浏览（cytoscape 推 M3），
-  // 预算参照 settings 类页面；M3 图可视化落地时需按实测上调。
-  { route: "/kag", requestPath: "/kag", budgetKb: 360 },
-  { route: "/kag/projects/[id]", requestPath: "/kag/projects/perf-budget", budgetKb: 360 },
-  { route: "/kag/tasks", requestPath: "/kag/tasks", budgetKb: 360 },
+  // KAG 管理台（设计 §5.4 注意事项 1）：M3.4 图浏览已落地并引入 cytoscape +
+  // cytoscape-dagre（GraphExplorerSection），实测 ~690KB，与同为图页的
+  // /chat/[sessionId]（~682KB / 预算 1020KB）同量级。按实测上调至 780KB——
+  // 保留约 90KB 余量，同时挡住 cytoscape-fcose 之类的额外布局依赖整包引入。
+  // （原 360KB 是 M2.4「无图浏览」时期的数值，注释要求的「按实测上调」当时漏做；
+  //   接入 CI 后由 route_budgets 暴露，2026-09-26 修正。）
+  { route: "/kag", requestPath: "/kag", budgetKb: 780 },
+  { route: "/kag/projects/[id]", requestPath: "/kag/projects/perf-budget", budgetKb: 780 },
+  { route: "/kag/tasks", requestPath: "/kag/tasks", budgetKb: 780 },
   { route: "/settings/kag", requestPath: "/settings/kag", budgetKb: 360 },
   // 知识中心（docs/knowledge-center-port-design.md）：无重依赖，预算参照
   // settings/kag 类页面；Phase 2 图可视化落地时需按实测上调。

@@ -189,6 +189,37 @@ We use automated tools (configured via `pyproject.toml` and `.pre-commit-config.
 > [!IMPORTANT]
 > Local pre-commit hooks may only show warnings, but **CI will perform strict checks** and automatically reject PRs that fail.
 
+### CI workflows
+
+The workflows in `.github/workflows/` are the authoritative check list:
+
+| Workflow | Runs | What it enforces |
+| --- | --- | --- |
+| `tests.yml` | push/PR to `main`/`dev`, nightly, manual | `ruff check`, `lint-imports` + `scripts/check_architecture.py`, `npm run check`, import smoke tests (Python 3.11–3.14; 3.14 also on macOS/Windows), `pytest tests` |
+| `repository-hygiene.yml` | push/PR to `main`/`dev` | `scripts/check_repo_hygiene.py` (no tracked generated files), `scripts/check_workspace_hygiene.py` |
+| `docker-release.yml` | GitHub Release published | Tag-gated multi-arch image push to GHCR |
+| `pypi-release.yml` | GitHub Release published | Tag-gated wheel build + PyPI Trusted Publishing |
+
+Two deliberate gaps, so a red local run is not always a CI failure:
+
+- **`ruff format --check` is not enforced.** The upstream tree this fork derives from is not
+  formatting-clean (43 Python files there), so gating on it would fail every run for drift
+  unrelated to any change under review. The pre-commit hook still auto-formats locally.
+  Re-enable it in `tests.yml` once the tree has been formatted in one sweep.
+- **CI runs on GitHub Actions only.** `origin` currently points at Gitee, where these workflows
+  do not execute. On Gitee, treat `.github/workflows/` as the release procedure, and replicate
+  the tag validation in that platform's own pipeline if automated gating is wanted.
+
+To reproduce the gate locally before pushing:
+
+```bash
+ruff check .                                            # pip install ruff==0.16.0
+lint-imports && python scripts/check_architecture.py    # pip install import-linter==2.11
+python scripts/check_repo_hygiene.py
+pytest -q tests
+cd web && npm run check                                 # contracts, types, tests, lint, i18n, build, budgets
+```
+
 ---
 
 ## Coding Standards

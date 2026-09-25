@@ -1,5 +1,8 @@
 [importlinter]
-root_package = openkg-webui
+# The importable package is `openkg_webui` (underscore). The distribution name
+# `openkg-webui` (hyphen) is not importable, and import-linter resolves this as
+# a module path — with the hyphen it aborts with "Could not find package".
+root_package = openkg_webui
 
 [importlinter:contract:core-purity]
 name = Core contains values and protocols only
