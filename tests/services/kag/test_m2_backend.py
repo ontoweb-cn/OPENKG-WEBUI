@@ -12,7 +12,6 @@ import pytest
 
 from openkg_webui.services.kag.openspg_client import OpenSPGClient, OpenSPGError
 
-
 # ---------------------------------------------------------------------------
 # OpenSPGClient（httpx.MockTransport，无网络）
 # ---------------------------------------------------------------------------
@@ -303,8 +302,9 @@ def test_sanitize_masks_serialized_json_config_string() -> None:
 def test_settings_kag_put_roundtrip_behind_frontend_proxy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from fastapi.testclient import TestClient
     from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
 
     from openkg_webui.api import main as api_main
     from openkg_webui.api.routers import settings as settings_router

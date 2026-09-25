@@ -14,9 +14,9 @@ M4 多租户（T2）时按需迁移 SQLite。
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 #: 滚动上限：保留最近 N 条（bridge 上报为追加写，超出即截尾）

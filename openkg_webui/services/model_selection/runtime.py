@@ -5,7 +5,10 @@ from __future__ import annotations
 from contextvars import Token
 from typing import Any
 
-from openkg_webui.services.config.provider_runtime import ResolvedLLMConfig, resolve_llm_runtime_config
+from openkg_webui.services.config.provider_runtime import (
+    ResolvedLLMConfig,
+    resolve_llm_runtime_config,
+)
 from openkg_webui.services.llm import config as llm_config_module
 from openkg_webui.services.llm.config import LLMConfig
 

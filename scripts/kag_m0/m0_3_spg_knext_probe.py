@@ -20,11 +20,11 @@
 
 import argparse
 import os
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 
 def _obj_fields(obj) -> dict:

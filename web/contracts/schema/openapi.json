@@ -1228,6 +1228,11 @@
             "default": 0,
             "title": "Token Count",
             "type": "integer"
+          },
+          "visibility": {
+            "default": "private",
+            "title": "Visibility",
+            "type": "string"
           }
         },
         "required": [

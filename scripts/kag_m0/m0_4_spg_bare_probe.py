@@ -19,13 +19,13 @@
 
 import argparse
 import json
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 # 端点表（路径证据：openspg/server/api/http-server/.../openapi/*.java）。
 # 子路径不确定处给出候选列表，探测时逐一尝试并记录命中的那个。

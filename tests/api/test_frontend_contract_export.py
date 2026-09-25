@@ -28,6 +28,31 @@ def test_frontend_contract_export_is_deterministic(tmp_path) -> None:
         )
 
 
+def test_committed_contract_files_match_the_renderer() -> None:
+    """提交的 web/contracts/schema/*.json 必须与渲染器一致（漂移守卫）。
+
+    `test_frontend_contract_export_is_deterministic` 只比较 render 与 render，
+    因此**已提交文件**与代码漂移时没有任何测试会失败——2026-09-25 评审实测：
+    `KnowledgeDataset` 新增 `visibility` 后 openapi.json 落后一整个属性，而两个
+    门禁（本测试与 `npm run contracts:check`，后者从已提交 JSON 反向生成 TS）
+    都不报错。此测试把提交产物本身纳入断言。
+    """
+    from pathlib import Path
+
+    schema_dir = Path(__file__).resolve().parents[2] / "web" / "contracts" / "schema"
+    rendered = render_contracts()
+    committed = {p.name: p.read_text(encoding="utf-8") for p in sorted(schema_dir.glob("*.json"))}
+
+    assert committed, f"no contract files found under {schema_dir}"
+    assert set(committed) == set(rendered), "contract file set drifted from the renderer"
+
+    drifted = sorted(name for name, content in rendered.items() if committed.get(name) != content)
+    assert not drifted, (
+        "committed contracts are stale: "
+        f"{drifted}. Regenerate with write_contracts(web/contracts/schema)."
+    )
+
+
 def test_turn_schema_contains_the_complete_v2_lifecycle() -> None:
     protocol = json.loads(render_contracts()["turn-protocol.json"])
 

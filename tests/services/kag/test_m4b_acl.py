@@ -16,7 +16,6 @@ from openkg_webui.services.kag.member_store import (
     update_project_members,
 )
 
-
 # —— user_no 派生 ——
 
 def test_derive_user_no_is_stable_and_matches_openspg_constraint() -> None:
@@ -125,6 +124,7 @@ def test_get_tasks_filters_by_membership(tmp_path, monkeypatch) -> None:
 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from openkg_webui.api.routers.kag import router
 
     app = FastAPI()
@@ -157,6 +157,7 @@ def test_members_write_requires_admin_even_if_member(tmp_path, monkeypatch) -> N
 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from openkg_webui.api.routers.kag import router
 
     app = FastAPI()

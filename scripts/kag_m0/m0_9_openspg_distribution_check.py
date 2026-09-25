@@ -17,13 +17,13 @@
 
 import argparse
 import json
+from pathlib import Path
 import re
 import sys
 import urllib.request
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 GITHUB_REPO_API = "https://api.github.com/repos/OpenSPG/openspg"
 GITHUB_RELEASE_API = "https://api.github.com/repos/OpenSPG/openspg/releases/latest"

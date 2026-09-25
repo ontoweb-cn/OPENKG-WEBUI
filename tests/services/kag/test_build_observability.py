@@ -18,7 +18,6 @@ import pytest
 
 from openkg_webui.services.kag.openspg_client import OpenSPGClient, OpenSPGError
 
-
 # ---------------------------------------------------------------------------
 # 可观测 client（httpx.MockTransport，无网络）
 # ---------------------------------------------------------------------------
@@ -325,6 +324,7 @@ def _patch_router_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def _router_client(monkeypatch: pytest.MonkeyPatch, fake: FakeOpenSPG, user: SimpleNamespace):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
+
     from openkg_webui.api.routers.kag import router
 
     monkeypatch.setattr("openkg_webui.api.routers.kag._client", lambda: fake)

@@ -14,8 +14,8 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
+import sys
 
 HOST = "http://127.0.0.1:8887"
 PROJECT_ID = 3
@@ -93,13 +93,13 @@ def _prop(name: str, value: str):
 
 
 def seed_graph() -> None:
+    from knext.common.rest.api_client import ApiClient
+    from knext.common.rest.configuration import Configuration
     from knext.graph.rest.graph_api import GraphApi
     from knext.graph.rest.models.edge_record_instance import EdgeRecordInstance
     from knext.graph.rest.models.upsert_edge_request import UpsertEdgeRequest
     from knext.graph.rest.models.upsert_vertex_request import UpsertVertexRequest
     from knext.graph.rest.models.vertex_record_instance import VertexRecordInstance
-    from knext.common.rest.api_client import ApiClient
-    from knext.common.rest.configuration import Configuration
 
     api = GraphApi(api_client=ApiClient(configuration=Configuration(host=HOST)))
 
@@ -193,11 +193,11 @@ def verify_dsl() -> None:
 
 def cleanup_graph() -> None:
     """幂等：先清掉本探针写过的节点（首次批语义踩坑写错 label 的遗留）。"""
+    from knext.common.rest.api_client import ApiClient
+    from knext.common.rest.configuration import Configuration
     from knext.graph.rest.graph_api import GraphApi
     from knext.graph.rest.models.delete_vertex_request import DeleteVertexRequest
     from knext.graph.rest.models.vertex_record_instance import VertexRecordInstance
-    from knext.common.rest.api_client import ApiClient
-    from knext.common.rest.configuration import Configuration
 
     api = GraphApi(api_client=ApiClient(configuration=Configuration(host=HOST)))
     stale = [

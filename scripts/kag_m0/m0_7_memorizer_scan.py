@@ -14,13 +14,13 @@ memorizer 则作为 M3 增强）。
 """
 
 import argparse
-import re
-import sys
 from collections import defaultdict
 from pathlib import Path
+import re
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 # 关键词 → 命中权重（高=强信号，低=需人工甄别）
 PATTERNS = [

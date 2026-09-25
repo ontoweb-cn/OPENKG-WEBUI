@@ -19,14 +19,13 @@ solver 图检索直连图存储（KAG_GRAPH_STORE_URI，不经 /public/v1 REST�
 
 import argparse
 import os
+from pathlib import Path
 import re
 import socket
 import sys
-from collections import Counter
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 # 后端关键词 → 归一化名称（pom 依赖与源码共用）
 BACKEND_PATTERNS = [

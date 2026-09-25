@@ -20,11 +20,11 @@ stub 声明 kag_solve 工具并把收到的 env/调用记录到 probe_log.jsonl�
 
 import argparse
 import json
-import sys
 from pathlib import Path
+import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 MCP_CONFIG = {
     "mcpServers": {

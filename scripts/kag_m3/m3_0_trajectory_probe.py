@@ -21,9 +21,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
 RESULTS = Path(__file__).parent / "results" / "m3_0"
 KAG_PROJECT_DIR = os.environ.get("KAG_PROJECT_DIR", "/tmp/m0_kag_project")

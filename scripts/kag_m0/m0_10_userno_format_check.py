@@ -21,14 +21,14 @@
 
 import argparse
 import json
+from pathlib import Path
 import re
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step
+from _common import print_step, write_result
 
 # 候选格式：数字（BuilderController 兜底形态）、T1/T2 设想的字符串形态
 CANDIDATE_FORMATS = ["164072", "openkg-webui", "openkg-webui-1", "openkg_webui_1", "openkg_webui.1"]

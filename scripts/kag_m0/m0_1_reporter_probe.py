@@ -31,14 +31,14 @@
 
 import argparse
 import asyncio
+from collections import Counter
 import os
+from pathlib import Path
 import sys
 import time
-from collections import Counter
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import write_result, print_step, elapsed_ms
+from _common import elapsed_ms, print_step, write_result
 
 
 def build_probe_reporter(task_id: str, project_id, thinking_enabled: bool):

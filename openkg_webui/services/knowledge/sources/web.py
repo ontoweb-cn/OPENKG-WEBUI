@@ -13,7 +13,7 @@ SSRF 防护：仅 http/https；拒绝 localhost 与私有/链路本地地址字�
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 import re
 from typing import Any

@@ -74,7 +74,9 @@ def _build_runtime_provider(llm_config: LLMConfig) -> LLMProvider:
             default_model=llm_config.model,
         )
     elif backend == "azure_openai":
-        from openkg_webui.services.llm.provider_core.azure_openai_provider import AzureOpenAIProvider
+        from openkg_webui.services.llm.provider_core.azure_openai_provider import (
+            AzureOpenAIProvider,
+        )
 
         provider = AzureOpenAIProvider(
             api_key=api_key,
@@ -94,7 +96,9 @@ def _build_runtime_provider(llm_config: LLMConfig) -> LLMProvider:
             supports_prompt_caching=bool(spec and spec.supports_prompt_caching),
         )
     else:
-        from openkg_webui.services.llm.provider_core.openai_compat_provider import OpenAICompatProvider
+        from openkg_webui.services.llm.provider_core.openai_compat_provider import (
+            OpenAICompatProvider,
+        )
 
         provider = OpenAICompatProvider(
             api_key=llm_config.api_key or None,

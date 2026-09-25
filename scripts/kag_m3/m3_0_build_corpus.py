@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
+import sys
 
 RESULTS = Path(__file__).parent / "results" / "m3_0"
 
@@ -46,14 +46,13 @@ CORPUS = [
 def main() -> None:
     os.chdir("/tmp/m0_kag_project")
     from kag.builder.component import KGWriter
-    from kag.builder.component.reader.dict_reader import DictReader
     from kag.builder.component.extractor.schema_constraint_extractor import (
         SchemaConstraintExtractor,
     )
+    from kag.builder.component.reader.dict_reader import DictReader
     from kag.builder.component.splitter.length_splitter import LengthSplitter
     from kag.builder.component.vectorizer.batch_vectorizer import BatchVectorizer
     from kag.builder.default_chain import DefaultUnstructuredBuilderChain
-
     from kag.common.conf import KAG_CONFIG
     from kag.interface import LLMClient, VectorizeModelABC
 

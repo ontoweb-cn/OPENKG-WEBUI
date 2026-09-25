@@ -3205,6 +3205,11 @@ export interface components {
        * @default 0
        */
       readonly token_count: number;
+      /**
+       * Visibility
+       * @default private
+       */
+      readonly visibility: string;
     };
     /**
      * KnowledgeDocument
