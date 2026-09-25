@@ -315,3 +315,39 @@ CLI 后端（claude-code / codex / opencode）── session .mcp.json ──►
 - 管理面归并：`/api/kag` 的管理类端点纳入 `/api/knowledge` 代理体系（或作为同层兄弟前缀保留，在新计划中定）。
 - **不动**的部分：KAG 的推理执行面（bridge/solve、`kag_grounding_block`、`.mcp.json` 注入、`ensure_session_mcp_config`）与知识库管理是两类关注点，保持原样，仅统一"知识源管理"层。
 - 数据架构差异注意：KAG 数据在 OpenSPG，不在 intellect-rag-app——KAG 条目预计走 openkg-webui 侧目录（路由到既有 `/api/kag` 代理），而非 rag-app facade 的 provider；此取舍在新计划中定，验收标准为"KC 引擎目录加第二个条目不需要改动知识中心核心"。
+
+## 十三、TODO：团队/项目可见范围打通（本期不实现，2026-09-25 裁决）
+
+背景：知识中心建库的可见范围由上游 `visibility` 列决定（`private | tenant | team | project`），
+但 **team/project 目前不可产生**——KC 代理不携带 `X-Intellect-Team/Project`（link 记录里
+这两字段恒为空，网关 `/api/members/me` 不回传），且上游对 `imt_` 令牌拒绝据头建成员关系。
+`team_membership`/`project_membership` 两表当前 0 行，故 `can_access_resource` 永不命中
+team/project 分支。
+
+**裁决（2026-09-25）：本期暂不实现**，reason：跨 intellect-team / intellect-rag-app /
+openkg-webui 三仓库，首要前置（网关返回成员团队归属）不在本仓库内。
+
+**TODO（另行立项时实施）**：
+
+1. **身份源**（intellect-team）：`GET /api/members/me` 返回 member 的 team/project
+   （`intellect-gateway/src/platform/members_api.rs` 的 `MeResp`），或由 KC 侧提供显式
+   选择并落盘到 link 记录；
+2. **成员关系**（intellect-rag-app / intellect-rag）：`team_membership`/`project_membership`
+   真实落行（当前为空表）；
+3. **上游策略**（intellect-rag）：允许 `imt_` 调用方声明 team/project 并**校验归属**
+   （当前 `sync_membership.py` 对 `imt_` 一律拒绝——拒绝得对，但使该能力不可用）；
+   同时 ownership 注入侧对 team/project 做 clamp/查表——现状「`create` 无 clamp、
+   `sync_membership` 拒绝」会产出 *team_id 可伪造且无人可见的孤儿库*；
+4. **KC 侧**：无需改动。状态端点 `create_visibility` 已按「实际会发的归因头」
+   推导（返回 `private`|`team`|`project` **范围字符串**），三环补齐后自动变为
+   team/project，创建对话框与徽标随之如实反映。
+   （2026-09-25 评审修正：原设计为布尔"能否共享"。改为范围字符串，因为上游
+   **两个方向都不可选**——有头时 `permission=me` 也无效，UI 必须陈述而非让用户选。）
+
+**验收标准**：KC 建"团队"库 → 上游 `visibility=team, team_id=<id>`；同团队另一成员可见、
+非成员不可见；聊天召回可见集与列表一致。
+
+**本期待做**：无（本期已用「不承诺」兜底：`create_visibility` 如实陈述范围，
+非法 `permission` 拒绝 400，不产生 legacy 说 team、visibility 落 private 的错配数据）。
+
+依据：`docs/plans/knowledge-center-visibility-scope-fix.md` §二-B、§三-P2、§六（实施记录）。
