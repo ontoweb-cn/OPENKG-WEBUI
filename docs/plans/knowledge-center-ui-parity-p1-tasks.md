@@ -1,7 +1,8 @@
 # 知识中心 UI 对齐 P1 细化任务清单（列表增强 + 任务中心 + 检索参数 + Settings 编辑）
 
 - 日期：2026-09-26
-- 状态：**评审通过（§五），实施中**
+- 状态：**已实施完成（2026-09-26）**——T5-T8 全部落地；T8 经 live 验证抓出并修复
+  一处 engine 吞错误的真 bug（见 §六）
 - 依据：[knowledge-center-ui-parity.md](knowledge-center-ui-parity.md) §四 P1；
   P0 已交付（[p0-tasks](knowledge-center-ui-parity-p0-tasks.md) §六实施记录）
 - 前置：P0 的四 tab 骨架、预览抽屉、拖放上传、Settings 面板已在位
@@ -107,3 +108,36 @@ ingestions 是**解析任务日志**（`log_type=file`），非上传任务；�
 ### 评审结论
 
 **通过**。R1 为范围修订（主从树 → P2），R2/R4/R5 为口径钉死，R3 为实现要求。
+
+## 六、实施记录（2026-09-26）
+
+**T5**：`fetchDocuments` 接服务端分页（page_size=50 + total）；名称过滤（页内）+ 状态
+筛选（全部/完成/解析中/失败）chip 组；`location` 父目录分组头（`GroupRows`）；
+`PagePager`（单页隐藏）。live：状态筛选空态、名称过滤收窄均通过。
+
+**T6**：新增 `ParseTasksPanel`——RUNNING 文档进度条 + 失败批量重试 + ingestions 历史
+（可展开看日志尾）；Refresh 手动重拉（logTick）；空闲且有历史时显示折叠历史
+（测试预期修正：有历史就该显示，非 bug）。
+
+**T7**：`searchDataset` 参数化（similarity_threshold/top_k/vector_similarity_weight，
+缺省=引擎口径）；"检索参数"折叠面板 + chunk 展开/收起。live：参数面板打开、带参数
+检索返回命中。
+
+**T8**：后端 `engine.update_dataset`（PUT 后 `_unwrap` + get_dataset 回读）+
+`PUT /datasets/{id}` 路由（same-origin、空 body/空 name 400）+ 契约重导出/重生成 +
+2 项新 pytest（回读口径、本层校验）；前端 Settings 编辑表单（键控草稿派生，
+避免 effect 内 setState——lint react-hooks v6）。
+
+**live 验证抓出的真 bug（已修）**：初版 `engine.update_dataset` 未解包 PUT 响应——
+上游对无权限数据集返回 `code 102 "User 'x' lacks permission"`（tenant 级 owner 校验，
+update 严格于 GET 的 accessible），被吞后回读旧数据**假成功**。修复后错误如实映射为
+`knowledge_unauthorized`（401/403 族）。正向用例：`联调测试库(1)` 改名往返成功；
+`3D场景图预测论文`（他者租户创建）改名收到明确权限错误——符合"owner 才可改"语义。
+
+**验证**：后端 59 项（knowledge 路由+服务）+ ruff 全绿；前端 typecheck / lint（0 错误）/
+vitest 67 / node 693 / contracts 双门全绿。live（:8083 临时后端 + dev 前端）：
+筛选/分组/参数检索/改名往返/权限拒绝浮出全部通过。
+
+**P0 遗留项跟进**：Settings 元数据的 Token 数/创建时间显示"—"——上游 dataset 行
+`token_num` 有值但代理域模型 `token_count=0`（字段映射待核），创建时间为空串；归
+P2 与 chunk 探针一并处理。

@@ -709,7 +709,11 @@ export interface paths {
     };
     /** Knowledge Get Dataset */
     readonly get: operations["knowledge_get_dataset_api_knowledge_center_datasets__dataset_id__get"];
-    readonly put?: never;
+    /**
+     * Knowledge Update Dataset
+     * @description 部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。
+     */
+    readonly put: operations["knowledge_update_dataset_api_knowledge_center_datasets__dataset_id__put"];
     readonly post?: never;
     /** Knowledge Delete Dataset */
     readonly delete: operations["knowledge_delete_dataset_api_knowledge_center_datasets__dataset_id__delete"];
@@ -5807,6 +5811,41 @@ export interface operations {
     };
   };
   readonly knowledge_get_dataset_api_knowledge_center_datasets__dataset_id__get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["KnowledgeDataset"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_update_dataset_api_knowledge_center_datasets__dataset_id__put: {
     readonly parameters: {
       readonly query?: never;
       readonly header?: {

@@ -96,17 +96,38 @@ export async function fetchDataset(datasetId: string): Promise<KnowledgeDataset 
   return parseKnowledgeDatasets({ datasets: [inner] })[0] ?? null;
 }
 
+/** P1-T8：部分更新知识库（name/description 可选），响应为回读后的服务端状态。 */
+export async function updateDataset(
+  datasetId: string,
+  patch: { name?: string; description?: string },
+): Promise<KnowledgeDataset> {
+  const body: Record<string, string> = {};
+  if (patch.name != null) body.name = patch.name;
+  if (patch.description != null) body.description = patch.description;
+  const data = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  const row = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const inner = (row.dataset ?? row) as Record<string, unknown>;
+  return parseKnowledgeDatasets({ datasets: [inner] })[0] as KnowledgeDataset;
+}
+
 // —— 文档 ——
+
+// —— 文档（P1-T5：服务端分页接通）——
 
 export async function fetchDocuments(
   datasetId: string,
-  signal?: AbortSignal,
+  options: { page?: number; pageSize?: number; signal?: AbortSignal } = {},
 ): Promise<{ documents: KnowledgeDocument[]; total: number }> {
-  const data = await requestKnowledge<unknown>(
-    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents?page=1&page_size=100`,
-    { cache: "no-store", signal },
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.max(1, options.pageSize ?? 50);
+  const payload = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents?page=${page}&page_size=${pageSize}`,
+    { cache: "no-store", signal: options.signal },
   );
-  return parseKnowledgeDocuments(data);
+  return parseKnowledgeDocuments(payload);
 }
 
 export async function uploadDocuments(
@@ -201,12 +222,19 @@ export async function fetchIngestionLogs(
 
 // —— 检索试玩 ——
 
+/** 检索试玩参数（P1-T7/R5：与引擎签名一一对应，缺省=引擎缺省口径）。 */
+export interface SearchOptions {
+  similarityThreshold?: number;
+  topK?: number;
+  vectorSimilarityWeight?: number;
+}
+
 export async function searchDataset(
   datasetId: string,
   question: string,
-  signal?: AbortSignal,
+  options: SearchOptions & { signal?: AbortSignal } = {},
 ): Promise<KnowledgeSearchChunk[]> {
-  const payload = await requestJson<unknown>(
+  const payload = await requestKnowledge<unknown>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/search`,
     {
       method: "POST",
@@ -215,9 +243,11 @@ export async function searchDataset(
         question,
         page: 1,
         size: 10,
-        similarity_threshold: 0.2,
+        similarity_threshold: options.similarityThreshold ?? 0.2,
+        top_k: options.topK ?? 1024,
+        vector_similarity_weight: options.vectorSimilarityWeight ?? 0.3,
       }),
-      signal,
+      signal: options.signal,
       scope: "knowledge",
     },
   );

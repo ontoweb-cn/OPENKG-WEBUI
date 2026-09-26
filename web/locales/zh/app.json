@@ -5032,5 +5032,19 @@
   "Zip archives are unpacked server-side; folder uploads keep the directory layout.": "zip 归档由服务端解包；文件夹上传保留目录结构。",
   "Preview is not supported for this file type. Use download to inspect the raw file.": "该文件类型不支持预览。可下载后查看原始文件。",
   "Preview is limited to the first {{count}} pages.": "预览仅显示前 {{count}} 页。",
-  "The default knowledge base is preselected when attaching knowledge in chat.": "在聊天中附加知识时，默认知识库将被预选。"
+  "The default knowledge base is preselected when attaching knowledge in chat.": "在聊天中附加知识时，默认知识库将被预选。",
+  "Parse tasks": "解析任务",
+  "Retry {{count}} failed": "重试 {{count}} 个失败文档",
+  "Hide parse history": "收起解析历史",
+  "Show parse history ({{count}})": "展开解析历史（{{count}}）",
+  "Parsing": "解析中",
+  "Filter by name (current page)": "按名称过滤（当前页）",
+  "No matches on this page.": "本页没有匹配的文档。",
+  "Hide parameters": "收起参数",
+  "Similarity threshold": "相似度阈值",
+  "Top K": "Top K",
+  "Vector weight": "向量权重",
+  "Rename & description": "名称与描述",
+  "Name cannot be empty.": "名称不能为空。",
+  "Page {{page}} of {{pages}} · {{count}} documents": "第 {{page}} / {{pages}} 页 · 共 {{count}} 个文档"
 }

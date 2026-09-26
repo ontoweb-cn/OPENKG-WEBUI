@@ -34,6 +34,7 @@ import {
   uploadStructured,
 } from "../api";
 import GithubSourcePanel from "./GithubSourcePanel";
+import ParseTasksPanel from "./ParseTasksPanel";
 import WebSourcePanel from "./WebSourcePanel";
 import KnowledgeDatasetSettingsPanel from "./KnowledgeDatasetSettingsPanel";
 import {
@@ -134,18 +135,29 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       });
   }, [datasetId]);
 
+  // P1-T5：服务端分页（page_size=50）+ 页内筛选（R2：先翻页再过滤）
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "DONE" | "RUNNING" | "FAIL">("all");
+  const PAGE_SIZE = 50;
+
   const load = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, targetPage?: number) => {
       try {
-        const result = await fetchDocuments(datasetId, signal);
+        const result = await fetchDocuments(datasetId, {
+          page: targetPage ?? page,
+          signal,
+        });
         setDocuments(result.documents);
+        setTotal(result.total);
         setError(null);
       } catch (err) {
         if (signal?.aborted) return;
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [datasetId],
+    [datasetId, page],
   );
 
   useEffect(() => {
@@ -159,6 +171,15 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       clearInterval(timer);
     };
   }, [load, running]);
+
+  const gotoPage = useCallback(
+    (next: number) => {
+      setPage(next);
+      // load 依赖 page state，直接以目标页发起，避免等待状态合流
+      void load(undefined, next);
+    },
+    [load],
+  );
 
   const onUpload = async (fileList: FileList | File[] | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -246,6 +267,22 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     }
   };
 
+  // P1-T6：一键重试当前页全部失败文档
+  const onRetryFailed = async () => {
+    const failedIds = (documents ?? []).filter((doc) => doc.run === "FAIL").map((doc) => doc.id);
+    if (failedIds.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await parseDocuments(datasetId, failedIds);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const tabLabel: Record<DetailSection, string> = {
     documents: t("Documents"),
     sources: t("Sources"),
@@ -312,8 +349,22 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
 
       <div className={section === "documents" ? "" : "hidden"}>
         <UploadDropzone uploading={uploading} onUpload={onUpload} />
+        <ParseTasksPanel
+          datasetId={datasetId}
+          documents={documents}
+          busy={busy}
+          onRetryFailed={onRetryFailed}
+        />
+        <DocumentFilterBar
+          search={search}
+          statusFilter={statusFilter}
+          onSearch={setSearch}
+          onStatusFilter={setStatusFilter}
+        />
         <DocumentTable
           documents={documents}
+          search={search}
+          statusFilter={statusFilter}
           busy={busy}
           onRequestDelete={(ids) => setDeleteIds(ids)}
           onReparse={onReparse}
@@ -325,6 +376,12 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
               id: doc.id,
             })
           }
+        />
+        <PagePager
+          page={page}
+          total={total}
+          pageSize={PAGE_SIZE}
+          onPage={gotoPage}
         />
         {running && liveLogs.length > 0 ? (
           <div className="mt-4 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-3">
@@ -352,7 +409,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       </div>
 
       <div className={section === "settings" ? "" : "hidden"}>
-        <KnowledgeDatasetSettingsPanel dataset={dataset} />
+        <KnowledgeDatasetSettingsPanel dataset={dataset} onUpdated={setDataset} />
       </div>
 
       <ConfirmDialog
@@ -527,14 +584,113 @@ function UploadDropzone({
   );
 }
 
+/** P1-T5：location 父目录分组键（根级文档归 "root" 组）。 */
+function dirOf(location: string): string {
+  const idx = location.lastIndexOf("/");
+  return idx > 0 ? location.slice(0, idx) : "/";
+}
+
+function DocumentFilterBar({
+  search,
+  statusFilter,
+  onSearch,
+  onStatusFilter,
+}: {
+  search: string;
+  statusFilter: "all" | "DONE" | "RUNNING" | "FAIL";
+  onSearch: (value: string) => void;
+  onStatusFilter: (value: "all" | "DONE" | "RUNNING" | "FAIL") => void;
+}) {
+  const { t } = useTranslation();
+  const statuses = [
+    { key: "all", label: t("All") },
+    { key: "DONE", label: t("Done") },
+    { key: "RUNNING", label: t("Parsing") },
+    { key: "FAIL", label: t("Failed") },
+  ] as const;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <input
+        value={search}
+        onChange={(event) => onSearch(event.target.value)}
+        placeholder={t("Filter by name (current page)")}
+        className="w-56 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-[12.5px] text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
+      />
+      <div className="flex items-center gap-1" role="group" aria-label={t("Status")}>
+        {statuses.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onStatusFilter(item.key)}
+            className={`rounded-md border px-2 py-1 text-[11.5px] transition-colors ${
+              statusFilter === item.key
+                ? "border-[var(--primary)]/50 bg-[var(--primary)]/10 text-[var(--foreground)]"
+                : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PagePager({
+  page,
+  total,
+  pageSize,
+  onPage,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onPage: (next: number) => void;
+}) {
+  const { t } = useTranslation();
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (pages <= 1) return null;
+  return (
+    <div className="mt-3 flex items-center justify-end gap-3 text-[12px] text-[var(--muted-foreground)]">
+      <span>
+        {t("Page {{page}} of {{pages}} · {{count}} documents", {
+          page,
+          pages,
+          count: total,
+        })}
+      </span>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={page <= 1}
+        onClick={() => onPage(page - 1)}
+      >
+        {t("Previous")}
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={page >= pages}
+        onClick={() => onPage(page + 1)}
+      >
+        {t("Next")}
+      </Button>
+    </div>
+  );
+}
+
 function DocumentTable({
   documents,
+  search,
+  statusFilter,
   busy,
   onRequestDelete,
   onReparse,
   onOpenPreview,
 }: {
   documents: KnowledgeDocument[] | null;
+  search: string;
+  statusFilter: "all" | "DONE" | "RUNNING" | "FAIL";
   busy: boolean;
   onRequestDelete: (ids: string[]) => void;
   onReparse: (doc: KnowledgeDocument) => void;
@@ -558,6 +714,14 @@ function DocumentTable({
     );
   }
 
+  // R2：先服务端翻页、再页内过滤（搜索 + 状态）
+  const keyword = search.trim().toLowerCase();
+  const filtered = documents.filter(
+    (doc) =>
+      (keyword === "" || doc.name.toLowerCase().includes(keyword)) &&
+      (statusFilter === "all" || doc.run === statusFilter),
+  );
+
   const toggle = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -566,6 +730,23 @@ function DocumentTable({
       return next;
     });
   };
+
+  if (filtered.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-[var(--border)]/70 bg-[var(--card)]/50 px-6 py-8 text-center text-[13px] text-[var(--muted-foreground)]">
+        {t("No matches on this page.")}
+      </div>
+    );
+  }
+
+  // 目录分组：保持首次出现顺序（T5）
+  const groups: Array<{ dir: string; rows: KnowledgeDocument[] }> = [];
+  for (const doc of filtered) {
+    const dir = dirOf(doc.location);
+    const bucket = groups.find((group) => group.dir === dir);
+    if (bucket) bucket.rows.push(doc);
+    else groups.push({ dir, rows: [doc] });
+  }
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)]/60 bg-[var(--card)]">
@@ -589,10 +770,10 @@ function DocumentTable({
               <input
                 type="checkbox"
                 aria-label={t("Select all")}
-                checked={selected.size === documents.length}
+                checked={selected.size === filtered.length && filtered.length > 0}
                 onChange={(event) =>
                   setSelected(
-                    event.target.checked ? new Set(documents.map((d) => d.id)) : new Set(),
+                    event.target.checked ? new Set(filtered.map((d) => d.id)) : new Set(),
                   )
                 }
               />
@@ -605,59 +786,105 @@ function DocumentTable({
           </tr>
         </thead>
         <tbody>
-          {documents.map((doc) => (
-            <tr key={doc.id} className="border-b border-[var(--border)]/40 last:border-0">
-              <td className="px-4 py-2.5">
-                <input
-                  type="checkbox"
-                  aria-label={doc.name}
-                  checked={selected.has(doc.id)}
-                  onChange={() => toggle(doc.id)}
-                />
-              </td>
-              <td className="max-w-72 truncate px-2 py-2.5" title={doc.location}>
-                <button
-                  type="button"
-                  className="truncate text-left text-[var(--foreground)] underline-offset-2 hover:underline"
-                  onClick={() => onOpenPreview(doc)}
-                >
-                  {doc.name}
-                </button>
-              </td>
-              <td className="px-2 py-2.5">
-                <RunBadge run={doc.run} progress={doc.progress} />
-              </td>
-              <td className="px-2 py-2.5 text-[var(--muted-foreground)]">{doc.chunkCount}</td>
-              <td className="px-2 py-2.5 text-[var(--muted-foreground)]">{formatBytes(doc.size)}</td>
-              <td className="px-4 py-2.5">
-                <div className="flex items-center justify-end gap-1.5">
-                  {doc.run === "DONE" || doc.run === "FAIL" ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      icon={<RotateCw size={13} />}
-                      onClick={() => onReparse(doc)}
-                    >
-                      {t("Reparse")}
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    icon={<Trash2 size={13} />}
-                    onClick={() => onRequestDelete([doc.id])}
-                  >
-                    {t("Delete")}
-                  </Button>
-                </div>
-              </td>
-            </tr>
+          {groups.map((group) => (
+            <GroupRows
+              key={group.dir}
+              dir={group.dir}
+              rows={group.rows}
+              selected={selected}
+              busy={busy}
+              onToggle={toggle}
+              onRequestDelete={onRequestDelete}
+              onReparse={onReparse}
+              onOpenPreview={onOpenPreview}
+            />
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function GroupRows({
+  dir,
+  rows,
+  selected,
+  busy,
+  onToggle,
+  onRequestDelete,
+  onReparse,
+  onOpenPreview,
+}: {
+  dir: string;
+  rows: KnowledgeDocument[];
+  selected: Set<string>;
+  busy: boolean;
+  onToggle: (id: string) => void;
+  onRequestDelete: (ids: string[]) => void;
+  onReparse: (doc: KnowledgeDocument) => void;
+  onOpenPreview: (doc: KnowledgeDocument) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      {dir !== "/" ? (
+        <tr className="bg-[var(--muted)]/30">
+          <td colSpan={6} className="px-4 py-1.5 text-[11.5px] font-medium text-[var(--muted-foreground)]">
+            {dir}/
+          </td>
+        </tr>
+      ) : null}
+      {rows.map((doc) => (
+        <tr key={doc.id} className="border-b border-[var(--border)]/40 last:border-0">
+          <td className="px-4 py-2.5">
+            <input
+              type="checkbox"
+              aria-label={doc.name}
+              checked={selected.has(doc.id)}
+              onChange={() => onToggle(doc.id)}
+            />
+          </td>
+          <td className="max-w-72 truncate px-2 py-2.5" title={doc.location}>
+            <button
+              type="button"
+              className="truncate text-left text-[var(--foreground)] underline-offset-2 hover:underline"
+              onClick={() => onOpenPreview(doc)}
+            >
+              {doc.name}
+            </button>
+          </td>
+          <td className="px-2 py-2.5">
+            <RunBadge run={doc.run} progress={doc.progress} />
+          </td>
+          <td className="px-2 py-2.5 text-[var(--muted-foreground)]">{doc.chunkCount}</td>
+          <td className="px-2 py-2.5 text-[var(--muted-foreground)]">{formatBytes(doc.size)}</td>
+          <td className="px-4 py-2.5">
+            <div className="flex items-center justify-end gap-1.5">
+              {doc.run === "DONE" || doc.run === "FAIL" ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  icon={<RotateCw size={13} />}
+                  onClick={() => onReparse(doc)}
+                >
+                  {t("Reparse")}
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                icon={<Trash2 size={13} />}
+                onClick={() => onRequestDelete([doc.id])}
+              >
+                {t("Delete")}
+              </Button>
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
   );
 }
 
@@ -694,13 +921,25 @@ function RetrievalPlayground({ datasetId }: { datasetId: string }) {
   const [chunks, setChunks] = useState<KnowledgeSearchChunk[] | null>(null);
   const [logs, setLogs] = useState<KnowledgeIngestionLog[] | null>(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // P1-T7：参数开放（缺省=引擎缺省口径，R5 只开放三项）
+  const [threshold, setThreshold] = useState(0.2);
+  const [topK, setTopK] = useState(1024);
+  const [vectorWeight, setVectorWeight] = useState(0.3);
+  const [showParams, setShowParams] = useState(false);
 
   const onSearch = async () => {
     if (!question.trim()) return;
     setSearching(true);
     setError(null);
     try {
-      setChunks(await searchDataset(datasetId, question.trim()));
+      setChunks(
+        await searchDataset(datasetId, question.trim(), {
+          similarityThreshold: threshold,
+          topK,
+          vectorSimilarityWeight: vectorWeight,
+        }),
+      );
       fetchIngestionLogs(datasetId)
         .then(setLogs)
         .catch(() => setLogs(null));
@@ -709,6 +948,15 @@ function RetrievalPlayground({ datasetId }: { datasetId: string }) {
     } finally {
       setSearching(false);
     }
+  };
+
+  const toggleChunk = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -738,6 +986,56 @@ function RetrievalPlayground({ datasetId }: { datasetId: string }) {
           </Button>
         </div>
 
+        <div className="mt-2">
+          <button
+            type="button"
+            className="text-[11.5px] text-[var(--muted-foreground)] underline-offset-2 hover:underline"
+            onClick={() => setShowParams((value) => !value)}
+          >
+            {showParams ? t("Hide parameters") : t("Retrieval parameters")}
+          </button>
+          {showParams ? (
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              <label className="text-[11.5px] text-[var(--muted-foreground)]">
+                {t("Similarity threshold")}
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={threshold}
+                  onChange={(event) => setThreshold(Number(event.target.value))}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-[12.5px] text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
+                />
+              </label>
+              <label className="text-[11.5px] text-[var(--muted-foreground)]">
+                {t("Top K")}
+                <input
+                  type="number"
+                  min={1}
+                  max={1024}
+                  step={1}
+                  value={topK}
+                  onChange={(event) => setTopK(Number(event.target.value))}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-[12.5px] text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
+                />
+              </label>
+              <label className="text-[11.5px] text-[var(--muted-foreground)]">
+                {t("Vector weight")}
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={vectorWeight}
+                  onChange={(event) => setVectorWeight(Number(event.target.value))}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-[12.5px] text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
+                />
+              </label>
+            </div>
+          ) : null}
+        </div>
+
         {error ? <p className="mt-3 text-[12.5px] text-destructive">{error}</p> : null}
 
         {chunks != null && chunks.length === 0 ? (
@@ -748,20 +1046,34 @@ function RetrievalPlayground({ datasetId }: { datasetId: string }) {
 
         {chunks != null && chunks.length > 0 ? (
           <ul className="mt-3 space-y-2.5">
-            {chunks.map((chunk) => (
-              <li
-                key={chunk.id}
-                className="rounded-lg border border-[var(--border)]/50 bg-[var(--background)] px-3.5 py-3"
-              >
-                <div className="flex items-center justify-between gap-2 text-[11.5px] text-[var(--muted-foreground)]">
-                  <span className="truncate">{chunk.documentName}</span>
-                  <span className="shrink-0">{(chunk.similarity * 100).toFixed(1)}%</span>
-                </div>
-                <p className="mt-1.5 line-clamp-4 whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--foreground)]">
-                  {stripHighlightTags(chunk.content)}
-                </p>
-              </li>
-            ))}
+            {chunks.map((chunk) => {
+              const open = expanded.has(chunk.id);
+              return (
+                <li
+                  key={chunk.id}
+                  className="rounded-lg border border-[var(--border)]/50 bg-[var(--background)] px-3.5 py-3"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[11.5px] text-[var(--muted-foreground)]">
+                    <span className="truncate">{chunk.documentName}</span>
+                    <span className="shrink-0">{(chunk.similarity * 100).toFixed(1)}%</span>
+                  </div>
+                  <p
+                    className={`mt-1.5 whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--foreground)] ${
+                      open ? "" : "line-clamp-4"
+                    }`}
+                  >
+                    {stripHighlightTags(chunk.content)}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-1 text-[11px] text-[var(--muted-foreground)] underline-offset-2 hover:underline"
+                    onClick={() => toggleChunk(chunk.id)}
+                  >
+                    {open ? t("Collapse") : t("Expand")}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : null}
 

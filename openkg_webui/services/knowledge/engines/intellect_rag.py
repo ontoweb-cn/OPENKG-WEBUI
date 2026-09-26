@@ -335,6 +335,31 @@ class IntellectRagEngine:
         row = data.get("dataset") if isinstance(data, dict) and "dataset" in data else data
         return self._dataset(row)
 
+    async def update_dataset(
+        self,
+        dataset_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> KnowledgeDataset:
+        """部分更新知识库；随后回读（P1-T8/R3：以服务端状态为准，防归一化字段漂移）。
+
+        上游 ``PUT /datasets/{id}`` 接受部分 body（name/description/parser_config），
+        DeepMentor client.py:273 已验证同一端点语义。
+        """
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        if not body:
+            return await self.get_dataset(dataset_id)
+        # PUT 响应必须解包：上游对无权限/重名等返回非零 code 信封
+        # （实测 code 102 "lacks permission"），吞掉会变成"假成功"。
+        resp = await self.request("PUT", f"/datasets/{dataset_id}", json=body)
+        self._unwrap(resp)
+        return await self.get_dataset(dataset_id)
+
     async def delete_dataset(self, dataset_id: str) -> None:
         resp = await self.request("DELETE", f"/datasets/{dataset_id}")
         self._unwrap(resp)

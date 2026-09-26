@@ -298,6 +298,30 @@ async def knowledge_get_dataset(dataset_id: str) -> Any:
     return await _engine_call(lambda e: e.get_dataset(dataset_id), dataset_id=dataset_id)
 
 
+@router.put("/datasets/{dataset_id}", response_model=KnowledgeDataset)
+async def knowledge_update_dataset(dataset_id: str, request: Request) -> Any:
+    """部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。"""
+    _require_enabled()
+    _require_same_origin(request)
+    body = await _json_body(request)
+    payload = body if isinstance(body, dict) else {}
+
+    name = payload.get("name")
+    description = payload.get("description")
+    if name is None and description is None:
+        raise HTTPException(status_code=400, detail="Nothing to update.")
+    if name is not None and not str(name).strip():
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+    return await _engine_call(
+        lambda e: e.update_dataset(
+            dataset_id,
+            name=None if name is None else str(name).strip(),
+            description=None if description is None else str(description),
+        ),
+        dataset_id=dataset_id,
+    )
+
+
 @router.delete("/datasets/{dataset_id}")
 async def knowledge_delete_dataset(dataset_id: str, request: Request) -> Any:
     _require_enabled()

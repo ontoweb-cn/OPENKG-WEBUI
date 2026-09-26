@@ -309,5 +309,19 @@
   "Zip archives are unpacked server-side; folder uploads keep the directory layout.": "Zip archives are unpacked server-side; folder uploads keep the directory layout.",
   "Preview is not supported for this file type. Use download to inspect the raw file.": "Preview is not supported for this file type. Use download to inspect the raw file.",
   "Preview is limited to the first {{count}} pages.": "Preview is limited to the first {{count}} pages.",
-  "The default knowledge base is preselected when attaching knowledge in chat.": "The default knowledge base is preselected when attaching knowledge in chat."
+  "The default knowledge base is preselected when attaching knowledge in chat.": "The default knowledge base is preselected when attaching knowledge in chat.",
+  "Parse tasks": "Parse tasks",
+  "Retry {{count}} failed": "Retry {{count}} failed",
+  "Hide parse history": "Hide parse history",
+  "Show parse history ({{count}})": "Show parse history ({{count}})",
+  "Parsing": "Parsing",
+  "Filter by name (current page)": "Filter by name (current page)",
+  "No matches on this page.": "No matches on this page.",
+  "Hide parameters": "Hide parameters",
+  "Similarity threshold": "Similarity threshold",
+  "Top K": "Top K",
+  "Vector weight": "Vector weight",
+  "Rename & description": "Rename & description",
+  "Name cannot be empty.": "Name cannot be empty.",
+  "Page {{page}} of {{pages}} · {{count}} documents": "Page {{page}} of {{pages}} · {{count}} documents"
 }

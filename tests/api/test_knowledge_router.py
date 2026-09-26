@@ -234,10 +234,60 @@ def test_create_rejects_unknown_permission(proxy: TestClient) -> None:
     response = proxy.post(
         f"{_K}/datasets",
         json={"name": "kb", "permission": "public"},
-        headers={"origin": "http://testserver"},
     )
     assert response.status_code == 400
     assert proxy.calls == []  # type: ignore[attr-defined]  # 未触达上游
+
+
+def test_update_dataset_roundtrip_reads_back(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-T8：PUT 部分更新后必须回读——响应以服务端状态为准（R3）。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            assert json.loads(request.content) == {"name": "Renamed"}
+            return httpx.Response(200, json={"code": 0, "data": True})
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "id": "kb1",
+                    "name": "Renamed",
+                    "description": "",
+                    "permission": "me",
+                    "document_count": 2,
+                    "chunk_count": 5,
+                    "token_count": 7,
+                    "created_at": "123",
+                },
+            },
+        )
+
+    monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
+    response = proxy.put(
+        f"{_K}/datasets/kb1",
+        json={"name": "Renamed"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Renamed"
+    assert body["document_count"] == 2
+
+
+def test_update_dataset_validations(proxy: TestClient) -> None:
+    """空 body / 空白 name 在本层 400，不触达上游。"""
+    empty = proxy.put(
+        f"{_K}/datasets/kb1", json={}, headers={"origin": "http://testserver"}
+    )
+    assert empty.status_code == 400
+    blank = proxy.put(
+        f"{_K}/datasets/kb1", json={"name": "   "}, headers={"origin": "http://testserver"}
+    )
+    assert blank.status_code == 400
+    assert proxy.calls == []  # type: ignore[attr-defined]
 
 
 def test_upstream_connection_error_maps_502(
