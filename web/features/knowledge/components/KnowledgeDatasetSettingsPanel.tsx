@@ -5,10 +5,18 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/Button";
 
-import { fetchKnowledgePreferences, putKnowledgePreferences, updateDataset } from "../api";
+import {
+  checkEmbeddingCompatibility,
+  fetchEmbeddingModels,
+  fetchKnowledgePreferences,
+  putKnowledgePreferences,
+  updateDataset,
+} from "../api";
 import {
   formatBytes,
   formatEpochMillis,
+  type EmbeddingCheckResult,
+  type EmbeddingModelOption,
   type KnowledgeDataset,
   type KnowledgeVisibility,
 } from "../model";
@@ -77,6 +85,64 @@ export default function KnowledgeDatasetSettingsPanel({
     };
   }, [dataset?.id]);
 
+  // P3 T13'：嵌入模型更换流程（13.0 下拉候选 + 13.1 兼容性检查 + 兼容才保存）
+  const [changingModel, setChangingModel] = useState(false);
+  const [modelOptions, setModelOptions] = useState<EmbeddingModelOption[] | null>(null);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<EmbeddingCheckResult | null>(null);
+  const [modelFlowError, setModelError] = useState<string | null>(null);
+  const [savingModel, setSavingModel] = useState(false);
+
+  const startModelChange = useCallback(async () => {
+    setChangingModel(true);
+    setModelOptions(null);
+    setCheckResult(null);
+    setModelError(null);
+    try {
+      const options = await fetchEmbeddingModels();
+      // 上游清单用裸模型名，dataset 行的 embd_id 带 @instance@provider 后缀——
+      // 当前模型不在候选里时补插一项，保证预选与自检可用（阶段 2 live 修正）
+      const current = dataset?.embeddingModel ?? "";
+      if (current && !options.some((option) => option.name === current)) {
+        options.unshift({ name: current, providerName: "current" });
+      }
+      setModelOptions(options);
+      setSelectedModel(current);
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : String(err));
+    }
+  }, [dataset?.embeddingModel]);
+
+  const runCheck = useCallback(async () => {
+    if (!dataset || !selectedModel) return;
+    setChecking(true);
+    setCheckResult(null);
+    setModelError(null);
+    try {
+      setCheckResult(await checkEmbeddingCompatibility(dataset.id, selectedModel));
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChecking(false);
+    }
+  }, [dataset, selectedModel]);
+
+  const saveModel = useCallback(async () => {
+    if (!dataset || !checkResult?.compatible) return;
+    setSavingModel(true);
+    setModelError(null);
+    try {
+      const next = await updateDataset(dataset.id, { embeddingModel: selectedModel });
+      onUpdated?.(next);
+      setChangingModel(false);
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingModel(false);
+    }
+  }, [dataset, checkResult?.compatible, selectedModel, onUpdated]);
+
   const onToggleDefault = useCallback(async () => {
     setSaving(true);
     setError(null);
@@ -138,7 +204,18 @@ export default function KnowledgeDatasetSettingsPanel({
           <dt className="text-[var(--muted-foreground)]">{t("Visibility")}</dt>
           <dd className="text-[var(--foreground)]">{visibilityLabel[dataset.visibility]}</dd>
           <dt className="text-[var(--muted-foreground)]">{t("Embedding model")}</dt>
-          <dd className="text-[var(--foreground)]">{dataset.embeddingModel || "—"}</dd>
+          <dd className="flex items-center gap-2 text-[var(--foreground)]">
+            <span className="min-w-0 break-all">{dataset.embeddingModel || "—"}</span>
+            {!changingModel ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void startModelChange()}
+              >
+                {t("Change")}
+              </Button>
+            ) : null}
+          </dd>
           <dt className="text-[var(--muted-foreground)]">{t("Documents")}</dt>
           <dd className="text-[var(--foreground)]">{dataset.documentCount}</dd>
           <dt className="text-[var(--muted-foreground)]">{t("Chunks")}</dt>
@@ -152,6 +229,100 @@ export default function KnowledgeDatasetSettingsPanel({
             {formatEpochMillis(dataset.createdAt) || "—"}
           </dd>
         </dl>
+
+        {changingModel ? (
+          <div className="mt-3 space-y-2.5 border-t border-[var(--border)]/50 pt-3">
+            {modelOptions == null ? (
+              <p className="text-[12px] text-[var(--muted-foreground)]">{t("Loading...")}</p>
+            ) : modelOptions.length === 0 ? (
+              <p className="text-[12px] text-[var(--muted-foreground)]">
+                {t("No embedding models are configured on the RAG server.")}
+              </p>
+            ) : (
+              <>
+                <label className="block text-[11.5px] text-[var(--muted-foreground)]">
+                  {t("New embedding model")}
+                  <select
+                    value={selectedModel}
+                    onChange={(event) => {
+                      setSelectedModel(event.target.value);
+                      setCheckResult(null);
+                    }}
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[12.5px] text-[var(--foreground)] outline-none focus:border-[var(--primary)]/60"
+                  >
+                    {modelOptions.map((option) => (
+                      <option key={option.name} value={option.name}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={checking}
+                    disabled={!selectedModel}
+                    onClick={() => void runCheck()}
+                  >
+                    {t("Check compatibility")}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={savingModel}
+                    disabled={
+                      !checkResult?.compatible ||
+                      !selectedModel ||
+                      selectedModel === dataset.embeddingModel
+                    }
+                    onClick={() => void saveModel()}
+                  >
+                    {t("Save")}
+                  </Button>
+                </div>
+                {checkResult ? (
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-[12px] ${
+                      checkResult.compatible
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                        : "border-destructive/30 bg-destructive/10 text-destructive"
+                    }`}
+                  >
+                    <p className="font-medium">
+                      {checkResult.compatible
+                        ? t("Compatible — safe to switch.")
+                        : t("Not compatible with the stored vectors.")}
+                    </p>
+                    <p className="mt-0.5 text-[11.5px] opacity-80">
+                      {t("avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid", {
+                        avg: checkResult.avgCosSim.toFixed(3),
+                        min: checkResult.minCosSim.toFixed(3),
+                        max: checkResult.maxCosSim.toFixed(3),
+                        valid: checkResult.valid,
+                        sampled: checkResult.sampled,
+                      })}
+                    </p>
+                    {checkResult.reason ? (
+                      <p className="mt-1 text-[11.5px] opacity-90">{checkResult.reason}</p>
+                    ) : null}
+                    {checkResult.compatible ? (
+                      <p className="mt-1 text-[11.5px] opacity-90">
+                        {t("Existing chunk vectors are not rebuilt automatically — re-parse documents after switching.")}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {modelFlowError ? (
+                  <p className="text-[12px] text-destructive">{modelFlowError}</p>
+                ) : null}
+                <p className="text-[11px] text-[var(--muted-foreground)]">
+                  {t("The compatibility check re-embeds {{count}} sampled chunks on the server.", { count: 5 })}
+                </p>
+              </>
+            )}
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-4">

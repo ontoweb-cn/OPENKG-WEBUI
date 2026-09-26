@@ -842,3 +842,154 @@ def test_large_upload_uses_spooled_file_not_bytes(monkeypatch, tmp_path) -> None
     assert not isinstance(forwarded, bytes), (
         "D4 violation: upload buffered the file into bytes instead of streaming"
     )
+
+
+# ---------------------------------------------------------------------------
+# P3 T13'：嵌入模型清单 / 兼容性检查 / 换模型强制检查
+# ---------------------------------------------------------------------------
+
+
+def test_embedding_models_filters_by_type(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/api/v1/models")
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": [
+                    {
+                        "name": "qwen3-embedding-4b@default@GPUStack",
+                        "provider_name": "GPUStack",
+                        "model_type": ["embedding"],
+                    },
+                    {
+                        "name": "Qwen3-Reranker-8B",
+                        "provider_name": "GPUStack",
+                        "model_type": ["rerank"],
+                    },
+                ],
+            },
+        )
+
+    monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
+    response = proxy.get(f"{_K}/models")
+    assert response.status_code == 200
+    names = [item["name"] for item in response.json()]
+    assert names == ["qwen3-embedding-4b@default@GPUStack"]
+
+
+def test_check_embedding_compatible(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "model": "m",
+                    "sampled": 5,
+                    "valid": 5,
+                    "avg_cos_sim": 0.93,
+                    "min_cos_sim": 0.9,
+                    "max_cos_sim": 0.97,
+                    "match_mode": "content_only",
+                },
+            },
+        )
+
+    monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
+    response = proxy.post(
+        f"{_K}/datasets/kb1/embedding/check",
+        json={"embd_id": "m"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["compatible"] is True
+    assert body["avg_cos_sim"] == 0.93
+
+
+def test_check_dimension_mismatch_is_a_conclusion(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """维度不匹配是检查的**结论**而非服务端故障——归一 compatible=False（R9）。"""
+    handler_called: list[bool] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        handler_called.append(True)
+        return httpx.Response(
+            200,
+            json={
+                "code": 102,
+                "message": (
+                    "Embedding failure. The dimension (1024) of given embedding "
+                    "model is different from the original (768)"
+                ),
+            },
+        )
+
+    monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
+    response = proxy.post(
+        f"{_K}/datasets/kb1/embedding/check",
+        json={"embd_id": "m"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["compatible"] is False
+    assert "dimension" in body["reason"].lower()
+
+
+def test_update_embedding_model_enforces_check(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D5：PUT embedding_model 时服务端自跑检查，不兼容 409 且不触达更新。"""
+    methods: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "model": "new-embd",
+                        "sampled": 5,
+                        "valid": 5,
+                        "avg_cos_sim": 0.2,
+                        "min_cos_sim": 0.1,
+                        "max_cos_sim": 0.3,
+                        "match_mode": "content_only",
+                    },
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {
+                    "id": "kb1",
+                    "name": "n",
+                    "description": "",
+                    "permission": "me",
+                    "document_count": 0,
+                    "chunk_count": 0,
+                    "token_num": 0,
+                    "create_time": "1",
+                },
+            },
+        )
+
+    monkeypatch.setattr(knowledge_router, "_transport", httpx.MockTransport(handler))
+    response = proxy.put(
+        f"{_K}/datasets/kb1",
+        json={"embedding_model": "new-embd"},
+        headers={"origin": "http://testserver"},
+    )
+    assert response.status_code == 409
+    assert "embedding_incompatible" in response.text
+    assert "PUT" not in methods  # 不兼容：未触达上游更新

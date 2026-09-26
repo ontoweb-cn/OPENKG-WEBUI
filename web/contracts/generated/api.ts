@@ -712,6 +712,9 @@ export interface paths {
     /**
      * Knowledge Update Dataset
      * @description 部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。
+     *
+     *     ``embedding_model``（P3 T13'）走 **D5 强制检查**：服务端先跑兼容性探针，
+     *     不兼容直接 409——不信任客户端预先检查过。
      */
     readonly put: operations["knowledge_update_dataset_api_knowledge_center_datasets__dataset_id__put"];
     readonly post?: never;
@@ -859,6 +862,26 @@ export interface paths {
      *     - 响应为各分组上游结果的数组（信封透传）。
      */
     readonly post: operations["knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/embedding/check": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /**
+     * Knowledge Check Embedding
+     * @description 嵌入兼容性检查（P3 T13' 13.1）：只读探针，结论含 compatible 判定。
+     */
+    readonly post: operations["knowledge_check_embedding_api_knowledge_center_datasets__dataset_id__embedding_check_post"];
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
@@ -1060,6 +1083,26 @@ export interface paths {
     };
     /** Knowledge Preview Document */
     readonly get: operations["knowledge_preview_document_api_knowledge_center_documents__document_id__preview_get"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/models": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * Knowledge Embedding Models
+     * @description 嵌入模型候选清单（P3 T13' 13.0）——Settings 更换流程下拉的数据源。
+     */
+    readonly get: operations["knowledge_embedding_models_api_knowledge_center_models_get"];
     readonly put?: never;
     readonly post?: never;
     readonly delete?: never;
@@ -3434,6 +3477,11 @@ export interface components {
        * @default 0
        */
       readonly document_count: number;
+      /**
+       * Embedding Model
+       * @default
+       */
+      readonly embedding_model: string;
       /** Id */
       readonly id: string;
       /** Name */
@@ -6442,6 +6490,41 @@ export interface operations {
       };
     };
   };
+  readonly knowledge_check_embedding_api_knowledge_center_datasets__dataset_id__embedding_check_post: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   readonly knowledge_graph_api_knowledge_center_datasets__dataset_id__graph_get: {
     readonly parameters: {
       readonly query?: never;
@@ -7042,6 +7125,39 @@ export interface operations {
       readonly path: {
         readonly document_id: string;
       };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_embedding_models_api_knowledge_center_models_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path?: never;
       readonly cookie?: {
         readonly dt_token?: string | null;
       };

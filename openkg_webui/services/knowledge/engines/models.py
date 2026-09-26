@@ -94,6 +94,27 @@ class MutationResult(BaseModel):
     ok: bool = True
 
 
+class EmbeddingModelOption(BaseModel):
+    """可嵌入模型候选（上游 /models 的 instance 行，P3 T13' 13.0）。"""
+
+    name: str
+    provider_name: str = ""
+
+
+class EmbeddingCheckResult(BaseModel):
+    """嵌入兼容性检查结论（P3 T13' 13.1；`compatible` 由本仓阈值判定）。"""
+
+    compatible: bool = False
+    reason: str = ""
+    model: str = ""
+    sampled: int = 0
+    valid: int = 0
+    avg_cos_sim: float = 0.0
+    min_cos_sim: float = 0.0
+    max_cos_sim: float = 0.0
+    match_mode: str = ""
+
+
 class KnowledgeGraph(BaseModel):
     """知识图谱载荷（P2-T10；未构建时 nodes/edges 为空）。"""
 

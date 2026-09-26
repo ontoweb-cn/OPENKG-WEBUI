@@ -217,3 +217,29 @@ intellect-team 网关 RAG 插件）逐项核对原 P3 设想，四项全部据�
 **通过（修订版）**。R5 为计划缺口补全（新增 13.0），R6/R7 为健壮性与验收口径，
 R8/R9 消除残余不确定性。四项实施无需再调研；T13' 的工作量因 13.0 上调至
 **1.5~2 人日**，其余不变。
+
+## 十、分阶段实施记录
+
+### 阶段 1：T14' 进度文案最小映射（2026-09-26，a7bc4f9）
+
+- `model.ts` `progressHint(raw, t)`：4 条 pattern→本地化提示（Provider 缺失 /
+  维度不匹配 / 解析出错 / 解析完成），**具体模式优先于泛化模式**排序，无命中原样；
+  接入点为 ParseTasksPanel 展开视图（提示行 + 原始日志保留），SSE 瞬时行不动。
+- i18n zh+en 各 4 key；单测 5 项（映射/兜底/优先级）。
+- 门禁：typecheck / lint（0 错误）/ vitest 全绿。
+
+### 阶段 2：T13' 嵌入模型兼容性检查（2026-09-26）
+
+- 后端：engine `list_embedding_models`（/models 过滤 embedding 类型）+
+  `check_embedding_compatibility`（**维度不匹配归一为 compatible=false 结论**，
+  R9；`COMPAT_THRESHOLD=0.6` 常量）+ `update_dataset` 增 embedding_model；
+  路由 `GET /models`、`POST /datasets/{id}/embedding/check`、PUT 的 **D5 服务端
+  强制检查**（不兼容 409 且不触达上游更新）；契约四层联动。
+- 前端：Settings 嵌入模型行"更换"流程——下拉候选（**当前模型带后缀不在清单时
+  自动补插**，live 修正）、检查结果卡（兼容徽标 + avg/min/max + 抽样数 + 重建提示）、
+  保存按 D5 门禁（不兼容禁用）。
+- 测试：后端 4 项新 pytest（类型过滤/兼容/维度结论/D5 强制 409）；live：
+  models 端点、自检链路、UI 全流程 + 保存门禁精确验证通过。
+- **观察（非本仓问题）**：73df（209 chunks）自检 sampled=0——上游采样走 docstore
+  （elasticsearch 向量库），该库内容侧需另行核查；UI 对"无法判定"结论如实呈现。
+  4 项新 pytest：类型过滤 / 兼容 / 维度结论 / D5 强制 409。

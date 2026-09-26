@@ -42,6 +42,8 @@ from .models import (
     ChunkPage,
     DatasetPage,
     DocumentPage,
+    EmbeddingCheckResult,
+    EmbeddingModelOption,
     GraphIndexStatus,
     IngestionLog,
     KnowledgeChunk,
@@ -348,17 +350,22 @@ class IntellectRagEngine:
         *,
         name: str | None = None,
         description: str | None = None,
+        embedding_model: str | None = None,
     ) -> KnowledgeDataset:
         """部分更新知识库；随后回读（P1-T8/R3：以服务端状态为准，防归一化字段漂移）。
 
-        上游 ``PUT /datasets/{id}`` 接受部分 body（name/description/parser_config），
-        DeepMentor client.py:273 已验证同一端点语义。
+        上游 ``PUT /datasets/{id}`` 接受部分 body（name/description/parser_config/
+        embedding_model），DeepMentor client.py:273 已验证同一端点语义。
+        注意：换 ``embedding_model`` 后存量向量不自动重建——调用方（路由层）
+        必须先过 ``check_embedding_compatibility``（D5）。
         """
         body: dict[str, Any] = {}
         if name is not None:
             body["name"] = name
         if description is not None:
             body["description"] = description
+        if embedding_model is not None:
+            body["embedding_model"] = embedding_model
         if not body:
             return await self.get_dataset(dataset_id)
         # PUT 响应必须解包：上游对无权限/重名等返回非零 code 信封
@@ -620,8 +627,89 @@ class IntellectRagEngine:
             else [],
         )
 
-    # -- 知识图谱 / 索引构建（P2-T10）--
+    # -- 嵌入模型清单 / 兼容性检查（P3 T13'）--
 
+    #: 兼容判定阈值（D6）：avg_cos_sim 达标视为可换；产品口径，集中一处便于调。
+    COMPAT_THRESHOLD = 0.6
+
+    async def list_embedding_models(self) -> list[EmbeddingModelOption]:
+        """上游 /models 的 embedding 候选（供 Settings 更换流程下拉）。"""
+        resp = await self.request("GET", "/models")
+        data = self._unwrap(resp)
+        rows = data if isinstance(data, list) else (data or {}).get("data") or []
+        out: list[EmbeddingModelOption] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            types = row.get("model_type")
+            types = types if isinstance(types, list) else []
+            if "embedding" not in [str(x).lower() for x in types]:
+                continue
+            name = str(row.get("name") or "")
+            if name:
+                out.append(
+                    EmbeddingModelOption(
+                        name=name,
+                        provider_name=str(row.get("provider_name") or ""),
+                    )
+                )
+        return out
+
+    async def check_embedding_compatibility(
+        self, dataset_id: str, embd_id: str, *, check_num: int = 5
+    ) -> EmbeddingCheckResult:
+        """换嵌入模型前的兼容性探针（上游抽样重嵌入算余弦，只读不改索引）。
+
+        上游把维度不匹配等失败包装成错误信封——**失败的检查本身就是检查结论**
+        （P3 评审二轮 R9）：维度不匹配归一为 ``compatible=False``，其余上游错误
+        照常抛 EngineError（传输/权限类问题不应伪装成"不兼容"）。
+        """
+
+        resp = await self.request(
+            "POST",
+            f"/datasets/{dataset_id}/embedding/check",
+            json={"embd_id": embd_id, "check_num": check_num},
+        )
+        try:
+            data = self._unwrap(resp)
+        except EngineError as exc:
+            if "dimension" in str(exc).lower() and "different" in str(exc).lower():
+                return EmbeddingCheckResult(
+                    compatible=False,
+                    reason="Embedding dimension mismatch — the vector index must be rebuilt.",
+                    model=embd_id,
+                )
+            raise
+        row = data if isinstance(data, dict) else {}
+
+        def _f(key: str) -> float:
+            try:
+                return float(row.get(key) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        result = EmbeddingCheckResult(
+            model=str(row.get("model") or embd_id),
+            sampled=int(row.get("sampled") or 0),
+            valid=int(row.get("valid") or 0),
+            avg_cos_sim=_f("avg_cos_sim"),
+            min_cos_sim=_f("min_cos_sim"),
+            max_cos_sim=_f("max_cos_sim"),
+            match_mode=str(row.get("match_mode") or ""),
+        )
+        # 无有效样本（空库/向量缺失）无法判定 → 不兼容并说明
+        if result.valid <= 0:
+            result.reason = "No valid samples could be checked (dataset empty or vectors missing)."
+            return result
+        result.compatible = result.avg_cos_sim >= self.COMPAT_THRESHOLD
+        if not result.compatible:
+            result.reason = (
+                f"avg_cos_sim {result.avg_cos_sim:.3f} is below the compatibility "
+                f"threshold ({self.COMPAT_THRESHOLD}). Re-parse documents after switching."
+            )
+        return result
+
+    # -- 知识图谱 / 索引构建（P2-T10）--
     async def get_knowledge_graph(self, dataset_id: str) -> KnowledgeGraph:
         resp = await self.request("GET", f"/datasets/{dataset_id}/knowledge_graph")
         data = self._unwrap(resp)

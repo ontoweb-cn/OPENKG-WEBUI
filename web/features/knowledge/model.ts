@@ -216,6 +216,50 @@ export function parseKnowledgePreferences(raw: unknown): KnowledgePreferences {
   return { defaultDatasetId: id.length > 0 ? id : null };
 }
 
+// —— 嵌入模型兼容性检查（P3 T13'）——
+
+export interface EmbeddingModelOption {
+  name: string;
+  providerName: string;
+}
+
+export function parseEmbeddingModelOptions(raw: unknown): EmbeddingModelOption[] {
+  const rows = Array.isArray(raw) ? raw : [];
+  return rows
+    .map((item) => {
+      const row = record(item);
+      return { name: text(row.name), providerName: text(row.provider_name) };
+    })
+    .filter((option) => option.name.length > 0);
+}
+
+export interface EmbeddingCheckResult {
+  compatible: boolean;
+  reason: string;
+  model: string;
+  sampled: number;
+  valid: number;
+  avgCosSim: number;
+  minCosSim: number;
+  maxCosSim: number;
+  matchMode: string;
+}
+
+export function parseEmbeddingCheckResult(raw: unknown): EmbeddingCheckResult {
+  const row = record(raw);
+  return {
+    compatible: Boolean(row.compatible),
+    reason: text(row.reason),
+    model: text(row.model),
+    sampled: num(row.sampled),
+    valid: num(row.valid),
+    avgCosSim: num(row.avg_cos_sim),
+    minCosSim: num(row.min_cos_sim),
+    maxCosSim: num(row.max_cos_sim),
+    matchMode: text(row.match_mode),
+  };
+}
+
 // —— chunk 管理（P2-T9；上游 available_int 为权威，available 键可 null）——
 
 export interface KnowledgeChunk {

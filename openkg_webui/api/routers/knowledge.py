@@ -303,7 +303,11 @@ async def knowledge_get_dataset(dataset_id: str) -> Any:
 
 @router.put("/datasets/{dataset_id}", response_model=KnowledgeDataset)
 async def knowledge_update_dataset(dataset_id: str, request: Request) -> Any:
-    """部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。"""
+    """部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。
+
+    ``embedding_model``（P3 T13'）走 **D5 强制检查**：服务端先跑兼容性探针，
+    不兼容直接 409——不信任客户端预先检查过。
+    """
     _require_enabled()
     _require_same_origin(request)
     body = await _json_body(request)
@@ -311,18 +315,34 @@ async def knowledge_update_dataset(dataset_id: str, request: Request) -> Any:
 
     name = payload.get("name")
     description = payload.get("description")
-    if name is None and description is None:
+    embedding_model = payload.get("embedding_model")
+    if name is None and description is None and embedding_model is None:
         raise HTTPException(status_code=400, detail="Nothing to update.")
     if name is not None and not str(name).strip():
         raise HTTPException(status_code=400, detail="Name cannot be empty.")
-    return await _engine_call(
-        lambda e: e.update_dataset(
+
+    async def _update(engine: Any) -> Any:
+        if embedding_model is not None:
+            target = str(embedding_model).strip()
+            check = await engine.check_embedding_compatibility(dataset_id, target)
+            if not check.compatible:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"embedding_incompatible: {check.reason}",
+                )
+            return await engine.update_dataset(
+                dataset_id,
+                name=None if name is None else str(name).strip(),
+                description=None if description is None else str(description),
+                embedding_model=target,
+            )
+        return await engine.update_dataset(
             dataset_id,
             name=None if name is None else str(name).strip(),
             description=None if description is None else str(description),
-        ),
-        dataset_id=dataset_id,
-    )
+        )
+
+    return await _engine_call(_update, dataset_id=dataset_id)
 
 
 @router.delete("/datasets/{dataset_id}")
@@ -1101,6 +1121,33 @@ async def knowledge_delete_chunks(dataset_id: str, document_id: str, request: Re
         raise HTTPException(status_code=400, detail="chunk_ids is required.")
     return await _engine_call(
         lambda e: e.delete_chunks(dataset_id, document_id, chunk_ids),
+        dataset_id=dataset_id,
+    )
+
+
+@router.get("/models")
+async def knowledge_embedding_models() -> Any:
+    """嵌入模型候选清单（P3 T13' 13.0）——Settings 更换流程下拉的数据源。"""
+    _require_enabled()
+    return await _engine_call(lambda e: e.list_embedding_models())
+
+
+@router.post("/datasets/{dataset_id}/embedding/check")
+async def knowledge_check_embedding(dataset_id: str, request: Request) -> Any:
+    """嵌入兼容性检查（P3 T13' 13.1）：只读探针，结论含 compatible 判定。"""
+    _require_enabled()
+    _require_same_origin(request)
+    body = await _json_body(request)
+    payload = body if isinstance(body, dict) else {}
+    embd_id = str(payload.get("embd_id") or "").strip()
+    if not embd_id:
+        raise HTTPException(status_code=400, detail="embd_id is required.")
+    try:
+        check_num = int(payload.get("check_num") or 5)
+    except (TypeError, ValueError):
+        check_num = 5
+    return await _engine_call(
+        lambda e: e.check_embedding_compatibility(dataset_id, embd_id, check_num=check_num),
         dataset_id=dataset_id,
     )
 

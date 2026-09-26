@@ -343,5 +343,14 @@
   "The RAG server has no chat model configured for this operation.": "The RAG server has no chat model configured for this operation.",
   "Embedding dimension mismatch — the vector index must be rebuilt.": "Embedding dimension mismatch — the vector index must be rebuilt.",
   "An error occurred during parsing.": "An error occurred during parsing.",
-  "Parsing completed.": "Parsing completed."
+  "Parsing completed.": "Parsing completed.",
+  "Change": "Change",
+  "New embedding model": "New embedding model",
+  "Check compatibility": "Check compatibility",
+  "Compatible — safe to switch.": "Compatible — safe to switch.",
+  "Not compatible with the stored vectors.": "Not compatible with the stored vectors.",
+  "No embedding models are configured on the RAG server.": "No embedding models are configured on the RAG server.",
+  "The compatibility check re-embeds {{count}} sampled chunks on the server.": "The compatibility check re-embeds {{count}} sampled chunks on the server.",
+  "Existing chunk vectors are not rebuilt automatically — re-parse documents after switching.": "Existing chunk vectors are not rebuilt automatically — re-parse documents after switching.",
+  "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid": "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid"
 }

@@ -15,6 +15,8 @@ import { apiUrl, requestJson } from "@/shared/api/client";
 import { ApiError } from "@/shared/api/errors";
 
 import {
+  parseEmbeddingCheckResult,
+  parseEmbeddingModelOptions,
   parseIngestionLogs,
   parseKnowledgeChunks,
   parseKnowledgeDatasets,
@@ -23,6 +25,8 @@ import {
   parseKnowledgeGraph,
   parseKnowledgePreferences,
   parseSearchChunks,
+  type EmbeddingCheckResult,
+  type EmbeddingModelOption,
   type KnowledgeChunk,
   type KnowledgeDataset,
   type KnowledgeDocument,
@@ -101,14 +105,16 @@ export async function fetchDataset(datasetId: string): Promise<KnowledgeDataset 
   return parseKnowledgeDatasets({ datasets: [inner] })[0] ?? null;
 }
 
-/** P1-T8：部分更新知识库（name/description 可选），响应为回读后的服务端状态。 */
+/** P1-T8：部分更新知识库（name/description/embeddingModel 可选），响应为回读后的服务端状态。
+ *  embeddingModel 走服务端 D5 强制检查（不兼容返回 409）。 */
 export async function updateDataset(
   datasetId: string,
-  patch: { name?: string; description?: string },
+  patch: { name?: string; description?: string; embeddingModel?: string },
 ): Promise<KnowledgeDataset> {
   const body: Record<string, string> = {};
   if (patch.name != null) body.name = patch.name;
   if (patch.description != null) body.description = patch.description;
+  if (patch.embeddingModel != null) body.embedding_model = patch.embeddingModel;
   const data = await requestKnowledge<unknown>(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}`,
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
@@ -209,6 +215,31 @@ export async function stopParsing(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/stop`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document_ids: documentIds }) },
   );
+}
+
+// —— 嵌入模型兼容性检查（P3 T13'）——
+
+export async function fetchEmbeddingModels(): Promise<EmbeddingModelOption[]> {
+  const payload = await requestKnowledge<unknown>("/api/knowledge-center/models", {
+    cache: "no-store",
+  });
+  return parseEmbeddingModelOptions(payload);
+}
+
+export async function checkEmbeddingCompatibility(
+  datasetId: string,
+  embdId: string,
+): Promise<EmbeddingCheckResult> {
+  const payload = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/embedding/check`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embd_id: embdId }),
+      scope: "knowledge",
+    },
+  );
+  return parseEmbeddingCheckResult(payload);
 }
 
 // —— 文档预览（P0-T2）——

@@ -1386,6 +1386,11 @@
             "title": "Document Count",
             "type": "integer"
           },
+          "embedding_model": {
+            "default": "",
+            "title": "Embedding Model",
+            "type": "string"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -6335,7 +6340,7 @@
         ]
       },
       "put": {
-        "description": "部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。",
+        "description": "部分更新知识库（P1-T8）：name/description 可选，回读返回服务端状态。\n\n``embedding_model``（P3 T13'）走 **D5 强制检查**：服务端先跑兼容性探针，\n不兼容直接 409——不信任客户端预先检查过。",
         "operationId": "knowledge_update_dataset_api_knowledge_center_datasets__dataset_id__put",
         "parameters": [
           {
@@ -7211,6 +7216,81 @@
           }
         },
         "summary": "Knowledge Update Chunk",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/datasets/{dataset_id}/embedding/check": {
+      "post": {
+        "description": "嵌入兼容性检查（P3 T13' 13.1）：只读探针，结论含 compatible 判定。",
+        "operationId": "knowledge_check_embedding_api_knowledge_center_datasets__dataset_id__embedding_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Knowledge Check Embedding Api Knowledge Center Datasets  Dataset Id  Embedding Check Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Check Embedding",
         "tags": [
           "knowledge"
         ]
@@ -8519,6 +8599,72 @@
           }
         },
         "summary": "Knowledge Preview Document",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/models": {
+      "get": {
+        "description": "嵌入模型候选清单（P3 T13' 13.0）——Settings 更换流程下拉的数据源。",
+        "operationId": "knowledge_embedding_models_api_knowledge_center_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Knowledge Embedding Models Api Knowledge Center Models Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Embedding Models",
         "tags": [
           "knowledge"
         ]

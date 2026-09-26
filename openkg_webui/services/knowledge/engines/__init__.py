@@ -31,6 +31,8 @@ from .models import (
     BinaryPayload,
     DatasetPage,
     DocumentPage,
+    EmbeddingCheckResult,
+    EmbeddingModelOption,
     IngestionLog,
     KnowledgeDataset,
     KnowledgeDocument,
