@@ -273,3 +273,20 @@ R8/R9 消除残余不确定性。四项实施无需再调研；T13' 的工作量
   已按此收窄）。node 测试 695 项全过（含 2 项新增）。
 - 端到端验证路径：网关重启后，附加知识库发起会话 → 模型按 [rag-N] 引用 →
   前端 chip 渲染。
+
+### 阶段 4 补充：新 chat 页 picker + 草稿选择转正（2026-09-26）
+
+- 用户反馈新会话页（/chat）没有 picker——原实现受 `state.sessionId` 门控
+  （home 视图无会话，picker 无处持久化）。
+- **草稿模式**：picker 接受 `sessionId=null`，勾选写入模块内存草稿键
+  （`DRAFT_SESSION_KEY`，session-selection.ts 新增 read/write/clear 助手），
+  不做服务端 PUT；effect 内不再同步 setState（lint react-hooks），草稿在
+  挂载时惰性初始化。
+- **转正**：适配器 `BIND_SERVER_SESSION` 分支（后端分配真实 id 时）读草稿 →
+  缓存换键 + `PUT knowledge-selection` 持久化；首轮 turn 的 start-input 本身
+  就携带草稿选择（适配器读缓存键 ""）。
+- **E2E（全链路通过）**：新 chat → 选"3D场景图预测论文" → 发送 → 新会话
+  `preferences.knowledge_base_ids` 转正为该库 → 回答完整且仅涉该库内容
+  （PPP/INS/LiDAR、GTSAM、FAST-LIO2），无其他库泄漏。
+- **lint 修正**：草稿初始化改惰性 useState（避免 effect 内同步 setState）；
+  转正瞬间跳过一次回填（防适配器异步 PUT 未落时回读旧偏好清掉用户勾选）。

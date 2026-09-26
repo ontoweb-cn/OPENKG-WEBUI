@@ -10,6 +10,25 @@ import { requestJson } from "@/shared/api/client";
 
 const cache = new Map<string, string[]>();
 
+/**
+ * 新会话（home/composer 尚无 sessionId）的草稿选择键：picker 在 draft 模式下
+ * 读写该键；首轮 turn 发起时适配器读它携带 knowledge_bases，服务端分配真实
+ * sessionId（BIND_SERVER_SESSION）后转正并清掉草稿。
+ */
+export const DRAFT_SESSION_KEY = "";
+
+export function writeDraftKnowledgeSelection(ids: string[]): void {
+  cache.set(DRAFT_SESSION_KEY, ids);
+}
+
+export function readDraftKnowledgeSelection(): string[] {
+  return cache.get(DRAFT_SESSION_KEY) ?? [];
+}
+
+export function clearDraftKnowledgeSelection(): void {
+  cache.delete(DRAFT_SESSION_KEY);
+}
+
 export function getSessionKnowledgeSelection(sessionId: string): string[] {
   return cache.get(sessionId) ?? [];
 }

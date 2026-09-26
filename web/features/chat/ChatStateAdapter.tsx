@@ -27,7 +27,10 @@ import {
 import { UnifiedTurnClient } from "@/features/chat/transport/UnifiedTurnClient";
 import { buildStartTurnInput } from "@/features/chat/controllers/buildStartTurnInput";
 import {
+  clearDraftKnowledgeSelection,
   getSessionKnowledgeSelection,
+  readDraftKnowledgeSelection,
+  saveSessionKnowledgeSelection,
   seedSessionKnowledgeSelection,
 } from "@/features/knowledge/session-selection";
 import {
@@ -1327,6 +1330,16 @@ export function ChatStateAdapterProvider({
           event.turn_id ||
           null;
         if (sessionId) {
+          // P3 UI：home 草稿上勾选的知识库选择，在新会话获得真实 id 时转正——
+          // 缓存换键 + 服务端偏好持久化，后续 turn 继续携带（无草稿则 no-op）。
+          const draftSelection = readDraftKnowledgeSelection();
+          if (draftSelection.length) {
+            seedSessionKnowledgeSelection(sessionId, draftSelection);
+            clearDraftKnowledgeSelection();
+            void saveSessionKnowledgeSelection(sessionId, draftSelection).catch(
+              () => undefined,
+            );
+          }
           dispatch({
             type: "BIND_SERVER_SESSION",
             key: effectiveKey,

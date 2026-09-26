@@ -9,7 +9,9 @@ import type { KnowledgeDataset } from "../model";
 import {
   getSessionKnowledgeSelection,
   loadSessionKnowledgeSelection,
+  readDraftKnowledgeSelection,
   saveSessionKnowledgeSelection,
+  writeDraftKnowledgeSelection,
 } from "../session-selection";
 
 /**
@@ -23,25 +25,34 @@ export default function KnowledgeSessionPicker({
   onChanged,
   variant = "bar",
 }: {
-  sessionId: string;
+  /** 会话 id；null = 新会话草稿模式（选择暂存内存，首轮 turn 携带后转正） */
+  sessionId: string | null;
   onChanged?: (kbIds: string[]) => void;
   /** bar = composer 上方独立条（默认）；toolbar = composer 工具行内（对齐模型选择器） */
   variant?: "bar" | "toolbar";
 }) {
   const { t } = useTranslation();
   const [datasets, setDatasets] = useState<KnowledgeDataset[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // 草稿（sessionId=null）在惰性初始化时读内存草稿键——避免 effect 内同步
+  // setState（lint react-hooks）；真实会话由下方 effect 异步回填
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(sessionId ? [] : readDraftKnowledgeSelection()),
+  );
   const [open, setOpen] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
-    // 回填本会话已保存的勾选（跨刷新保持）
-    loadSessionKnowledgeSelection(sessionId).then((ids) => {
-      if (cancelled) return;
-      setSelected(new Set(ids));
-    });
+    // 真实会话：回填已保存的勾选（跨刷新保持）。
+    // null → 真实 id 的转正瞬间跳过一次回填：适配器正在异步持久化草稿选择，
+    // 立即回读可能读到旧偏好而清掉用户刚勾的内容（阶段 4 live 修正）。
+    if (sessionId) {
+      loadSessionKnowledgeSelection(sessionId).then((ids) => {
+        if (cancelled) return;
+        setSelected(new Set(ids));
+      });
+    }
     fetchDatasets()
       .then((list) => {
         if (cancelled) return;
@@ -72,8 +83,14 @@ export default function KnowledgeSessionPicker({
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
         else next.add(id);
-        void saveSessionKnowledgeSelection(sessionId, [...next]).catch(() => undefined);
-        onChanged?.([...next]);
+        const ids = [...next];
+        if (sessionId) {
+          void saveSessionKnowledgeSelection(sessionId, ids).catch(() => undefined);
+        } else {
+          // 草稿：写内存草稿键，BIND_SERVER_SESSION 时由适配器转正
+          writeDraftKnowledgeSelection(ids);
+        }
+        onChanged?.(ids);
         return next;
       });
     },

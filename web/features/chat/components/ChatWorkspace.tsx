@@ -1477,9 +1477,7 @@ export default function ChatWorkspace() {
             attachmentError={attachmentError}
             activeCap={activeCap}
             knowledgePickerSlot={
-              state.sessionId ? (
-                <KnowledgeSessionPicker sessionId={state.sessionId} variant="toolbar" />
-              ) : null
+              <KnowledgeSessionPicker sessionId={state.sessionId ?? null} variant="toolbar" />
             }
             modelPickerOptions={modelPickerOptions}
             modelSelectedKey={modelSelectedKey}
