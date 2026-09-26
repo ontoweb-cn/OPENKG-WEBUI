@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import {
   Database,
@@ -11,10 +12,14 @@ import {
   Search,
   Square,
   Trash2,
+  UploadCloud,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import FilePreviewDrawer from "@/components/chat/preview/FilePreviewDrawer";
+import type { FilePreviewSource } from "@/components/chat/preview/previewerFor";
 import {
   deleteDocuments,
   fetchDataset,
@@ -22,6 +27,7 @@ import {
   fetchIngestionLogs,
   logsStreamUrl,
   parseDocuments,
+  previewUrl,
   searchDataset,
   stopParsing,
   uploadDocuments,
@@ -29,13 +35,16 @@ import {
 } from "../api";
 import GithubSourcePanel from "./GithubSourcePanel";
 import WebSourcePanel from "./WebSourcePanel";
+import KnowledgeDatasetSettingsPanel from "./KnowledgeDatasetSettingsPanel";
 import {
   formatBytes,
   anyDocumentRunning,
+  type KnowledgeDataset,
   type KnowledgeDocument,
   type KnowledgeIngestionLog,
   type KnowledgeSearchChunk,
 } from "../model";
+import { precheckUploadFiles, type PrecheckItem } from "../upload-precheck";
 import {
   KnowledgeBackLink,
   KnowledgePageBody,
@@ -43,27 +52,47 @@ import {
 } from "./KnowledgePageFrame";
 
 /**
- * 知识库详情页（Phase 1a T7）：文档 tab（列表/多文件上传/删除/重解析/停止）
- * + 进度轮询（D5：活跃期 4s 轮询文档列表）+ 检索试玩面板（D3：新增面）。
- * 文档 run 状态机语义 Derived from DeepMentor（Apache-2.0），modified。
+ * 知识库详情页（Phase 1a T7 → P0-T1 标签页化）：
+ * documents（列表/拖放上传/删除/重解析/停止 + SSE 日志）/ sources / retrieval /
+ * settings 四 tab，`?section=` 深链。进度轮询（D5：活跃期 4s）与 SSE 日志订阅
+ * 挂在页面层，切 tab 不重建。文档 run 状态机语义 Derived from DeepMentor
+ * （Apache-2.0），modified。
  */
 
 const POLL_INTERVAL_MS = 4000;
 
+const SECTIONS = ["documents", "sources", "retrieval", "settings"] as const;
+type DetailSection = (typeof SECTIONS)[number];
+
+function normalizeSection(value: string | null): DetailSection {
+  return (SECTIONS as readonly string[]).includes(value ?? "") ? (value as DetailSection) : "documents";
+}
+
 export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }) {
   const { t } = useTranslation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const section = normalizeSection(searchParams.get("section"));
 
-  const [name, setName] = useState(datasetId);
+  const [dataset, setDataset] = useState<KnowledgeDataset | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // P0-T2：预览源（文件名驱动渲染器分流，url 指向代理 preview 字节流）
+  const [previewSource, setPreviewSource] = useState<FilePreviewSource | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const running = documents ? anyDocumentRunning(documents) : false;
+
+  const switchSection = useCallback(
+    (next: DetailSection) => {
+      router.replace(`?section=${next}`, { scroll: false });
+    },
+    [router],
+  );
 
   // T3：解析进行中时订阅代理 SSE 日志流；非 JSON/错误帧静默忽略，
   // 断开自动回退到文档列表轮询。
@@ -97,11 +126,11 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
 
   useEffect(() => {
     fetchDataset(datasetId)
-      .then((dataset) => {
-        if (dataset?.name) setName(dataset.name);
+      .then((value) => {
+        if (value) setDataset(value);
       })
       .catch(() => {
-        // 名称解析失败不阻塞详情页——回落显示 id
+        // 元数据解析失败不阻塞详情页——Settings 面板回落 loading 态
       });
   }, [datasetId]);
 
@@ -131,14 +160,15 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     };
   }, [load, running]);
 
-  const onUpload = async (fileList: FileList | null) => {
+  const onUpload = async (fileList: FileList | File[] | null) => {
     if (!fileList || fileList.length === 0) return;
     setUploading(true);
     setError(null);
     try {
       // zip 走结构化端点（代理解包，D1）；其余走多文件直传
-      const zips = Array.from(fileList).filter((f) => f.name.toLowerCase().endsWith(".zip"));
-      const plain = Array.from(fileList).filter((f) => !f.name.toLowerCase().endsWith(".zip"));
+      const files = Array.from(fileList);
+      const zips = files.filter((f) => f.name.toLowerCase().endsWith(".zip"));
+      const plain = files.filter((f) => !f.name.toLowerCase().endsWith(".zip"));
       if (plain.length) await uploadDocuments(datasetId, plain);
       for (const zf of zips) {
         await uploadStructured(datasetId, [{ file: zf }]);
@@ -148,7 +178,6 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -217,12 +246,19 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     }
   };
 
+  const tabLabel: Record<DetailSection, string> = {
+    documents: t("Documents"),
+    sources: t("Sources"),
+    retrieval: t("Retrieval"),
+    settings: t("Settings"),
+  };
+
   return (
     <KnowledgePageBody>
       <KnowledgeBackLink href="/knowledge-center" label={t("Back to knowledge bases")} />
       <KnowledgePageHeader
         icon={Database}
-        title={name}
+        title={dataset?.name || datasetId}
         description={t("Documents are parsed and indexed by Intellect RAG after upload.")}
         action={
           <div className="flex items-center gap-2">
@@ -243,21 +279,6 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
               className="hidden"
               onChange={(event) => onUploadFolder(event.target.files)}
             />
-            <Button
-              variant="primary"
-              icon={<FileUp size={15} />}
-              loading={uploading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {t("Upload files")}
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(event) => onUpload(event.target.files)}
-            />
           </div>
         }
       />
@@ -268,31 +289,71 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         </p>
       ) : null}
 
-      <DocumentTable
-        documents={documents}
-        busy={busy}
-        onRequestDelete={(ids) => setDeleteIds(ids)}
-        onReparse={onReparse}
-      />
+      {/* P0-T1：下划线式 tab（对齐 DeepMentor KnowledgeBaseDetail）；面板常驻
+          挂载以 hidden 切换，保住轮询/SSE/表单状态（P0 评审 R5） */}
+      <div className="mb-4 flex gap-5 border-b border-[var(--border)]/60" role="tablist">
+        {SECTIONS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={section === key}
+            onClick={() => switchSection(key)}
+            className={`-mb-px border-b-2 px-0.5 pb-2 text-[13px] transition-colors ${
+              section === key
+                ? "border-[var(--primary)] font-medium text-[var(--foreground)]"
+                : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {tabLabel[key]}
+          </button>
+        ))}
+      </div>
 
-      {running && liveLogs.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-3">
-          <p className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-            {t("Live parse logs")}
-          </p>
-          <ul className="max-h-40 space-y-0.5 overflow-y-auto font-mono text-[11px] text-[var(--muted-foreground)]">
-            {liveLogs.map((line, index) => (
-              <li key={`${index}-${line.slice(0, 12)}`} className="truncate" title={line}>
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <div className={section === "documents" ? "" : "hidden"}>
+        <UploadDropzone uploading={uploading} onUpload={onUpload} />
+        <DocumentTable
+          documents={documents}
+          busy={busy}
+          onRequestDelete={(ids) => setDeleteIds(ids)}
+          onReparse={onReparse}
+          onOpenPreview={(doc) =>
+            setPreviewSource({
+              filename: doc.name,
+              url: previewUrl(doc.id),
+              size: doc.size,
+              id: doc.id,
+            })
+          }
+        />
+        {running && liveLogs.length > 0 ? (
+          <div className="mt-4 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-3">
+            <p className="mb-1.5 text-[11.5px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              {t("Live parse logs")}
+            </p>
+            <ul className="max-h-40 space-y-0.5 overflow-y-auto font-mono text-[11px] text-[var(--muted-foreground)]">
+              {liveLogs.map((line, index) => (
+                <li key={`${index}-${line.slice(0, 12)}`} className="truncate" title={line}>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
 
-      <RetrievalPlayground datasetId={datasetId} />
-      <GithubSourcePanel datasetId={datasetId} />
-      <WebSourcePanel datasetId={datasetId} />
+      <div className={section === "sources" ? "max-w-3xl" : "hidden"}>
+        <GithubSourcePanel datasetId={datasetId} />
+        <WebSourcePanel datasetId={datasetId} />
+      </div>
+
+      <div className={section === "retrieval" ? "" : "hidden"}>
+        <RetrievalPlayground datasetId={datasetId} />
+      </div>
+
+      <div className={section === "settings" ? "" : "hidden"}>
+        <KnowledgeDatasetSettingsPanel dataset={dataset} />
+      </div>
 
       <ConfirmDialog
         open={deleteIds != null}
@@ -307,7 +368,162 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
           name: t("{{count}} selected documents", { count: deleteIds?.length ?? 0 }),
         })}
       </ConfirmDialog>
+
+      {/* P0-T2：复用聊天附件预览抽屉（media preview 的 raw fetch 白名单成员） */}
+      <FilePreviewDrawer
+        open={previewSource !== null}
+        source={previewSource}
+        onClose={() => setPreviewSource(null)}
+      />
     </KnowledgePageBody>
+  );
+}
+
+/**
+ * 拖放上传区（P0-T3）：拖放/点击选择 → 预校验摘要（去重、扩展名提示、
+ * 单文件移除）→ 确认上传。文件夹上传仍走页头按钮（webkitdirectory 直传）。
+ */
+function UploadDropzone({
+  uploading,
+  onUpload,
+}: {
+  uploading: boolean;
+  onUpload: (files: File[] | null) => void;
+}) {
+  const { t } = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
+  const [dragActive, setDragActive] = useState(false);
+  const [staged, setStaged] = useState<PrecheckItem[]>([]);
+
+  const stageFiles = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) return;
+    // 与既有 staged 合并后再统一去重（precheckUploadFiles 按 name+size 剔重）
+    const merged = [...staged.map((item) => item.file), ...Array.from(files)];
+    setStaged(precheckUploadFiles(merged));
+  };
+
+  const submit = () => {
+    if (staged.length === 0) return;
+    onUpload(staged.map((item) => item.file));
+    setStaged([]);
+  };
+
+  return (
+    <div className="mb-4">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={t("Upload files")}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") inputRef.current?.click();
+        }}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          dragDepth.current += 1;
+          setDragActive(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={() => {
+          // 深度计数防抖：子元素进出也会触发 dragleave（DeepMentor FileDropZone 同款）
+          dragDepth.current -= 1;
+          if (dragDepth.current <= 0) {
+            dragDepth.current = 0;
+            setDragActive(false);
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          dragDepth.current = 0;
+          setDragActive(false);
+          stageFiles(event.dataTransfer.files);
+        }}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed px-6 py-7 text-center transition-colors ${
+          dragActive
+            ? "border-[var(--primary)]/70 bg-[var(--primary)]/5"
+            : "border-[var(--border)]/70 bg-[var(--card)]/50 hover:border-[var(--border)]"
+        }`}
+      >
+        <UploadCloud size={18} className="text-[var(--muted-foreground)]" />
+        <p className="text-[13px] text-[var(--foreground)]">
+          {t("Drag and drop files here, or click to select files.")}
+        </p>
+        <p className="text-[11.5px] text-[var(--muted-foreground)]">
+          {t("Zip archives are unpacked server-side; folder uploads keep the directory layout.")}
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            stageFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      </div>
+
+      {staged.length > 0 ? (
+        <div className="mt-2 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[12.5px] text-[var(--foreground)]">
+              {t("{{count}} files selected", { count: staged.length })}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setStaged([])}>
+                {t("Clear")}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<FileUp size={13} />}
+                loading={uploading}
+                onClick={submit}
+              >
+                {t("Upload {{count}} files", { count: staged.length })}
+              </Button>
+            </div>
+          </div>
+          <ul className="mt-2 max-h-44 space-y-1 overflow-y-auto">
+            {staged.map((item) => (
+              <li
+                key={`${item.file.name}-${item.file.size}`}
+                className="flex items-center gap-2 text-[12px]"
+              >
+                <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">
+                  {item.file.name}
+                </span>
+                <span className="shrink-0 text-[var(--muted-foreground)]">
+                  {formatBytes(item.file.size)}
+                </span>
+                <span
+                  className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium ${
+                    item.status === "supported"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  }`}
+                >
+                  {item.status === "supported" ? t("Supported") : t("Unrecognized type")}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t("Remove")}
+                  className="shrink-0 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  onClick={() =>
+                    setStaged((prev) =>
+                      prev.filter((candidate) => candidate.file !== item.file),
+                    )
+                  }
+                >
+                  <X size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -316,11 +532,13 @@ function DocumentTable({
   busy,
   onRequestDelete,
   onReparse,
+  onOpenPreview,
 }: {
   documents: KnowledgeDocument[] | null;
   busy: boolean;
   onRequestDelete: (ids: string[]) => void;
   onReparse: (doc: KnowledgeDocument) => void;
+  onOpenPreview: (doc: KnowledgeDocument) => void;
 }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -397,8 +615,14 @@ function DocumentTable({
                   onChange={() => toggle(doc.id)}
                 />
               </td>
-              <td className="max-w-72 truncate px-2 py-2.5 text-[var(--foreground)]" title={doc.location}>
-                {doc.name}
+              <td className="max-w-72 truncate px-2 py-2.5" title={doc.location}>
+                <button
+                  type="button"
+                  className="truncate text-left text-[var(--foreground)] underline-offset-2 hover:underline"
+                  onClick={() => onOpenPreview(doc)}
+                >
+                  {doc.name}
+                </button>
               </td>
               <td className="px-2 py-2.5">
                 <RunBadge run={doc.run} progress={doc.progress} />
@@ -488,11 +712,11 @@ function RetrievalPlayground({ datasetId }: { datasetId: string }) {
   };
 
   return (
-    <section className="mt-8">
+    <section>
       <h2 className="mb-3 text-[14px] font-semibold text-[var(--foreground)]">
         {t("Retrieval playground")}
       </h2>
-      <div className="rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-4">
+      <div className="max-w-3xl rounded-xl border border-[var(--border)]/60 bg-[var(--card)] p-4">
         <div className="flex gap-2">
           <input
             value={question}
@@ -562,7 +786,7 @@ function RetrievalPlayground({ datasetId }: { datasetId: string }) {
           </div>
         ) : null}
       </div>
-      <p className="mt-2 text-[11.5px] text-[var(--muted-foreground)]">
+      <p className="mt-2 max-w-3xl text-[11.5px] text-[var(--muted-foreground)]">
         {t("Tip: attach this knowledge base in chat to let agents retrieve from it.")}{" "}
         <Link href="/chat" className="underline underline-offset-2">
           {t("Open Chat")}

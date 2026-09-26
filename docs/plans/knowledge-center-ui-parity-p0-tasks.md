@@ -1,7 +1,7 @@
 # 知识中心 UI 对齐 P0 细化任务清单（详情页骨架 + 文档预览 + 上传升级 + 默认库）
 
 - 日期：2026-09-26
-- 状态：**评审通过（见 §五，修订已并入正文），T1-T4 实施中**
+- 状态：**已实施完成（2026-09-26）**——T0-T4 全部落地并 live 验证通过；实施记录见 §六
 - 依据：[knowledge-center-ui-parity.md](knowledge-center-ui-parity.md) §四 P0 + §八评审（R2/T0 前置）
 - 前置：T0 鉴权审计已完成 → [../../scripts/knowledge_a0/results/t0_preview_auth_audit.md](../../scripts/knowledge_a0/results/t0_preview_auth_audit.md)
 
@@ -29,28 +29,22 @@ P0 = 方案 §四 T1-T4 五项（T0 前置已完成）。**不做**：thumbnails
 - **验收**：四 tab 切换无重挂载丢状态（各 tab 组件保持挂载或状态提升）；深链直达；
   现有交互（上传/删除/重解析/停止/SSE 日志）全部不回归。
 
-### T2 文档预览抽屉（约 2 人日）
+### T2 文档预览抽屉（约 2 人日 → 实施改为复用，<0.5 人日）
 
-**落点**：新增 `web/features/knowledge/components/DocumentPreviewDrawer.tsx`；
-`web/features/knowledge/api.ts` 加 `previewUrl(documentId)`；`model.ts` 不动。
+**落点**：~~新增 `DocumentPreviewDrawer.tsx`~~ → **复用 `components/chat/preview/FilePreviewDrawer`**
+（实施时发现库内已有完整媒体预览抽屉：pdf/image/svg/markdown/code/text/docx/xlsx/
+office-text 十类渲染器懒加载，且是 `tests/architecture-contracts.test.ts` raw-fetch
+白名单成员——自造抽屉反而引入第二处裸 fetch 与重复渲染器）。
 
-- 交互：点击文档名打开右侧抽屉（fixed right，宽 ~min(640px, 90vw)，Esc/遮罩关闭，
-  全屏切换）；表格 Name 单元格变按钮语义。
+- 交互：点击文档名打开右侧抽屉；`FilePreviewSource = {filename, url: previewUrl(id), size, id}`，
+  渲染器由文件名经既有 `previewKindFor` 分流；抽屉内部经 `apiUrl()` 解析子路径。
 - **数据**：`GET /api/knowledge-center/documents/{docId}/preview`（代理已在，
   knowledge.py:1016）——**经 T0 审计，上游按委托用户做 per-user 可见性强制**；
-  二进制响应，前端用 `apiUrl()` 拼 URL + `<img src>`/fetch blob（遵守子路径规则，
-  不裸拼 `/api/...`）。
-- 渲染器按扩展名（`name` 推断）`next/dynamic` 懒加载，首版四类：
-  `pdf`（pdfjs-dist@6 已在）、`image`（png/jpg/jpeg/gif/webp/svg）、
-  `markdown`（react-markdown@10 已在）、`text/code`（其余文本扩展白名单：md 之外的
-  txt/csv/json/py/ts/tsx/js/css/html/xml/yml/yaml/log…，超出白名单显示"不支持预览"）。
-- 抽屉头：文件名 + 类型徽标 + 大小 + 全屏 + 下载（下载复用 preview URL 加
-  `?download=1`?——**不**：上游 preview 无 download 参数，下载用 fetch blob +
-  objectURL + a[download]）；PDF 渲染上限首版 50 页（超出提示）。
+- ~~自造四类渲染器 + 全屏~~：渲染器全集复用（覆盖面大于原计划）；全屏开关抽屉
+  不带（有下载/复制），按 P1 反馈再议。
 - 空态/错误态：RUNNING/UNSTART 文档允许预览原始文件（preview 是原始字节，与解析无关），
   失败给内联重试。
-- **验收**：四种格式 live 各验一个；403/404 显示内联错误；`?file=` 深链不做（P1-T5
-  主从面板时再做，本版保持抽屉）。
+- **验收**：pdf/图片/文本/Markdown live 各验一个；403/404 显示内联错误；`?file=` 深链不做。
 
 ### T3 拖放上传区 + 预校验摘要（约 1.5 人日）
 
@@ -137,3 +131,35 @@ preview 返回原始文件字节（上游直接读存储），与解析状态无
 
 **通过**。R1/R2 为对方案文档的实质修订（thumbnails 移除、下载实现），其余为口径澄清。
 按本清单实施；横切约束 §三作为每任务 DoD。
+
+## 六、实施记录（2026-09-26）
+
+**T0**：静态审计完成（证据链归档 `scripts/knowledge_a0/results/t0_preview_auth_audit.md`）——
+preview 上游三层 per-user 强制（accessible → kb_accessible → can_access_resource；service-key
+分支 g.user 按头构造）；thumbnails/images 无 user 维度过滤 → 不接。双用户 live deny 探针
+留作部署验收可选项。
+
+**T1**：`KnowledgeDetailPage.tsx` 重构为四 tab（常驻挂载 + hidden 切换，R5）；
+`?section=` 深链（`router.replace`，非法值回落 documents）；`[datasetId]/page.tsx` 加
+Suspense 边界。Header action（上传文件夹/停止解析）跨 tab 常驻；SSE 日志随 Documents tab。
+
+**T2**：实施中改为**复用 `components/chat/preview/FilePreviewDrawer`**（库内已有十类渲染器
++ raw-fetch 白名单成员，见 §二-T2 修订记录）；`api.ts` 加 `previewUrl()`；
+`FilePreviewSource = {filename, url, size, id}`。dev 下实测：DOCX 全格式渲染、PDF 走
+浏览器原生查看器（页码/缩放/缩略图）。
+
+**T3**：新增 `web/features/knowledge/upload-precheck.ts`（纯函数：name+size 去重、
+allowlist 标注 supported/unknown——unknown 仍可上传）+ `UploadDropzone`（深度计数防抖
+拖放、暂存摘要、单文件移除、确认上传）；zip/文件夹分流不变。逐文件进度条不做（代理
+FormData 一发式，无进度事件），记 P3。
+
+**T4**：`api.ts` + `model.ts` 加 preferences 三件套（载荷 `{"default_dataset_id": string|null}`，
+空串=清除，与代理 knowledge.py:217/238 一致）；Settings tab 含元数据只读区 +
+默认库开关。**已知缺口**：Token 数/创建时间显示"—"（上游 dataset 字段未回传该值），
+归 P1-T8 一并处理。
+
+**验证**：typecheck / architecture:check / contracts:check / i18n:check / lint（0 错误，
+15 警告均存量）/ vitest 70 项 / node 693 项 / 后端 knowledge 57 项全绿。
+live 验证（dev server :3001 + chromium，`web/scripts/p0-live-check.mjs`）：页面加载、
+无登录墙、4 tab、拖放区、来源面板、默认库开关往返（GET null → PUT 设 → 回读一致 →
+清除）、`?section=` 深链、预览抽屉（DOCX/PDF）全部通过。

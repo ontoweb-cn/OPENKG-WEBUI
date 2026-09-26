@@ -197,6 +197,19 @@ export function parseSearchChunks(payload: unknown): KnowledgeSearchChunk[] {
   });
 }
 
+// —— per-user 偏好（默认知识库，Phase 1.5 T4 代理端点的域形状）——
+
+export interface KnowledgePreferences {
+  /** 默认知识库 id；null = 未设置。 */
+  defaultDatasetId: string | null;
+}
+
+export function parseKnowledgePreferences(raw: unknown): KnowledgePreferences {
+  const row = record(raw);
+  const id = text(row.default_dataset_id).trim();
+  return { defaultDatasetId: id.length > 0 ? id : null };
+}
+
 // —— 工具 ——
 
 export function formatBytes(size: number): string {

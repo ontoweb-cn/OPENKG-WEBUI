@@ -18,10 +18,12 @@ import {
   parseIngestionLogs,
   parseKnowledgeDatasets,
   parseKnowledgeDocuments,
+  parseKnowledgePreferences,
   parseSearchChunks,
   type KnowledgeDataset,
   type KnowledgeDocument,
   type KnowledgeIngestionLog,
+  type KnowledgePreferences,
   type KnowledgeSearchChunk,
 } from "./model";
 
@@ -150,6 +152,38 @@ export async function stopParsing(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/stop`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document_ids: documentIds }) },
   );
+}
+
+// —— 文档预览（P0-T2）——
+
+/**
+ * 文档原始字节流地址（app 相对路径；直接取用时经 apiUrl() 套部署前缀）。
+ * 上游按委托用户做 per-user 可见性强制
+ * （scripts/knowledge_a0/results/t0_preview_auth_audit.md）。
+ */
+export function previewUrl(documentId: string): string {
+  return `/api/knowledge-center/documents/${encodeURIComponent(documentId)}/preview`;
+}
+
+// —— per-user 偏好（默认知识库，P0-T4）——
+
+export async function fetchKnowledgePreferences(): Promise<KnowledgePreferences> {
+  const payload = await requestKnowledge<unknown>("/api/knowledge-center/preferences", {
+    cache: "no-store",
+  });
+  return parseKnowledgePreferences(payload);
+}
+
+export async function putKnowledgePreferences(
+  defaultDatasetId: string | null,
+): Promise<KnowledgePreferences> {
+  const payload = await requestKnowledge<unknown>("/api/knowledge-center/preferences", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ default_dataset_id: defaultDatasetId ?? "" }),
+    scope: "knowledge",
+  });
+  return parseKnowledgePreferences(payload);
 }
 
 // —— 摄取记录（进度日志） ——

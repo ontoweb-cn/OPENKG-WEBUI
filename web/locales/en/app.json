@@ -296,5 +296,18 @@
   "One-hop queries follow the M3.3 DSL contract and were verified against the live graph store.": "One-hop queries follow the M3.3 DSL contract and were verified against the live graph store.",
   "No matching row in the current result": "No matching row in the current result",
   "Drag to pan, scroll to zoom. Click a node to inspect it.": "Drag to pan, scroll to zoom. Click a node to inspect it.",
-  "Members: {{n}}": "Members: {{n}}"
+  "Members: {{n}}": "Members: {{n}}",
+  "Unsupported": "Unsupported",
+  "Dataset info": "Dataset info",
+  "Tokens": "Tokens",
+  "Unrecognized type": "Unrecognized type",
+  "Tenant visible": "Tenant visible",
+  "Team visible": "Team visible",
+  "Upload {{count}} files": "Upload {{count}} files",
+  "Set this knowledge base as my default": "Set this knowledge base as my default",
+  "Drag and drop files here, or click to select files.": "Drag and drop files here, or click to select files.",
+  "Zip archives are unpacked server-side; folder uploads keep the directory layout.": "Zip archives are unpacked server-side; folder uploads keep the directory layout.",
+  "Preview is not supported for this file type. Use download to inspect the raw file.": "Preview is not supported for this file type. Use download to inspect the raw file.",
+  "Preview is limited to the first {{count}} pages.": "Preview is limited to the first {{count}} pages.",
+  "The default knowledge base is preselected when attaching knowledge in chat.": "The default knowledge base is preselected when attaching knowledge in chat."
 }
