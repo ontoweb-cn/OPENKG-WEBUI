@@ -490,9 +490,7 @@ def _require_same_origin(request: Request) -> None:
         allowed = []
     if not origin_is_trusted(
         request.headers.get("origin"),
-        request_authority(
-            request.headers.get("host"), request.headers.get("x-forwarded-host")
-        ),
+        request_authority(request.headers.get("host"), request.headers.get("x-forwarded-host")),
         allowed,
     ):
         raise HTTPException(
@@ -2321,12 +2319,12 @@ async def update_kag_domain(request: Request, payload: dict[str, Any]) -> dict[s
     ]
     if not origin_is_trusted(
         request.headers.get("origin"),
-        request_authority(
-            request.headers.get("host"), request.headers.get("x-forwarded-host")
-        ),
+        request_authority(request.headers.get("host"), request.headers.get("x-forwarded-host")),
         allowed,
     ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site request refused.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site request refused."
+        )
 
     from openkg_webui.services.kag import get_kag_settings
 
@@ -2374,12 +2372,12 @@ async def update_knowledge_domain(request: Request, payload: dict[str, Any]) -> 
     ]
     if not origin_is_trusted(
         request.headers.get("origin"),
-        request_authority(
-            request.headers.get("host"), request.headers.get("x-forwarded-host")
-        ),
+        request_authority(request.headers.get("host"), request.headers.get("x-forwarded-host")),
         allowed,
     ):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site request refused.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site request refused."
+        )
 
     from openkg_webui.services.knowledge import get_knowledge_settings
 

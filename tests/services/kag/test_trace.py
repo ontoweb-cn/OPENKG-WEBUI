@@ -98,9 +98,7 @@ def test_kag_tools_set() -> None:
 
 
 def test_metadata_normalizes_graph_sources_query_and_excerpt() -> None:
-    meta = kag_trace_metadata(
-        "kag_solve", {"question": "张三任职于哪个组织机构？"}, BRIDGE_RESULT
-    )
+    meta = kag_trace_metadata("kag_solve", {"question": "张三任职于哪个组织机构？"}, BRIDGE_RESULT)
     assert meta is not None
 
     assert meta["query"] == "张三任职于哪个组织机构？"
@@ -195,19 +193,15 @@ def test_cross_graph_forward_edge_is_kept() -> None:
     meta = kag_trace_metadata("kag_solve", None, json.dumps(payload))
     graph = meta["tool_metadata"]["graph"]
     assert {n["id"] for n in graph["nodes"]} == {"a", "b"}
-    assert graph["edges"] == [
-        {"source": "a", "target": "b", "description": "relates", "weight": 1}
-    ]
+    assert graph["edges"] == [{"source": "a", "target": "b", "description": "relates", "weight": 1}]
 
 
 def test_excerpt_strips_reference_tags() -> None:
     """评审 N-2：answer 内嵌 KAG 引用标记（live 实测
     ``<reference id="chunk:0_1"></reference>``）——摘录是 UI 纯文本，剥掉。"""
     payload = {
-        "answer": "张三是开元大学的教授<reference id=\"chunk:0_1\"></reference>。",
-        "reference": [
-            {"type": "chunk", "info": [{"document_name": "开元大学简介"}]}
-        ],
+        "answer": '张三是开元大学的教授<reference id="chunk:0_1"></reference>。',
+        "reference": [{"type": "chunk", "info": [{"document_name": "开元大学简介"}]}],
     }
     meta = kag_trace_metadata("kag_solve", None, json.dumps(payload))
     assert meta["excerpt"] == "张三是开元大学的教授。"
@@ -221,9 +215,7 @@ def test_edgeless_graph_yields_no_graph_but_keeps_sources() -> None:
     payload["subgraph"] = [
         {
             "class_name": "g",
-            "result_nodes": [
-                {"id": '人物["张三"]', "label": "人物", "name": '"张三"'}
-            ],
+            "result_nodes": [{"id": '人物["张三"]', "label": "人物", "name": '"张三"'}],
             "result_edges": [],
         }
     ]
@@ -236,12 +228,8 @@ def test_edgeless_graph_yields_no_graph_but_keeps_sources() -> None:
 
 def test_bounds_mirror_frontend_read_graph_subgraph() -> None:
     payload = json.loads(BRIDGE_RESULT)
-    many_nodes = [
-        {"id": f"n{i}", "label": "T", "name": f"node{i}"} for i in range(200)
-    ]
-    many_edges = [
-        {"_from": f"n{i}", "to": f"n{i + 1}", "label": "p"} for i in range(199)
-    ]
+    many_nodes = [{"id": f"n{i}", "label": "T", "name": f"node{i}"} for i in range(200)]
+    many_edges = [{"_from": f"n{i}", "to": f"n{i + 1}", "label": "p"} for i in range(199)]
     payload["subgraph"] = [
         {"class_name": "big", "result_nodes": many_nodes, "result_edges": many_edges}
     ]
@@ -251,8 +239,6 @@ def test_bounds_mirror_frontend_read_graph_subgraph() -> None:
     # 邻接链 n_i→n_{i+1}：仅两端都落在 60 节点上限内的边收编（n0..n58）。
     assert len(graph["edges"]) == 59
     # 孤立边（两端未收编）不产生条目。
-    payload["subgraph"][0]["result_edges"] = [
-        {"_from": "n0", "to": "missing", "label": "p"}
-    ]
+    payload["subgraph"][0]["result_edges"] = [{"_from": "n0", "to": "missing", "label": "p"}]
     meta = kag_trace_metadata("kag_solve", None, json.dumps(payload))
     assert "tool_metadata" not in meta

@@ -36,29 +36,33 @@ class KnowledgeDataset(BaseModel):
     id: str
     name: str
     description: str = ""
-    permission: str = "me"          # "me" | "team"
+    permission: str = "me"  # "me" | "team"
     document_count: int = 0
     chunk_count: int = 0
     token_count: int = 0
     created_at: str = ""
 
+
 class DatasetPage(BaseModel):
     datasets: list[KnowledgeDataset]
     total: int = 0
+
 
 class KnowledgeDocument(BaseModel):
     id: str
     name: str
     run: Literal["UNSTART", "RUNNING", "DONE", "FAIL", "CANCEL"] = "UNSTART"
-    progress: float = 0.0           # 0-100
+    progress: float = 0.0  # 0-100
     chunk_count: int = 0
     token_count: int = 0
     size: int = 0
     location: str = ""
 
+
 class DocumentPage(BaseModel):
     documents: list[KnowledgeDocument]
     total: int = 0
+
 
 class SearchChunk(BaseModel):
     id: str
@@ -66,31 +70,38 @@ class SearchChunk(BaseModel):
     similarity: float = 0.0
     document_name: str = ""
 
+
 class SearchResult(BaseModel):
     chunks: list[SearchChunk]
     total: int = 0
     #: 被权限拒绝的库 id（上游数据级信号）——前端当前未消费，先纳入契约备未来使用
     denied_dataset_ids: list[str] = []
 
+
 class IngestionLog(BaseModel):
     id: str
     progress: float = 0.0
-    message: str = ""               # ← 上游 progress_msg
+    message: str = ""  # ← 上游 progress_msg
     status: str = ""
     document_name: str = ""
+
 
 class UploadResult(BaseModel):
     uploaded: int = 0
     documents: list[KnowledgeDocument] = []
 
+
 class StructuredUploadResult(BaseModel):
     """结构化上传按目录分组的结果（替代 `[{directory, status, upstream}]`）。"""
+
     directory: str
     uploaded: int = 0
     error: str = ""
 
+
 class BinaryPayload(BaseModel):
     """二进制透传（预览/缩略图）——不进 JSON 契约，仅内部载体。"""
+
     content: bytes
     media_type: str
 ```
@@ -147,7 +158,7 @@ T2 的 `request(method, path)` 是过渡态；T3 用类型化方法，路径知�
 （"不整体载入内存"，任务清单 §七）。因此：
 
 ```python
-UploadSource = Union[bytes, BinaryIO]   # bytes（zip 展开/同步源）或文件对象（直传）
+UploadSource = Union[bytes, BinaryIO]  # bytes（zip 展开/同步源）或文件对象（直传）
 ```
 provider 直接把 source 交给 httpx（它同时支持两者），**禁止 `.read()` 收口为 bytes**；
 回归测试需断言大文件路径未 buffer（以 `httpx` 收到 file-like 为准）。

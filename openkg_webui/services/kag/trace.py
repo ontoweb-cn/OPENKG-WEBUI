@@ -45,6 +45,7 @@ def is_kag_trace_tool(tool_name: str) -> bool:
         return True
     return any(tool_name.endswith(f"__{tool}") for tool in KAG_TRACE_TOOLS)
 
+
 #: 与前端 readGraphSubgraph 相同的渲染边界（持久化事件防膨胀）。
 _MAX_NODES = 60
 _MAX_EDGES = 120

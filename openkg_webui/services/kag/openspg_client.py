@@ -145,9 +145,7 @@ class OpenSPGClient:
         )
         return result if isinstance(result, dict) else {"spgTypes": result or []}
 
-    async def alter_schema(
-        self, project_id: str | int, schema_draft: list[dict[str, Any]]
-    ) -> Any:
+    async def alter_schema(self, project_id: str | int, schema_draft: list[dict[str, Any]]) -> Any:
         """提交 Schema 变更（M3.5）。
 
         REST wire 契约（M3.5 实测：拦截 knext ``schema_alter_schema_post`` 抓
@@ -340,9 +338,7 @@ class OpenSPGClient:
             timeout=60.0,
         )
 
-    async def remove_dynamic_taxonomy(
-        self, concept_type_name: str, concept_name: str
-    ) -> Any:
+    async def remove_dynamic_taxonomy(self, concept_type_name: str, concept_name: str) -> Any:
         """删除分类规则（belongTo）。C2 实测：字段名为 objectConceptTypeName/
         objectConceptName（与 define 不同）。"""
         return await self._request(

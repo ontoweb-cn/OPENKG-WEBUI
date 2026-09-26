@@ -209,9 +209,7 @@ def resolve_request_auth(user_id: str | None = None) -> tuple[str, dict[str, str
         # 与本函数补发的值来自**同一个端点**，因此同一次令牌委托下二者相等，
         # 主体不会落到另一命名空间。上游对旧行另有 fallback owner 短路兜底。
         member_id = str(getattr(identity, "member_id", "") or "")
-        if member_id and not any(
-            k.lower() == _IDENTITY_USER_HEADER.lower() for k in headers
-        ):
+        if member_id and not any(k.lower() == _IDENTITY_USER_HEADER.lower() for k in headers):
             headers[_IDENTITY_USER_HEADER] = member_id
     else:
         bearer = service_key

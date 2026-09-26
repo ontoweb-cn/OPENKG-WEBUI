@@ -92,9 +92,7 @@ class GitHubClient:
         return resp.content
 
     async def get_latest_commit_sha(self, repo: str, branch: str) -> str:
-        data = await self._request_json(
-            "GET", f"{GITHUB_API_BASE}/repos/{repo}/commits/{branch}"
-        )
+        data = await self._request_json("GET", f"{GITHUB_API_BASE}/repos/{repo}/commits/{branch}")
         return data["sha"]
 
     async def get_tree(

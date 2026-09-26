@@ -76,7 +76,9 @@ def test_disabled_returns_403(proxy: TestClient, monkeypatch: pytest.MonkeyPatch
     assert "not available" in response.text
 
 
-def test_status_reports_enabled_and_identity(proxy: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_reports_enabled_and_identity(
+    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = proxy.get(_K).json()
     # 夹具只带 X-Intellect-User（无 Team/Project 头），故新建库实际落 private。
     # create_visibility 与创建时上游据以计算 visibility 的头同源。
@@ -252,9 +254,7 @@ def test_upstream_connection_error_maps_502(
     assert "knowledge_unreachable" in response.text
 
 
-def test_identity_unavailable_maps_409(
-    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_identity_unavailable_maps_409(proxy: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     def _unavailable(user_id=None):
         raise KnowledgeIdentityUnavailable("identity expired")
 
@@ -385,9 +385,7 @@ def _make_zip(entries: dict[str, bytes]) -> bytes:
 
 
 def test_structured_zip_groups_by_directory(proxy: TestClient) -> None:
-    zip_bytes = _make_zip(
-        {"docs/a/one.md": b"1", "docs/b/two.md": b"2", "__MACOSX/junk": b"x"}
-    )
+    zip_bytes = _make_zip({"docs/a/one.md": b"1", "docs/b/two.md": b"2", "__MACOSX/junk": b"x"})
     response = proxy.post(
         f"{_K}/datasets/ds1/documents/structured",
         files={"file": ("bundle.zip", zip_bytes, "application/zip")},
@@ -639,8 +637,11 @@ def test_web_crawl_blocks_redirect_to_private_host() -> None:
                 return _httpx.Response(
                     302, headers={"location": "http://127.0.0.1:9380/api/v1/datasets"}
                 )
-            return _httpx.Response(200, text="<html><body><p>secret</p></body></html>",
-                                   headers={"content-type": "text/html"})
+            return _httpx.Response(
+                200,
+                text="<html><body><p>secret</p></body></html>",
+                headers={"content-type": "text/html"},
+            )
 
         return _httpx.AsyncClient(transport=_httpx.MockTransport(handler))
 
@@ -678,6 +679,7 @@ def test_knowledge_store_file_is_0600(tmp_path, monkeypatch) -> None:
 
 def _stub_upstream(monkeypatch, payload: dict, status_code: int = 200):
     """让上游返回指定信封/状态码（用于错误映射断言）。"""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status_code, json=payload)
 

@@ -1069,9 +1069,7 @@ class _AgentLoopRoundBridge:
         # graph/sources/query 元数据（services/kag/trace.py 完成形态转换；
         # 兼容 CLI 后端的 ``mcp__<server>__kag_solve`` 命名空间前缀，非 KAG
         # 工具或不可解析时零副作用）。
-        kag_meta = kag_trace_metadata(
-            name, self._tool_args.pop(call_id, None), event.text
-        )
+        kag_meta = kag_trace_metadata(name, self._tool_args.pop(call_id, None), event.text)
         if kag_meta:
             if kag_meta.get("query"):
                 metadata["query"] = kag_meta["query"]

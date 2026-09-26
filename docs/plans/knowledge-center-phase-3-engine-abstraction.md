@@ -28,6 +28,7 @@ backend 加 provider + 目录加条目，**数据无需迁移**、知识中心�
 ```python
 # services/knowledge/engines/base.py（新增）
 
+
 class KnowledgeEngine(Protocol):
     """知识引擎 provider 接口（Phase 3）。
 
@@ -39,21 +40,22 @@ class KnowledgeEngine(Protocol):
        引擎字段映射在 provider 内完成——前端不再感知上游命名。
     """
 
-    engine_id: str                      # "intellect-rag" | "kag" | ...
+    engine_id: str  # "intellect-rag" | "kag" | ...
     display_name: str
-    capabilities: frozenset[str]        # {"upload", "search", "delete", ...}
+    capabilities: frozenset[str]  # {"upload", "search", "delete", ...}
 
     async def health(self) -> EngineHealth: ...
     async def list_datasets(self, *, user_id: str | None) -> list[KnowledgeDataset]: ...
-    async def create_dataset(self, *, name: str, description: str,
-                             visibility: str) -> KnowledgeDataset: ...
+    async def create_dataset(
+        self, *, name: str, description: str, visibility: str
+    ) -> KnowledgeDataset: ...
     async def delete_dataset(self, dataset_id: str) -> None: ...
     async def list_documents(self, dataset_id: str) -> list[KnowledgeDocument]: ...
-    async def upload(self, dataset_id: str, files: list[UploadItem],
-                     parent_path: str = "") -> UploadResult: ...
+    async def upload(
+        self, dataset_id: str, files: list[UploadItem], parent_path: str = ""
+    ) -> UploadResult: ...
     async def delete_documents(self, dataset_id: str, ids: list[str]) -> None: ...
-    async def search(self, dataset_id: str, question: str,
-                     **options) -> list[SearchChunk]: ...
+    async def search(self, dataset_id: str, question: str, **options) -> list[SearchChunk]: ...
 ```
 
 **注册表**（轻量，不引入 entry-point 机制——当前只有 2 个引擎候选）：
@@ -62,8 +64,9 @@ class KnowledgeEngine(Protocol):
 # services/knowledge/engines/registry.py
 _ENGINES: dict[str, KnowledgeEngine] = {}
 
+
 def register(engine: KnowledgeEngine) -> None: ...
-def get(engine_id: str) -> KnowledgeEngine: ...   # 未知 id → 明确报错
+def get(engine_id: str) -> KnowledgeEngine: ...  # 未知 id → 明确报错
 def list_engines() -> list[EngineDescriptor]: ...  # 供 UI 目录（名称/图标/描述/能力）
 ```
 
@@ -123,6 +126,8 @@ KAG 的第二引擎形态与此**完全不同**：KAG 走 grounding 块 + kag-br
 async def chat_binding(self, kb_ids: list[str]) -> dict | None:
     """本 turn 的聊天侧绑定产物（intellect-rag: runs rag 块；
     KAG: grounding 块片段 / None）。None = 该引擎不参与聊天侧。"""
+
+
 async def mcp_binding(self, workdir: str) -> None:
     """会话 MCP 注入（intellect-rag: .mcp.json intellect-knowledge 条目；
     KAG: kag-bridge 条目 / 不注入）。"""
@@ -169,6 +174,8 @@ rag-app，无法覆盖），但**没有说清 存储与解析规则**：现有 K
 ```python
 class EngineContext:  # user_id / language / request_scope / identity headers
     ...
+
+
 def build_engine(engine_id: str, ctx: EngineContext) -> KnowledgeEngine: ...
 ```
 方法签名不再各自带 user_id（消除不一致，也让 provider 能在内部复用同一份鉴权）。

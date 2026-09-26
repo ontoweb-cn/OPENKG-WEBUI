@@ -53,7 +53,10 @@ READ_TYPE = {
                 "desc": None,
             },
             "objectTypeRef": {
-                "basicInfo": {"name": {"@type": "SPG_TYPE", "nameEn": "Text", "identityType": "SPG_TYPE"}, "nameZh": "文本"},
+                "basicInfo": {
+                    "name": {"@type": "SPG_TYPE", "nameEn": "Text", "identityType": "SPG_TYPE"},
+                    "nameZh": "文本",
+                },
                 "spgTypeEnum": "BASIC_TYPE",
                 "projectId": 0,
                 "ontologyId": {"uniqueId": 1, "alterId": 1},
@@ -66,13 +69,27 @@ READ_TYPE = {
         {
             "isDynamic": False,
             "subjectTypeRef": {
-                "basicInfo": {"name": {"@type": "SPG_TYPE", "namespace": "m0ProbeLive", "nameEn": "Person", "identityType": "SPG_TYPE"}},
+                "basicInfo": {
+                    "name": {
+                        "@type": "SPG_TYPE",
+                        "namespace": "m0ProbeLive",
+                        "nameEn": "Person",
+                        "identityType": "SPG_TYPE",
+                    }
+                },
                 "spgTypeEnum": "ENTITY_TYPE",
                 "projectId": 3,
                 "ontologyId": {"uniqueId": 1, "alterId": 1},
             },
             "objectTypeRef": {
-                "basicInfo": {"name": {"@type": "SPG_TYPE", "namespace": "m0ProbeLive", "nameEn": "Organization", "identityType": "SPG_TYPE"}},
+                "basicInfo": {
+                    "name": {
+                        "@type": "SPG_TYPE",
+                        "namespace": "m0ProbeLive",
+                        "nameEn": "Organization",
+                        "identityType": "SPG_TYPE",
+                    }
+                },
                 "spgTypeEnum": "ENTITY_TYPE",
                 "projectId": 3,
                 "ontologyId": {"uniqueId": 2, "alterId": 2},
@@ -82,7 +99,12 @@ READ_TYPE = {
                 "nameZh": "任职于",
                 "desc": "person works for organization",
             },
-            "advancedConfig": {"encryptTypeEnum": "NONE", "withIndex": False, "subProperties": [], "semantics": []},
+            "advancedConfig": {
+                "encryptTypeEnum": "NONE",
+                "withIndex": False,
+                "subProperties": [],
+                "semantics": [],
+            },
             "extInfo": {"valueType": "ENTITY_TYPE"},
             "inherited": False,
         }
@@ -91,7 +113,12 @@ READ_TYPE = {
 
 OBJECT_TYPE = {
     "basicInfo": {
-        "name": {"@type": "SPG_TYPE", "namespace": "m0ProbeLive", "nameEn": "Organization", "identityType": "SPG_TYPE"},
+        "name": {
+            "@type": "SPG_TYPE",
+            "namespace": "m0ProbeLive",
+            "nameEn": "Organization",
+            "identityType": "SPG_TYPE",
+        },
         "nameZh": "组织机构",
         "desc": "",
     },
@@ -144,7 +171,10 @@ def test_new_relation_uses_create_operation_template() -> None:
         "identityType": "PREDICATE",
     }
     # subject 骨架（knext 实发形态），object 全量
-    assert rel["subjectTypeRef"]["basicInfo"]["name"] == {"identityType": "SPG_TYPE", "@type": "SPG_TYPE"}
+    assert rel["subjectTypeRef"]["basicInfo"]["name"] == {
+        "identityType": "SPG_TYPE",
+        "@type": "SPG_TYPE",
+    }
     assert rel["objectTypeRef"]["basicInfo"]["name"]["nameEn"] == "Organization"
     assert rel["objectTypeRef"]["spgTypeEnum"] == "ENTITY_TYPE"
     assert rel["advancedConfig"]["constraint"] == {"constraintItems": []}

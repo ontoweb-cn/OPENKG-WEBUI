@@ -275,18 +275,14 @@ async def get_knowledge_selection(session_id: str):
 
 
 @router.put("/{session_id}/knowledge-selection")
-async def update_knowledge_selection(
-    session_id: str, payload: KnowledgeSelectionRequest
-):
+async def update_knowledge_selection(session_id: str, payload: KnowledgeSelectionRequest):
     """知识中心勾选（Phase 1.5）：会话级知识库 dataset ids，存会话偏好。"""
     store = get_sqlite_session_store()
     session = await store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     kb_ids = [str(x) for x in payload.kb_ids if str(x).strip()]
-    updated = await store.update_session_preferences(
-        session_id, {"knowledge_base_ids": kb_ids}
-    )
+    updated = await store.update_session_preferences(session_id, {"knowledge_base_ids": kb_ids})
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"kb_ids": kb_ids}

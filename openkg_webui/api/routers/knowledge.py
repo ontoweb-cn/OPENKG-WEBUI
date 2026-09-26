@@ -88,9 +88,7 @@ def _require_same_origin(request: Request) -> None:
     # 浏览器原始 host 优先（Next rewrite 追加 X-Forwarded-Host，见 origins 模块）
     if not origin_is_trusted(
         request.headers.get("origin"),
-        request_authority(
-            request.headers.get("host"), request.headers.get("x-forwarded-host")
-        ),
+        request_authority(request.headers.get("host"), request.headers.get("x-forwarded-host")),
         allowed,
     ):
         raise HTTPException(status_code=403, detail="Cross-site request refused.")
@@ -108,9 +106,7 @@ def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, KnowledgeNotConfigured):
         return HTTPException(status_code=409, detail=f"knowledge_not_configured: {exc}")
     if isinstance(exc, KnowledgeIdentityUnavailable):
-        return HTTPException(
-            status_code=409, detail=f"knowledge_identity_unavailable: {exc}"
-        )
+        return HTTPException(status_code=409, detail=f"knowledge_identity_unavailable: {exc}")
     if isinstance(exc, EngineError):
         mapping = {
             EngineErrorKind.UNAUTHORIZED: 403,
@@ -120,9 +116,7 @@ def _http_error(exc: Exception) -> HTTPException:
             EngineErrorKind.UPSTREAM_ERROR: 502,
         }
         status_code = mapping.get(exc.kind, 502)
-        return HTTPException(
-            status_code=status_code, detail=f"knowledge_{exc.kind}: {exc}"
-        )
+        return HTTPException(status_code=status_code, detail=f"knowledge_{exc.kind}: {exc}")
     return HTTPException(status_code=502, detail=f"knowledge_upstream_error: {exc}")
 
 
@@ -171,10 +165,7 @@ def _visibility_from_headers(headers: dict[str, str] | None) -> str:
     传入 headers 而非 engine，是为了让调用方只解析一次身份（评审 P2-4：
     每次 _auth() 都要重读 system.json 与凭据文件）。
     """
-    lowered = {
-        str(key).lower(): str(value or "").strip()
-        for key, value in (headers or {}).items()
-    }
+    lowered = {str(key).lower(): str(value or "").strip() for key, value in (headers or {}).items()}
     if lowered.get("x-intellect-team"):
         return "team"
     if lowered.get("x-intellect-project"):
@@ -233,9 +224,7 @@ async def knowledge_get_preferences() -> dict[str, Any]:
 
 
 @router.put("/preferences")
-async def knowledge_put_preferences(
-    request: Request, payload: dict[str, Any]
-) -> dict[str, Any]:
+async def knowledge_put_preferences(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     _require_enabled()
     _require_same_origin(request)
     from openkg_webui.services.knowledge import (
@@ -255,9 +244,7 @@ async def knowledge_put_preferences(
 
 
 @router.get("/datasets", response_model=DatasetPage)
-async def knowledge_list_datasets(
-    request: Request, page: int = 1, page_size: int = 30
-) -> Any:
+async def knowledge_list_datasets(request: Request, page: int = 1, page_size: int = 30) -> Any:
     _require_enabled()
     q = request.query_params
     return await _engine_call(
@@ -289,9 +276,7 @@ async def knowledge_create_dataset(request: Request) -> Any:
         # 无团队范围时钳制为 me；有则即便请求说 me 上游也会落 team/project，
         # 这里如实上报（评审 P1-1）。
         _bearer, headers = engine._auth()
-        permission = (
-            "team" if _visibility_from_headers(headers) in {"team", "project"} else "me"
-        )
+        permission = "team" if _visibility_from_headers(headers) in {"team", "project"} else "me"
         dataset = await engine.create_dataset(
             name=str(payload.get("name") or ""),
             description=str(payload.get("description") or ""),
@@ -310,9 +295,7 @@ async def knowledge_create_dataset(request: Request) -> Any:
 @router.get("/datasets/{dataset_id}", response_model=KnowledgeDataset)
 async def knowledge_get_dataset(dataset_id: str) -> Any:
     _require_enabled()
-    return await _engine_call(
-        lambda e: e.get_dataset(dataset_id), dataset_id=dataset_id
-    )
+    return await _engine_call(lambda e: e.get_dataset(dataset_id), dataset_id=dataset_id)
 
 
 @router.delete("/datasets/{dataset_id}")
@@ -434,7 +417,9 @@ def _safe_zip_entries(data: bytes) -> list[tuple[str, bytes]]:
                     content = handle.read(_ZIP_MAX_FILE_BYTES + 1)
             except RuntimeError as exc:
                 # 加密条目等 zipfile 层错误——按不可用条目拒绝整个 zip
-                raise HTTPException(status_code=400, detail=f"zip entry unreadable: {info.filename}") from exc
+                raise HTTPException(
+                    status_code=400, detail=f"zip entry unreadable: {info.filename}"
+                ) from exc
             if len(content) > _ZIP_MAX_FILE_BYTES:
                 raise HTTPException(
                     status_code=413, detail=f"zip: entry too large: {info.filename}"
@@ -530,9 +515,7 @@ async def knowledge_upload_structured(
     results: list[StructuredUploadResult] = []
     for directory, items in sorted(groups.items()):
         payload_items = [
-            UploadItem(
-                name=posixpath.basename(name), content=content, content_type=ctype
-            )
+            UploadItem(name=posixpath.basename(name), content=content, content_type=ctype)
             for name, content, ctype in items
         ]
         try:
@@ -542,9 +525,7 @@ async def knowledge_upload_structured(
                 parent_path=directory or "",
                 upload_type=type_ or "local",
             )
-            results.append(
-                StructuredUploadResult(directory=directory, uploaded=uploaded.uploaded)
-            )
+            results.append(StructuredUploadResult(directory=directory, uploaded=uploaded.uploaded))
         except (EngineError, KnowledgeNotConfigured, KnowledgeIdentityUnavailable) as exc:
             results.append(StructuredUploadResult(directory=directory, error=str(exc)))
     return results
@@ -590,9 +571,7 @@ async def knowledge_get_github_source(dataset_id: str) -> dict[str, Any]:
 
 
 @router.delete("/datasets/{dataset_id}/sources/github")
-async def knowledge_delete_github_source(
-    dataset_id: str, request: Request
-) -> dict[str, Any]:
+async def knowledge_delete_github_source(dataset_id: str, request: Request) -> dict[str, Any]:
     _require_enabled()
     _require_same_origin(request)
     from openkg_webui.services.knowledge.sources import store
@@ -613,8 +592,7 @@ async def _run_github_sync(user_id: str, dataset_id: str) -> None:
     )
     try:
         prev_files = {
-            k: v
-            for k, v in (store.get_state(user_id, dataset_id).get("files") or {}).items()
+            k: v for k, v in (store.get_state(user_id, dataset_id).get("files") or {}).items()
         }
         plan = await github.plan_sync(
             client,
@@ -675,9 +653,7 @@ async def _run_github_sync(user_id: str, dataset_id: str) -> None:
                 # 上传写入的文档名是 basename（见上方 files_payload），
                 # 因此删除匹配也必须用 basename——否则远端删除的文档永远
                 # 删不掉（原实现按仓库全路径查 name，恒空）。
-                name_to_id = {
-                    d.get("name"): d.get("id") for d in docs if isinstance(d, dict)
-                }
+                name_to_id = {d.get("name"): d.get("id") for d in docs if isinstance(d, dict)}
                 doomed = [
                     name_to_id[posixpath.basename(p)]
                     for p in plan.removals
@@ -778,9 +754,7 @@ async def knowledge_get_web_source(dataset_id: str) -> dict[str, Any]:
 
 
 @router.delete("/datasets/{dataset_id}/sources/web")
-async def knowledge_delete_web_source(
-    dataset_id: str, request: Request
-) -> dict[str, Any]:
+async def knowledge_delete_web_source(dataset_id: str, request: Request) -> dict[str, Any]:
     _require_enabled()
     _require_same_origin(request)
     from openkg_webui.services.knowledge.sources import store
@@ -799,9 +773,7 @@ async def _run_web_sync(user_id: str, dataset_id: str) -> None:
             max_pages=int(cfg.get("max_pages") or 20),
             max_depth=int(cfg.get("max_depth") or 2),
         )
-        prev = {
-            k: v for k, v in (store.get_state(user_id, dataset_id).get("pages") or {}).items()
-        }
+        prev = {k: v for k, v in (store.get_state(user_id, dataset_id).get("pages") or {}).items()}
         current = {page.url: page.content_hash for page in pages}
         uploads = [p for p in pages if prev.get(p.url) != p.content_hash]
         removals = [u for u in prev if u not in current]
@@ -967,9 +939,7 @@ async def knowledge_delete_documents(dataset_id: str, request: Request) -> Any:
     _require_same_origin(request)
     body = await _json_body(request)
     ids = [str(x) for x in ((body or {}).get("ids") or [])]
-    return await _engine_call(
-        lambda e: e.delete_documents(dataset_id, ids), dataset_id=dataset_id
-    )
+    return await _engine_call(lambda e: e.delete_documents(dataset_id, ids), dataset_id=dataset_id)
 
 
 @router.post("/datasets/{dataset_id}/documents/parse")
@@ -978,9 +948,7 @@ async def knowledge_parse_documents(dataset_id: str, request: Request) -> Any:
     _require_same_origin(request)
     body = await _json_body(request)
     ids = [str(x) for x in ((body or {}).get("document_ids") or [])]
-    return await _engine_call(
-        lambda e: e.parse_documents(dataset_id, ids), dataset_id=dataset_id
-    )
+    return await _engine_call(lambda e: e.parse_documents(dataset_id, ids), dataset_id=dataset_id)
 
 
 @router.post("/datasets/{dataset_id}/documents/stop")
@@ -989,9 +957,7 @@ async def knowledge_stop_documents(dataset_id: str, request: Request) -> Any:
     _require_same_origin(request)
     body = await _json_body(request)
     ids = [str(x) for x in ((body or {}).get("document_ids") or [])]
-    return await _engine_call(
-        lambda e: e.stop_parsing(dataset_id, ids), dataset_id=dataset_id
-    )
+    return await _engine_call(lambda e: e.stop_parsing(dataset_id, ids), dataset_id=dataset_id)
 
 
 @router.get("/datasets/{dataset_id}/documents/{document_id}", response_model=KnowledgeDocument)
@@ -1025,9 +991,7 @@ async def knowledge_list_ingestions(dataset_id: str, request: Request) -> Any:
 @router.get("/datasets/{dataset_id}/ingestions/{log_id}", response_model=IngestionLog)
 async def knowledge_get_ingestion(dataset_id: str, log_id: str) -> Any:
     _require_enabled()
-    return await _engine_call(
-        lambda e: e.get_ingestion(dataset_id, log_id), dataset_id=dataset_id
-    )
+    return await _engine_call(lambda e: e.get_ingestion(dataset_id, log_id), dataset_id=dataset_id)
 
 
 @router.post("/datasets/{dataset_id}/search", response_model=SearchResult)
@@ -1041,9 +1005,7 @@ async def knowledge_search_dataset(dataset_id: str, request: Request) -> Any:
             str(payload.get("question") or ""),
             top_k=int(payload.get("top_k") or 1024),
             similarity_threshold=float(payload.get("similarity_threshold") or 0.2),
-            vector_similarity_weight=float(
-                payload.get("vector_similarity_weight") or 0.3
-            ),
+            vector_similarity_weight=float(payload.get("vector_similarity_weight") or 0.3),
             page=int(payload.get("page") or 1),
             size=int(payload.get("size") or 30),
         ),

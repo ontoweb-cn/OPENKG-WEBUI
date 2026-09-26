@@ -33,16 +33,18 @@ PATTERNS = [
 
 # 已知噪声（与多轮对话无关的 session/memory 用法）
 NOISE_SUBSTRINGS = (
-    "SchemaSession",      # knext/schema 的 schema 会话
-    "requests.Session",   # HTTP 连接复用
-    "sqlalchemy",         # 数据库会话
+    "SchemaSession",  # knext/schema 的 schema 会话
+    "requests.Session",  # HTTP 连接复用
+    "sqlalchemy",  # 数据库会话
 )
 
 
 def scan(kag_dir: Path) -> dict:
     hits = defaultdict(list)
     total = 0
-    for py in sorted(list((kag_dir / "kag").rglob("*.py")) + list((kag_dir / "knext").rglob("*.py"))):
+    for py in sorted(
+        list((kag_dir / "kag").rglob("*.py")) + list((kag_dir / "knext").rglob("*.py"))
+    ):
         rel = str(py.relative_to(kag_dir))
         try:
             lines = py.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -74,7 +76,11 @@ def main():
     }
     high_files = {f: v for f, v in high_files.items() if v}
 
-    print_step(True, "扫描完成", f"命中 {scan_result['total_hits']} 行，涉及 {len(scan_result['files'])} 个文件")
+    print_step(
+        True,
+        "扫描完成",
+        f"命中 {scan_result['total_hits']} 行，涉及 {len(scan_result['files'])} 个文件",
+    )
     print("\n=== 强信号命中（memorizer / multi-turn / chat history，需人工确认可用性）===")
     for f, v in high_files.items():
         print(f"\n{kag_dir / f}")

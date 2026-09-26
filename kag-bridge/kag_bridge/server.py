@@ -43,9 +43,17 @@ KAG_PROJECT_DIR = os.environ.get("KAG_PROJECT_DIR", "").strip()
 # 127.0.0.1/localhost/[::1]），容器化调用方（Intellect 等）以
 # host.docker.internal 访问宿主 Bridge 会被 421 拒绝。KAG_BRIDGE_EXTRA_HOSTS
 # 逗号分隔追加（如内网域名），绑定地址本身始终放行。
-_extra_hosts = [h.strip() for h in os.environ.get("KAG_BRIDGE_EXTRA_HOSTS", "").split(",") if h.strip()]
+_extra_hosts = [
+    h.strip() for h in os.environ.get("KAG_BRIDGE_EXTRA_HOSTS", "").split(",") if h.strip()
+]
 _bind_host = os.environ.get("KAG_BRIDGE_HTTP_HOST", "127.0.0.1").strip()
-_allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*", "host.docker.internal:*", f"{_bind_host}:*"]
+_allowed_hosts = [
+    "127.0.0.1:*",
+    "localhost:*",
+    "[::1]:*",
+    "host.docker.internal:*",
+    f"{_bind_host}:*",
+]
 _allowed_hosts += [h if ":*" in h else f"{h}:*" for h in _extra_hosts]
 
 mcp = FastMCP(
@@ -110,13 +118,11 @@ def verify_session_token(api_key: str, token: str) -> dict[str, Any] | None:
     """验证 token；有效返回 payload（sid/pid/exp），否则 ``None``。"""
     if not token.startswith(_TOKEN_PREFIX):
         return None
-    parts = token[len(_TOKEN_PREFIX):].split(".")
+    parts = token[len(_TOKEN_PREFIX) :].split(".")
     if len(parts) != 2:
         return None
     b64, sig = parts
-    expected = hmac.new(
-        _token_sign_key(api_key), b64.encode("ascii"), hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(_token_sign_key(api_key), b64.encode("ascii"), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, expected):
         return None
     try:
@@ -221,8 +227,10 @@ async def kag_solve(
     info = _project_info()
     if project_id and project_id != info["project_id"]:
         return json.dumps(
-            {"error": f"Bridge 绑定项目 {info['project_id']}（namespace={info['namespace']}），"
-            f"project_id={project_id} 的多项目路由于 M2 提供"},
+            {
+                "error": f"Bridge 绑定项目 {info['project_id']}（namespace={info['namespace']}），"
+                f"project_id={project_id} 的多项目路由于 M2 提供"
+            },
             ensure_ascii=False,
         )
     if use_pipeline not in ("think_pipeline", "default_pipeline", "index_pipeline"):
@@ -318,8 +326,10 @@ async def kag_reason(
     info = _project_info()
     if project_id and project_id != info["project_id"]:
         return json.dumps(
-            {"error": f"Bridge 绑定项目 {info['project_id']}（namespace={info['namespace']}），"
-            f"project_id={project_id} 的多项目路由于 M2 提供"},
+            {
+                "error": f"Bridge 绑定项目 {info['project_id']}（namespace={info['namespace']}），"
+                f"project_id={project_id} 的多项目路由于 M2 提供"
+            },
             ensure_ascii=False,
         )
 
@@ -360,7 +370,9 @@ async def kag_reason(
             {"error": f"reason 超时（>{_REASON_TIMEOUT_SECONDS}s）"}, ensure_ascii=False
         )
     except Exception as exc:  # noqa: BLE001 - 工具结果需结构化错误而非崩流
-        return json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False, default=str)
+        return json.dumps(
+            {"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False, default=str
+        )
     cost_ms = int((time.time() - t0) * 1000)
 
     task = (resp_json or {}).get("task") or {}
@@ -393,7 +405,10 @@ async def kag_schema(project_id: str = "", ctx: Context = None) -> str:
     _ensure_kag()
     info = _project_info()
     if project_id and project_id != info["project_id"]:
-        return json.dumps({"error": f"Bridge 绑定项目 {info['project_id']}，多项目路由于 M2 提供"}, ensure_ascii=False)
+        return json.dumps(
+            {"error": f"Bridge 绑定项目 {info['project_id']}，多项目路由于 M2 提供"},
+            ensure_ascii=False,
+        )
 
     from knext.reasoner.client import ReasonerClient
 
@@ -421,7 +436,9 @@ async def kag_status(ctx: Context = None) -> str:
 
     def _probe_server() -> tuple[bool, str]:
         try:
-            req = urllib.request.Request(f"{info['host_addr'].rstrip('/')}/public/v1/project", method="GET")
+            req = urllib.request.Request(
+                f"{info['host_addr'].rstrip('/')}/public/v1/project", method="GET"
+            )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 return resp.status == 200, f"HTTP {resp.status}"
         except Exception as exc:  # noqa: BLE001 - 健康探测需把任何失败转为状态
@@ -437,7 +454,9 @@ async def kag_status(ctx: Context = None) -> str:
             "project_id": info["project_id"],
             "spg_server": {"url": info["host_addr"], "reachable": server_ok, "detail": detail},
             "llm_configured": bool(_MAIN_CONFIG.get("llm")),
-            "vectorizer_configured": bool(_MAIN_CONFIG.get("vectorizer") or _MAIN_CONFIG.get("vectorize_model")),
+            "vectorizer_configured": bool(
+                _MAIN_CONFIG.get("vectorizer") or _MAIN_CONFIG.get("vectorize_model")
+            ),
         },
         ensure_ascii=False,
     )
@@ -527,7 +546,9 @@ def _run_http() -> None:
     """streamable-http transport（附录 A.2，D1）。"""
     api_key = os.environ.get("KAG_BRIDGE_API_KEY", "").strip()
     if not api_key:
-        raise SystemExit("KAG_BRIDGE_TRANSPORT=http 时必须设置 KAG_BRIDGE_API_KEY（拒绝无鉴权启动）")
+        raise SystemExit(
+            "KAG_BRIDGE_TRANSPORT=http 时必须设置 KAG_BRIDGE_API_KEY（拒绝无鉴权启动）"
+        )
     host = os.environ.get("KAG_BRIDGE_HTTP_HOST", "127.0.0.1").strip()
     raw_port = os.environ.get("KAG_BRIDGE_HTTP_PORT", "8890").strip()
     # 配置校验（评审 N-5）：解析失败给可读的启动错误而非裸 traceback。

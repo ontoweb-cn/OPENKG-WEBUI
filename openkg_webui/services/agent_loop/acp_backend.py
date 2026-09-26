@@ -929,7 +929,9 @@ class AcpAgentLoopBackend(AgentLoopBackend):
                         form=schema.ElicitationFormCapabilities(),
                     ),
                 ),
-                client_info=schema.Implementation(name="openkg-webui", title="OPENKG-WebUI", version=""),
+                client_info=schema.Implementation(
+                    name="openkg-webui", title="OPENKG-WebUI", version=""
+                ),
             )
             if handle.acp_session_id:
                 # Child died earlier, or this is a fresh process after a

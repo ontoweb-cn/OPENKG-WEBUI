@@ -22,20 +22,44 @@ from openkg_webui.services.kag.openspg_client import OpenSPGClient, OpenSPGError
 # C2 实测 wire 形态样本（@type/identityType 为 Jackson 多态标记）
 TRIPLE_LEAD_TO = {
     "@type": "TripleSemantic",
-    "subjectTypeIdentifier": {"@type": "SPG_TYPE", "namespace": "m0ProbeLive", "nameEn": "Topic", "identityType": "SPG_TYPE"},
+    "subjectTypeIdentifier": {
+        "@type": "SPG_TYPE",
+        "namespace": "m0ProbeLive",
+        "nameEn": "Topic",
+        "identityType": "SPG_TYPE",
+    },
     "subjectIdentifier": {"@type": "CONCEPT", "id": "1", "name": "1", "identityType": "CONCEPT"},
     "predicateIdentifier": {"@type": "PREDICATE", "name": "leadTo", "identityType": "PREDICATE"},
-    "objectTypeIdentifier": {"@type": "SPG_TYPE", "namespace": "m0ProbeLive", "nameEn": "Topic", "identityType": "SPG_TYPE"},
+    "objectTypeIdentifier": {
+        "@type": "SPG_TYPE",
+        "namespace": "m0ProbeLive",
+        "nameEn": "Topic",
+        "identityType": "SPG_TYPE",
+    },
     "objectIdentifier": {"@type": "CONCEPT", "id": "2", "name": "2", "identityType": "CONCEPT"},
-    "logicalRule": {"code": {"code": "RULE_1"}, "version": 1, "status": "PROD", "content": "Define (s:...){...}"},
+    "logicalRule": {
+        "code": {"code": "RULE_1"},
+        "version": 1,
+        "status": "PROD",
+        "content": "Define (s:...){...}",
+    },
     "ontologyEnum": "CONCEPT",
 }
 DYNAMIC_TAXONOMY = {
     "@type": "DynamicTaxonomySemantic",
     "predicateIdentifier": {"@type": "PREDICATE", "name": "belongTo", "identityType": "PREDICATE"},
-    "conceptTypeIdentifier": {"@type": "SPG_TYPE", "namespace": "m0ProbeLive", "nameEn": "Topic", "identityType": "SPG_TYPE"},
+    "conceptTypeIdentifier": {
+        "@type": "SPG_TYPE",
+        "namespace": "m0ProbeLive",
+        "nameEn": "Topic",
+        "identityType": "SPG_TYPE",
+    },
     "conceptIdentifier": {"@type": "CONCEPT", "id": "1", "name": "1", "identityType": "CONCEPT"},
-    "logicalRule": {"code": {"code": "RULE_2"}, "status": "PROD", "content": "Define (s:...)-[p:belongTo]->(...){...}"},
+    "logicalRule": {
+        "code": {"code": "RULE_2"},
+        "status": "PROD",
+        "content": "Define (s:...)-[p:belongTo]->(...){...}",
+    },
     "ontologyEnum": "CONCEPT",
 }
 
@@ -100,27 +124,40 @@ async def test_concept_write_methods_send_expected_bodies() -> None:
     client = _mock_client(handler)
     assert await client.define_dynamic_taxonomy("m0ProbeLive.Topic", "1", "dsl-x") is True
     assert await client.remove_dynamic_taxonomy("m0ProbeLive.Topic", "1") is True
-    assert await client.define_logical_causation(
-        subject_concept_type_name="m0ProbeLive.Topic",
-        subject_concept_name="1",
-        predicate_name="leadTo",
-        object_concept_type_name="m0ProbeLive.Topic",
-        object_concept_name="2",
-        dsl="dsl-y",
-    ) is True
-    assert await client.remove_logical_causation(
-        subject_concept_type_name="m0ProbeLive.Topic",
-        subject_concept_name="1",
-        predicate_name="leadTo",
-        object_concept_type_name="m0ProbeLive.Topic",
-        object_concept_name="2",
-    ) is True
+    assert (
+        await client.define_logical_causation(
+            subject_concept_type_name="m0ProbeLive.Topic",
+            subject_concept_name="1",
+            predicate_name="leadTo",
+            object_concept_type_name="m0ProbeLive.Topic",
+            object_concept_name="2",
+            dsl="dsl-y",
+        )
+        is True
+    )
+    assert (
+        await client.remove_logical_causation(
+            subject_concept_type_name="m0ProbeLive.Topic",
+            subject_concept_name="1",
+            predicate_name="leadTo",
+            object_concept_type_name="m0ProbeLive.Topic",
+            object_concept_name="2",
+        )
+        is True
+    )
 
     assert captured[0]["url"].endswith("/concept/defineDynamicTaxonomy")
-    assert captured[0]["body"] == {"conceptTypeName": "m0ProbeLive.Topic", "conceptName": "1", "dsl": "dsl-x"}
+    assert captured[0]["body"] == {
+        "conceptTypeName": "m0ProbeLive.Topic",
+        "conceptName": "1",
+        "dsl": "dsl-x",
+    }
     # removeDynamicTaxonomy 字段名不同（objectConcept*，C2 实测）
     assert captured[1]["url"].endswith("/concept/removeDynamicTaxonomy")
-    assert captured[1]["body"] == {"objectConceptTypeName": "m0ProbeLive.Topic", "objectConceptName": "1"}
+    assert captured[1]["body"] == {
+        "objectConceptTypeName": "m0ProbeLive.Topic",
+        "objectConceptName": "1",
+    }
     assert captured[2]["url"].endswith("/concept/defineLogicalCausation")
     assert captured[2]["body"]["semanticType"] == "REASONING_CONCEPT"
     assert captured[3]["url"].endswith("/concept/removeLogicalCausation")
@@ -150,7 +187,9 @@ def test_parse_triple_semantic_normalizes_wire() -> None:
         "dsl": "Define (s:...){...}",
     }
     # 缺 subject/object 类型 → None（不渲染畸形行）
-    assert _parse_triple_semantic({"subjectTypeIdentifier": {"namespace": "x", "nameEn": "A"}}) is None
+    assert (
+        _parse_triple_semantic({"subjectTypeIdentifier": {"namespace": "x", "nameEn": "A"}}) is None
+    )
     assert _parse_triple_semantic("nope") is None
 
 
@@ -251,7 +290,9 @@ def _patch_router_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(store_mod, "_store_path", lambda: tmp_path / "kag_tasks.json")
 
 
-def _router_client(monkeypatch: pytest.MonkeyPatch, fake: FakeConceptOpenSPG, user: SimpleNamespace):
+def _router_client(
+    monkeypatch: pytest.MonkeyPatch, fake: FakeConceptOpenSPG, user: SimpleNamespace
+):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -295,7 +336,9 @@ def test_get_concept_rules_normalizes_both_kinds(
         schema=SCHEMA_WITH_BELONG,
     )
     client = _router_client(monkeypatch, fake, _ADMIN)
-    resp = client.get("/api/kag/projects/3/concept/rules", params={"type_name": "m0ProbeLive.Topic"})
+    resp = client.get(
+        "/api/kag/projects/3/concept/rules", params={"type_name": "m0ProbeLive.Topic"}
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["type_name"] == "m0ProbeLive.Topic"
@@ -321,7 +364,8 @@ def test_get_concept_rules_membership_and_validation(
     # 非成员 → 403
     outsider = _router_client(monkeypatch, FakeConceptOpenSPG(), _OUTSIDER)
     assert (
-        outsider.get("/api/kag/projects/3/concept/rules", params={"type_name": "x"}).status_code == 403
+        outsider.get("/api/kag/projects/3/concept/rules", params={"type_name": "x"}).status_code
+        == 403
     )
     # type_name 必填 → 400
     client = _router_client(monkeypatch, FakeConceptOpenSPG(), _ADMIN)
@@ -334,9 +378,13 @@ def test_get_concept_rules_degrades_per_part(
     """上游失败时 reasoning/taxonomy 独立降级空列表、belong_to_ready=false，
     不 500（与 graph labels 降级同型）。"""
     _patch_router_env(monkeypatch, tmp_path)
-    fake = FakeConceptOpenSPG(errors={"get_reasoning_concepts", "get_concept_detail", "query_schema"})
+    fake = FakeConceptOpenSPG(
+        errors={"get_reasoning_concepts", "get_concept_detail", "query_schema"}
+    )
     client = _router_client(monkeypatch, fake, _ADMIN)
-    resp = client.get("/api/kag/projects/3/concept/rules", params={"type_name": "m0ProbeLive.Topic"})
+    resp = client.get(
+        "/api/kag/projects/3/concept/rules", params={"type_name": "m0ProbeLive.Topic"}
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["reasoning"] == []
@@ -354,7 +402,12 @@ def test_define_taxonomy_gated_on_belong_relation(
 
     resp = client.post(
         "/api/kag/projects/3/concept/rules/define",
-        json={"kind": "taxonomy", "concept_type_name": "m0ProbeLive.Topic", "concept_name": "1", "dsl": "x"},
+        json={
+            "kind": "taxonomy",
+            "concept_type_name": "m0ProbeLive.Topic",
+            "concept_name": "1",
+            "dsl": "x",
+        },
     )
     assert resp.status_code == 400, resp.text
     assert fake.submitted == []  # 未触达上游
@@ -363,15 +416,18 @@ def test_define_taxonomy_gated_on_belong_relation(
     client2 = _router_client(monkeypatch, fake2, _ADMIN)
     resp = client2.post(
         "/api/kag/projects/3/concept/rules/define",
-        json={"kind": "taxonomy", "concept_type_name": "m0ProbeLive.Topic", "concept_name": "1", "dsl": "x"},
+        json={
+            "kind": "taxonomy",
+            "concept_type_name": "m0ProbeLive.Topic",
+            "concept_name": "1",
+            "dsl": "x",
+        },
     )
     assert resp.status_code == 200, resp.text
     assert fake2.submitted == [("define_taxonomy", "m0ProbeLive.Topic", "1", "x")]
 
 
-def test_define_logical_and_remove_routes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_define_logical_and_remove_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_router_env(monkeypatch, tmp_path)
     fake = FakeConceptOpenSPG(schema={})
     client = _router_client(monkeypatch, fake, _ADMIN)

@@ -156,7 +156,8 @@ def test_aggregate_build_status_node_level() -> None:
             "status": instance_status,
             "taskDag": {
                 "nodes": [
-                    {"name": f"n{i}", "properties": {"status": s}} for i, s in enumerate(node_statuses)
+                    {"name": f"n{i}", "properties": {"status": s}}
+                    for i, s in enumerate(node_statuses)
                 ],
                 "edges": [],
             },
@@ -180,7 +181,13 @@ def test_classify_failure_reason() -> None:
     # executor 未配置：traceLog 命中关键词（A1.4 实测 "cannot find driver for"）
     assert (
         _classify_failure(
-            [{"name": "Builder", "status": "failed", "trace_log": "\ncannot find driver for local://x\n"}],
+            [
+                {
+                    "name": "Builder",
+                    "status": "failed",
+                    "trace_log": "\ncannot find driver for local://x\n",
+                }
+            ],
             "failed",
         )
         == "executor_unconfigured"
@@ -201,7 +208,10 @@ def test_classify_failure_reason() -> None:
         == "command_failed"
     )
     # 非失败 → None（不产生误导）
-    assert _classify_failure([{"name": "Builder", "status": "success", "trace_log": ""}], "success") is None
+    assert (
+        _classify_failure([{"name": "Builder", "status": "success", "trace_log": ""}], "success")
+        is None
+    )
     assert _classify_failure([], "running") is None
     # 关键词大小写不敏感（traceLog 归一小写）
     assert (
@@ -212,7 +222,11 @@ def test_classify_failure_reason() -> None:
         == "executor_unconfigured"
     )
     # 词表扩展（§8.9 续）：配置提示词形态同样命中 executor 未配置
-    for hint in ("configure cloudext.computingengine.url first", "no computing engine url", "no driver registered"):
+    for hint in (
+        "configure cloudext.computingengine.url first",
+        "no computing engine url",
+        "no driver registered",
+    ):
         assert (
             _classify_failure(
                 [{"name": "Builder", "status": "failed", "trace_log": hint}],
@@ -223,7 +237,13 @@ def test_classify_failure_reason() -> None:
     # 真实 builder 失败（driver 已配置）→ 不误伤为 executor_unconfigured
     assert (
         _classify_failure(
-            [{"name": "Builder", "status": "failed", "trace_log": "Scheduler execute failed with error:exit code 2"}],
+            [
+                {
+                    "name": "Builder",
+                    "status": "failed",
+                    "trace_log": "Scheduler execute failed with error:exit code 2",
+                }
+            ],
             "failed",
         )
         == "command_failed"
@@ -382,9 +402,7 @@ def test_list_project_builds_membership_and_degraded(
     assert resp.json()["builds"][0]["live_status"] == "unknown"
 
 
-def test_build_detail_assembles_nodes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_build_detail_assembles_nodes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_router_env(monkeypatch, tmp_path)
     fake = FakeOpenSPG(
         jobs={"2": JOB_ERROR},
@@ -461,9 +479,7 @@ def test_get_tasks_live_merge_degraded_unknown(
     from openkg_webui.services.kag.task_store import append_task
 
     append_task({"task_id": "2", "kind": "build", "project_id": "3"})
-    client = _router_client(
-        monkeypatch, FakeOpenSPG(errors={"get_builder_job"}), _ADMIN
-    )
+    client = _router_client(monkeypatch, FakeOpenSPG(errors={"get_builder_job"}), _ADMIN)
     resp = client.get("/api/kag/tasks")
     assert resp.status_code == 200, resp.text
     assert resp.json()["tasks"][0]["live_status"] == "unknown"

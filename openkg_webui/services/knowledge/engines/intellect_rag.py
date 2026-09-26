@@ -191,9 +191,7 @@ class IntellectRagEngine:
         message = str(body.get("message") or "")
         kind = classify_upstream(code if isinstance(code, int) else None, message)
         if kind is not None:
-            raise EngineError(
-                kind, message or f"upstream error (code {code})", upstream_code=code
-            )
+            raise EngineError(kind, message or f"upstream error (code {code})", upstream_code=code)
         return body.get("data")
 
     @staticmethod
@@ -360,9 +358,7 @@ class IntellectRagEngine:
         return DocumentPage(documents=[self._document(r) for r in rows], total=total)
 
     async def get_document(self, dataset_id: str, document_id: str) -> KnowledgeDocument:
-        resp = await self.request(
-            "GET", f"/datasets/{dataset_id}/documents/{document_id}"
-        )
+        resp = await self.request("GET", f"/datasets/{dataset_id}/documents/{document_id}")
         return self._document(self._unwrap(resp))
 
     async def upload(
@@ -379,9 +375,7 @@ class IntellectRagEngine:
         直传路径传 file-like，httpx 分块读取（不 buffer）；结构化上传按设计传
         bytes（zip 解包必然如此）。
         """
-        payload = [
-            ("file", (item.name, item.content, item.content_type)) for item in items
-        ]
+        payload = [("file", (item.name, item.content, item.content_type)) for item in items]
         data: dict[str, Any] = {"type": upload_type}
         if parent_path:
             data["parent_path"] = parent_path
@@ -439,9 +433,7 @@ class IntellectRagEngine:
             "vector_similarity_weight": vector_similarity_weight,
             **options,
         }
-        resp = await self.request(
-            "POST", f"/datasets/{dataset_id}/search", json=body
-        )
+        resp = await self.request("POST", f"/datasets/{dataset_id}/search", json=body)
         data = self._unwrap(resp)
         inner = data if isinstance(data, dict) else {}
         rows = inner.get("chunks") if isinstance(inner.get("chunks"), list) else []
@@ -513,9 +505,7 @@ class IntellectRagEngine:
         )
 
     async def thumbnail(self, document_id: str) -> BinaryPayload:
-        resp = await self.request(
-            "GET", "/thumbnails", params={"doc_id": document_id}
-        )
+        resp = await self.request("GET", "/thumbnails", params={"doc_id": document_id})
         self._raise_for_status(resp)
         return BinaryPayload(
             content=resp.content,
@@ -567,11 +557,7 @@ class IntellectRagEngine:
             "url": str(block.get("mcp_url")),
             "headers": {
                 "Authorization": f"Bearer {bearer}",
-                **{
-                    k: v
-                    for k, v in identity_headers.items()
-                    if k.lower() != "authorization"
-                },
+                **{k: v for k, v in identity_headers.items() if k.lower() != "authorization"},
             },
         }
         workdir_path = Path(workdir)
@@ -614,6 +600,4 @@ class IntellectRagEngine:
             allow.append(wanted)
         permissions["allow"] = allow
         settings["permissions"] = permissions
-        settings_path.write_text(
-            json.dumps(settings, ensure_ascii=False, indent=2) + "\n", "utf-8"
-        )
+        settings_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", "utf-8")

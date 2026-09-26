@@ -51,7 +51,9 @@ def filter_projects_by_access(
     uid = _uid(user)
     from openkg_webui.services.kag.member_store import project_members
 
-    return [p for p in projects if uid in project_members(str(p.get("projectId") or p.get("id") or ""))]
+    return [
+        p for p in projects if uid in project_members(str(p.get("projectId") or p.get("id") or ""))
+    ]
 
 
 _OPENSPG_USERNO_RE = re.compile(r"^[A-Za-z0-9_]{6,20}$")

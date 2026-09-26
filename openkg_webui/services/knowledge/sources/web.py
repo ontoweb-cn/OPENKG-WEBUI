@@ -27,15 +27,49 @@ DEFAULT_TIMEOUT_S = 15.0
 MAX_PAGE_BYTES = 2 * 1024 * 1024
 
 _SKIP_EXTENSIONS = (
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".css", ".js",
-    ".json", ".xml", ".rss", ".woff", ".woff2", ".ttf", ".pdf", ".zip",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".ico",
+    ".css",
+    ".js",
+    ".json",
+    ".xml",
+    ".rss",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".pdf",
+    ".zip",
 )
 
 _BLOCKED_HOSTS = {"localhost"}
-_BLOCKED_PREFIXES = ("127.", "10.", "192.168.", "169.254.", "172.16.", "172.17.",
-                     "172.18.", "172.19.", "172.20.", "172.21.", "172.22.",
-                     "172.23.", "172.24.", "172.25.", "172.26.", "172.27.",
-                     "172.28.", "172.29.", "172.30.", "172.31.", "0.",)
+_BLOCKED_PREFIXES = (
+    "127.",
+    "10.",
+    "192.168.",
+    "169.254.",
+    "172.16.",
+    "172.17.",
+    "172.18.",
+    "172.19.",
+    "172.20.",
+    "172.21.",
+    "172.22.",
+    "172.23.",
+    "172.24.",
+    "172.25.",
+    "172.26.",
+    "172.27.",
+    "172.28.",
+    "172.29.",
+    "172.30.",
+    "172.31.",
+    "0.",
+)
 
 
 def is_public_http_url(url: str) -> bool:
@@ -143,10 +177,7 @@ def html_to_markdown(html: str, page_url: str) -> tuple[str, str, list[str]]:
     title = re.sub(r"\s+", " ", "".join(title_parts)).strip() or page_url
     text = "".join(parser.out)
     markdown = re.sub(r"\n{3,}", "\n\n", text).strip()
-    same_site = [
-        link for link in links
-        if _same_site(link, urlparse(page_url).hostname or "")
-    ]
+    same_site = [link for link in links if _same_site(link, urlparse(page_url).hostname or "")]
     return title, markdown, same_site
 
 
@@ -170,7 +201,9 @@ async def crawl_site(
 
     # follow_redirects=True 会让「公网 URL → 302 内网」绕过 is_public_http_url
     # 的字面量检查。这里保持手动跟随即逐跳校验 Location。
-    factory = client_factory or (lambda: httpx.AsyncClient(timeout=timeout_s, follow_redirects=False))
+    factory = client_factory or (
+        lambda: httpx.AsyncClient(timeout=timeout_s, follow_redirects=False)
+    )
     async with factory() as client:
         while queue and len(pages) < max_pages:
             url, depth = queue.popleft()

@@ -597,7 +597,9 @@ async def test_session_workspace_is_created_before_use(tmp_path, monkeypatch) ->
         def get_task_workspace(self, feature: str, task_id: str):
             return tmp_path / "ws" / feature / task_id  # deliberately not created
 
-    monkeypatch.setattr("openkg_webui.services.path_service.get_path_service", lambda: _StubPathService())
+    monkeypatch.setattr(
+        "openkg_webui.services.path_service.get_path_service", lambda: _StubPathService()
+    )
     request = await _build_request(
         UnifiedContext(session_id="sess-9", user_message="hi"),
         backend=object(),
@@ -630,14 +632,19 @@ def test_turn_model_resolves_from_the_metadata_selection(monkeypatch) -> None:
         user_message="hi",
         metadata={"llm_selection": {"profile_id": "p1", "model_id": "m1"}},
     )
-    assert asyncio.run(_build_request(context, backend=object(), session_workspace=False)).model == "deepseek-v3"
+    assert (
+        asyncio.run(_build_request(context, backend=object(), session_workspace=False)).model
+        == "deepseek-v3"
+    )
 
     dangling = UnifiedContext(
         session_id="s",
         user_message="hi",
         metadata={"llm_selection": {"profile_id": "p1", "model_id": "gone"}},
     )
-    assert asyncio.run(_build_request(dangling, backend=object(), session_workspace=False)).model == ""
+    assert (
+        asyncio.run(_build_request(dangling, backend=object(), session_workspace=False)).model == ""
+    )
 
     bare = UnifiedContext(session_id="s", user_message="hi", metadata={})
     assert asyncio.run(_build_request(bare, backend=object(), session_workspace=False)).model == ""

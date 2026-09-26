@@ -34,7 +34,12 @@ GET_PROBES = [
     ("GET", "/public/v1/tenant", None, "租户列表（TenantController）"),
     # schema 查询：knext SchemaSession.schema_query_project_schema_get 的
     # resource_path 见 knext/reasoner/rest（M0-3 契约笔记核对），候选：
-    ("GET", "/public/v1/schema/queryProjectSchema?projectId={pid}", None, "项目 Schema（候选路径 A）"),
+    (
+        "GET",
+        "/public/v1/schema/queryProjectSchema?projectId={pid}",
+        None,
+        "项目 Schema（候选路径 A）",
+    ),
     ("GET", "/public/v1/schema?projectId={pid}", None, "项目 Schema（候选路径 B）"),
 ]
 
@@ -109,7 +114,10 @@ def main():
     if args.allow_write:
         for method, path, body, desc in WRITE_PROBES:
             real_body = (
-                {k: v.replace("{pid}", args.project_id) if isinstance(v, str) else v for k, v in body.items()}
+                {
+                    k: v.replace("{pid}", args.project_id) if isinstance(v, str) else v
+                    for k, v in body.items()
+                }
                 if body
                 else None
             )

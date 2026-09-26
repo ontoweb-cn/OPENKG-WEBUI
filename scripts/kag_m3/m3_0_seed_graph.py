@@ -51,12 +51,20 @@ def seed_schema() -> None:
         _log("alterSchema: submit", True, "already present (idempotent skip)")
         return
     person.add_relation(
-        Relation(name="workFor", object_type_name=f"{NS}.Organization",
-                 name_zh="任职于", desc="person works for organization")
+        Relation(
+            name="workFor",
+            object_type_name=f"{NS}.Organization",
+            name_zh="任职于",
+            desc="person works for organization",
+        )
     )
     person.add_relation(
-        Relation(name="locateAt", object_type_name=f"{NS}.GeographicLocation",
-                 name_zh="位于", desc="subject located at place")
+        Relation(
+            name="locateAt",
+            object_type_name=f"{NS}.GeographicLocation",
+            name_zh="位于",
+            desc="subject located at place",
+        )
     )
     session.update_type(person)
     session.commit()
@@ -72,12 +80,11 @@ def verify_schema_cross_process() -> None:
         "from knext.schema.client import SchemaClient\n"
         f"sc = SchemaClient(host_addr='{HOST}', project_id={PROJECT_ID})\n"
         "s = sc.create_session()\n"
-        "p = s.get(f'{%r}.Person')\n" % NS
+        "p = s.get(f'{%r}.Person')\n"
+        % NS
         + "print('[' + ','.join(sorted(p.relations.keys())) + ']')\n"
     )
-    out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60
-    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     after = out.stdout.strip()
     _log(
         "alterSchema: cross-process verify",
@@ -113,21 +120,25 @@ def seed_graph() -> None:
         )
 
     groups = [
-        [vertex("Person", "ZhangSan", "张三"),
-         vertex("Person", "LiSi", "李四"),
-         vertex("Person", "WangWu", "王五")],
-        [vertex("Organization", "KaiYuanUniv", "开元大学"),
-         vertex("Organization", "ZhiPuTech", "智谱科技")],
-        [vertex("GeographicLocation", "Hangzhou", "杭州"),
-         vertex("GeographicLocation", "Beijing", "北京")],
+        [
+            vertex("Person", "ZhangSan", "张三"),
+            vertex("Person", "LiSi", "李四"),
+            vertex("Person", "WangWu", "王五"),
+        ],
+        [
+            vertex("Organization", "KaiYuanUniv", "开元大学"),
+            vertex("Organization", "ZhiPuTech", "智谱科技"),
+        ],
+        [
+            vertex("GeographicLocation", "Hangzhou", "杭州"),
+            vertex("GeographicLocation", "Beijing", "北京"),
+        ],
     ]
     total = sum(len(g) for g in groups)
     try:
         for batch in groups:
             api.graph_upsert_vertex_post(
-                upsert_vertex_request=UpsertVertexRequest(
-                    project_id=PROJECT_ID, vertices=batch
-                )
+                upsert_vertex_request=UpsertVertexRequest(project_id=PROJECT_ID, vertices=batch)
             )
         _log("graph upsert vertices", True, f"{total} nodes ({len(groups)} type groups)")
     except Exception as exc:  # noqa: BLE001
@@ -168,9 +179,7 @@ def verify_dsl() -> None:
     def run(dsl: str):
         req = urllib.request.Request(
             f"{HOST}/public/v1/reason/run",
-            data=json.dumps(
-                {"projectId": PROJECT_ID, "dsl": dsl, "params": {}}
-            ).encode(),
+            data=json.dumps({"projectId": PROJECT_ID, "dsl": dsl, "params": {}}).encode(),
             method="POST",
             headers={"Content-Type": "application/json"},
         )
@@ -185,8 +194,11 @@ def verify_dsl() -> None:
         try:
             task = run(dsl).get("task", {})
             rows = (task.get("resultTableResult") or {}).get("rows") or []
-            _log(f"DSL {name}", task.get("status") == "FINISH" and len(rows) > 0,
-                 f"rows={json.dumps(rows, ensure_ascii=False)[:300]}")
+            _log(
+                f"DSL {name}",
+                task.get("status") == "FINISH" and len(rows) > 0,
+                f"rows={json.dumps(rows, ensure_ascii=False)[:300]}",
+            )
         except Exception as exc:  # noqa: BLE001
             _log(f"DSL {name}", False, repr(exc))
 
@@ -201,8 +213,14 @@ def cleanup_graph() -> None:
 
     api = GraphApi(api_client=ApiClient(configuration=Configuration(host=HOST)))
     stale = [
-        "ZhangSan", "LiSi", "WangWu", "KaiYuanUniv", "ZhiPuTech",
-        "Hangzhou", "Beijing", "ProbeOrg",
+        "ZhangSan",
+        "LiSi",
+        "WangWu",
+        "KaiYuanUniv",
+        "ZhiPuTech",
+        "Hangzhou",
+        "Beijing",
+        "ProbeOrg",
     ]
     for vtype in ("Person", "Organization", "GeographicLocation"):
         try:

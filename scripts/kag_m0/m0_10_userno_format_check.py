@@ -34,9 +34,7 @@ from _common import print_step, write_result
 CANDIDATE_FORMATS = ["164072", "openkg-webui", "openkg-webui-1", "openkg_webui_1", "openkg_webui.1"]
 
 # 静态扫描的校验信号：userNo 附近的格式校验关键词
-VALIDATION_SIGNALS = re.compile(
-    r"(?i)(check|valid|match|pattern|regex|format|account|userNo)"
-)
+VALIDATION_SIGNALS = re.compile(r"(?i)(check|valid|match|pattern|regex|format|account|userNo)")
 
 
 def scan_userno_validation(openspgapp_dir: Path) -> dict:
@@ -73,7 +71,9 @@ def live_probe(host: str) -> list:
             "userNo": fmt,
         }
         req = urllib.request.Request(
-            url, data=json.dumps(body).encode(), method="POST",
+            url,
+            data=json.dumps(body).encode(),
+            method="POST",
             headers={"Content-Type": "application/json"},
         )
         try:
@@ -91,7 +91,9 @@ def live_probe(host: str) -> list:
                 "ok": True,
                 "status": status,
                 "accepted": accepted,
-                "verdict": "格式通过" if accepted else ("格式被拒" if status == 400 else "其他错误（人工判读）"),
+                "verdict": "格式通过"
+                if accepted
+                else ("格式被拒" if status == 400 else "其他错误（人工判读）"),
                 "body_head": payload,
             }
         )
@@ -100,9 +102,15 @@ def live_probe(host: str) -> list:
 
 def main():
     ap = argparse.ArgumentParser(description="M0-10 userNo 账号格式实测")
-    ap.add_argument("--openspgapp-dir", default=str(Path.home() / "project" / "openspgapp"), help="本地仓库（静态扫描校验逻辑）")
+    ap.add_argument(
+        "--openspgapp-dir",
+        default=str(Path.home() / "project" / "openspgapp"),
+        help="本地仓库（静态扫描校验逻辑）",
+    )
     ap.add_argument("--host", default="", help="OpenSPG server 地址（启用实测）")
-    ap.add_argument("--allow-write", action="store_true", help="实测会创建 m0_probe 前缀的测试项目，需显式开启")
+    ap.add_argument(
+        "--allow-write", action="store_true", help="实测会创建 m0_probe 前缀的测试项目，需显式开启"
+    )
     args = ap.parse_args()
 
     result = {"static": None, "live": None}
@@ -120,11 +128,17 @@ def main():
 
     if args.host:
         if not args.allow_write:
-            print("\n[跳过] 实测未执行（--host 需配合 --allow-write：会创建 m0_probe 前缀测试项目）")
+            print(
+                "\n[跳过] 实测未执行（--host 需配合 --allow-write：会创建 m0_probe 前缀测试项目）"
+            )
         else:
             result["live"] = live_probe(args.host)
             accepted = [r["format"] for r in result["live"] if r.get("accepted")]
-            print_step(bool(accepted), "userNo 格式实测", f"通过：{accepted or '无'}；详见 results/m0_10_userno_format_check.json")
+            print_step(
+                bool(accepted),
+                "userNo 格式实测",
+                f"通过：{accepted or '无'}；详见 results/m0_10_userno_format_check.json",
+            )
             result["conclusion_note"] = (
                 "据实测通过的格式回填设计 §6.3 的 service_user_no / openkg-webui-<uid>；"
                 "创建成功的 m0_probe 测试项目需人工清理（记录见 body_head）。"

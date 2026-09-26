@@ -37,9 +37,7 @@ def auth_env(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(
             settings_mod, "resolve_primary_profile", lambda: {"identity_mode": mode}
         )
-        monkeypatch.setattr(
-            ident_mod, "resolve_backend_identity", lambda *a, **k: identity
-        )
+        monkeypatch.setattr(ident_mod, "resolve_backend_identity", lambda *a, **k: identity)
         return ksvc.resolve_request_auth("local-admin")
 
     return _setup

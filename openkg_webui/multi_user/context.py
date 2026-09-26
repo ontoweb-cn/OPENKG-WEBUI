@@ -8,7 +8,9 @@ from typing import Any
 from .models import CurrentUser
 from .paths import local_admin_user, scope_for_user
 
-_current_user: ContextVar[CurrentUser | None] = ContextVar("openkg_webui_current_user", default=None)
+_current_user: ContextVar[CurrentUser | None] = ContextVar(
+    "openkg_webui_current_user", default=None
+)
 
 
 def set_current_user(user: CurrentUser) -> Token[CurrentUser | None]:

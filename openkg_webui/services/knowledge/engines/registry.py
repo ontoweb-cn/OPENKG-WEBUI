@@ -86,9 +86,7 @@ def engine_id_for_dataset(dataset_id: str | None) -> str:
     return _load_pins().get(str(dataset_id)) or DEFAULT_ENGINE_ID
 
 
-def build_context(
-    *, user_id: str | None = None, language: str = "en", **metadata: Any
-) -> Any:
+def build_context(*, user_id: str | None = None, language: str = "en", **metadata: Any) -> Any:
     """构造 :class:`~.base.EngineContext`（薄封装，便于路由层单点调用）。"""
     from .base import EngineContext
 
@@ -107,6 +105,4 @@ def build_engine(engine_id: str | None = None, *, ctx: Any = None, transport: An
     resolved = engine_id or DEFAULT_ENGINE_ID
     if resolved == ENGINE_INTELLECT_RAG:
         return IntellectRagEngine(context, transport=transport)
-    raise EngineError(
-        "upstream_error", f"unknown knowledge engine: {resolved}"
-    )
+    raise EngineError("upstream_error", f"unknown knowledge engine: {resolved}")

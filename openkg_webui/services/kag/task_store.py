@@ -72,7 +72,9 @@ def append_task(record: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def list_tasks(limit: int = 100, session_id: str = "", project_id: str = "") -> list[dict[str, Any]]:
+def list_tasks(
+    limit: int = 100, session_id: str = "", project_id: str = ""
+) -> list[dict[str, Any]]:
     """列表（新在前），可按 session/project 过滤。存储缺失/损坏返回空列表。"""
     with _lock:
         try:

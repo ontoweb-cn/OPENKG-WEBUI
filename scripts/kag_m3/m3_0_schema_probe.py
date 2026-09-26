@@ -52,16 +52,12 @@ def main() -> None:
 
     # --- S1: SchemaUtils 类型名映射 ---
     schema_helper = SchemaUtils(
-        LogicFormConfiguration(
-            {"KAG_PROJECT_ID": project_id, "KAG_PROJECT_HOST_ADDR": host_addr}
-        )
+        LogicFormConfiguration({"KAG_PROJECT_ID": project_id, "KAG_PROJECT_HOST_ADDR": host_addr})
     )
     probes = ["Person", "人物", "Organization", "Geo", "m0ProbeLive.Person", "Entity"]
     s1 = {
         "prefix": schema_helper.prefix,
-        "get_label_within_prefix": {
-            p: schema_helper.get_label_within_prefix(p) for p in probes
-        },
+        "get_label_within_prefix": {p: schema_helper.get_label_within_prefix(p) for p in probes},
         "node_en_2_full_name": dict(schema_helper.node_en_2_full_name),
         "node_zh_2_full_name": dict(schema_helper.node_zh_2_full_name),
     }

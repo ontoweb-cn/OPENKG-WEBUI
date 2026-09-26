@@ -154,7 +154,9 @@ _NEW_PROVIDERS = [
 def _provider_class(module: str, name: str):
     import importlib
 
-    return getattr(importlib.import_module(f"openkg_webui.services.search.providers.{module}"), name)
+    return getattr(
+        importlib.import_module(f"openkg_webui.services.search.providers.{module}"), name
+    )
 
 
 @pytest.fixture
@@ -175,7 +177,9 @@ def new_calls(monkeypatch):
             get = staticmethod(_record("GET"))
             post = staticmethod(_record("POST"))
 
-        monkeypatch.setattr(f"openkg_webui.services.search.providers.{module}.requests", _FakeRequests)
+        monkeypatch.setattr(
+            f"openkg_webui.services.search.providers.{module}.requests", _FakeRequests
+        )
     return captured
 
 

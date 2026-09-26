@@ -29,15 +29,15 @@ from typing import Any, Protocol, runtime_checkable
 ENGINE_INTELLECT_RAG = "intellect-rag"
 
 #: 能力常量——UI 按能力显示/隐藏操作（如 KAG 无上传文档语义）。
-CAP_UPLOAD = "upload"                    # 多文件上传
+CAP_UPLOAD = "upload"  # 多文件上传
 CAP_STRUCTURED_UPLOAD = "structured_upload"  # zip/文件夹结构化上传
-CAP_SEARCH = "search"                    # 检索试玩
-CAP_DELETE = "delete"                    # 删除库/文档
-CAP_SOURCES = "sources"                  # 外部源（GitHub/Web 同步）
-CAP_LOGS = "logs"                        # 解析日志流
-CAP_PREVIEW = "preview"                  # 文档预览/缩略图
-CAP_CHAT_BINDING = "chat_binding"        # 参与聊天召回（runs rag 块）
-CAP_MCP_BINDING = "mcp_binding"          # 提供会话 MCP 注入
+CAP_SEARCH = "search"  # 检索试玩
+CAP_DELETE = "delete"  # 删除库/文档
+CAP_SOURCES = "sources"  # 外部源（GitHub/Web 同步）
+CAP_LOGS = "logs"  # 解析日志流
+CAP_PREVIEW = "preview"  # 文档预览/缩略图
+CAP_CHAT_BINDING = "chat_binding"  # 参与聊天召回（runs rag 块）
+CAP_MCP_BINDING = "mcp_binding"  # 提供会话 MCP 注入
 
 
 class EngineErrorKind:

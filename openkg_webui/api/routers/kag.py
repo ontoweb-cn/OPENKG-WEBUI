@@ -86,9 +86,7 @@ def _require_same_origin(request: Request) -> None:
     # X-Forwarded-Host——同源判定用后者，见 origins.request_authority）
     if not origin_is_trusted(
         request.headers.get("origin"),
-        request_authority(
-            request.headers.get("host"), request.headers.get("x-forwarded-host")
-        ),
+        request_authority(request.headers.get("host"), request.headers.get("x-forwarded-host")),
         allowed,
     ):
         raise HTTPException(status_code=403, detail="Cross-site request refused.")
@@ -133,9 +131,7 @@ _EXECUTOR_UNCONFIGURED_HINTS = (
 )
 
 
-def _classify_failure(
-    nodes: list[dict[str, Any]], live_status: str
-) -> str | None:
+def _classify_failure(nodes: list[dict[str, Any]], live_status: str) -> str | None:
     """构建失败根因分类（§8.9）：executor 未配置 / 命令失败 / 无（null）。
 
     以节点 traceLog 关键词判定 executor 未配置（P0a 详情已有节点日志）；
@@ -327,7 +323,9 @@ async def create_project(request: Request, payload: KagProjectCreateRequest) -> 
         block = get_kag_settings()
         user_no = str(payload.service_user_no or block.get("service_user_no") or "openkg-webui")
         if not _USERNO_RE.match(user_no):
-            raise HTTPException(status_code=400, detail="service_user_no 须 6-20 位字母/数字/下划线")
+            raise HTTPException(
+                status_code=400, detail="service_user_no 须 6-20 位字母/数字/下划线"
+            )
 
     vectorizer = await _assemble_vectorizer(
         model_id=str(payload.embedding_model_id or "").strip(),
@@ -422,9 +420,7 @@ async def _probe_dimensions(vectorizer: dict[str, Any]) -> int:
         data = resp.json()
         return len(data["data"][0]["embedding"])
     except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail=f"embedding 维度探测失败：{exc!r}"
-        ) from exc
+        raise HTTPException(status_code=400, detail=f"embedding 维度探测失败：{exc!r}") from exc
 
 
 @router.get("/projects/{project_id}")
@@ -508,7 +504,7 @@ async def alter_project_schema(
     from openkg_webui.services.kag.schema_draft import new_relation, read_type_to_draft
 
     spg_type = payload.spg_type
-    name = ((spg_type.get("basicInfo") or {}).get("name") or {})
+    name = (spg_type.get("basicInfo") or {}).get("name") or {}
     if not str(name.get("nameEn") or "").strip():
         raise HTTPException(status_code=400, detail="spg_type.basicInfo.name.nameEn is required")
     if not payload.add_relations and not payload.delete_relations:
@@ -526,7 +522,8 @@ async def alter_project_schema(
                 (
                     t
                     for t in types
-                    if ((t.get("basicInfo") or {}).get("name") or {}).get("nameEn") == add.object_type_name
+                    if ((t.get("basicInfo") or {}).get("name") or {}).get("nameEn")
+                    == add.object_type_name
                 ),
                 None,
             )
@@ -552,9 +549,7 @@ async def alter_project_schema(
         }
         unknown = doomed - existing
         if unknown:
-            raise HTTPException(
-                status_code=400, detail=f"relations not found: {sorted(unknown)}"
-            )
+            raise HTTPException(status_code=400, detail=f"relations not found: {sorted(unknown)}")
         for rel in draft.get("relations") or []:
             if str(((rel.get("basicInfo") or {}).get("name") or {}).get("name") or "") in doomed:
                 rel["alterOperation"] = "DELETE"
@@ -705,9 +700,7 @@ async def submit_build(
 
 
 @router.get("/tasks")
-async def get_tasks(
-    limit: int = 100, session_id: str = "", project_id: str = ""
-) -> dict[str, Any]:
+async def get_tasks(limit: int = 100, session_id: str = "", project_id: str = "") -> dict[str, Any]:
     """推理任务列表（T2，M4-B 评审 M-7）：admin 全量；非 admin 仅其
     membership 可见项目的任务（防跨项目窥探 question/answer/references）。"""
     from openkg_webui.services.kag.access import _is_admin
@@ -718,7 +711,9 @@ async def get_tasks(
     if project_id:
         # 显式 project 过滤：校验该项目的 membership（admin 恒过）
         if not project_access_allowed(user, project_id, kag_configured=kag_enabled()):
-            raise HTTPException(status_code=403, detail="You do not have access to this KAG project.")
+            raise HTTPException(
+                status_code=403, detail="You do not have access to this KAG project."
+            )
         return await _with_build_live(rows)
     if not _is_admin(user):
         # 无 project 过滤（全量浏览）：仅保留用户可见项目的任务
@@ -923,7 +918,10 @@ def _belong_to_ready(schema: dict[str, Any], concept_type_name: str) -> bool:
             if str(predicate.get("name") or "") != "belongTo":
                 continue
             object_type_ref = prop.get("objectTypeRef") or {}
-            if _spg_type_name((object_type_ref.get("basicInfo") or {}).get("name")) == concept_type_name:
+            if (
+                _spg_type_name((object_type_ref.get("basicInfo") or {}).get("name"))
+                == concept_type_name
+            ):
                 return True
     return False
 
@@ -983,7 +981,10 @@ async def get_concept_rules(project_id: str, type_name: str = "") -> dict[str, A
             if not isinstance(semantics, list):
                 continue
             for semantic in semantics:
-                if not isinstance(semantic, dict) or semantic.get("@type") != "DynamicTaxonomySemantic":
+                if (
+                    not isinstance(semantic, dict)
+                    or semantic.get("@type") != "DynamicTaxonomySemantic"
+                ):
                     continue
                 rule = _parse_dynamic_taxonomy(semantic)
                 if rule is not None:
@@ -1045,7 +1046,8 @@ async def define_concept_rule(
                 raise HTTPException(status_code=400, detail="concept_name is required")
             if not object_type or not object_name:
                 raise HTTPException(
-                    status_code=400, detail="object_concept_type_name and object_concept_name are required"
+                    status_code=400,
+                    detail="object_concept_type_name and object_concept_name are required",
                 )
             result = await client.define_logical_causation(
                 subject_concept_type_name=concept_type_name,

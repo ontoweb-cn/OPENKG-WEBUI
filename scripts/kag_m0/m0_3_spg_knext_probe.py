@@ -68,7 +68,9 @@ def run(args) -> dict:
 
     # —— 2. 项目 config：ProjectClient.get_config（Bridge 启动 KAG 推理同款路径）——
     if pc is None:
-        steps.append({"step": "get_config", "ok": False, "error": "skipped: ProjectClient 未初始化"})
+        steps.append(
+            {"step": "get_config", "ok": False, "error": "skipped: ProjectClient 未初始化"}
+        )
         print_step(False, "get_config", "跳过：步骤 1 失败")
     else:
         try:
@@ -77,10 +79,16 @@ def run(args) -> dict:
                 {
                     "step": "get_config（项目 config 字段解析）",
                     "ok": True,
-                    "config_keys": sorted(config.keys()) if isinstance(config, dict) else _short(config),
+                    "config_keys": sorted(config.keys())
+                    if isinstance(config, dict)
+                    else _short(config),
                 }
             )
-            print_step(True, "get_config", f"keys={sorted(config.keys()) if isinstance(config, dict) else '非 dict'}")
+            print_step(
+                True,
+                "get_config",
+                f"keys={sorted(config.keys()) if isinstance(config, dict) else '非 dict'}",
+            )
         except Exception as exc:
             steps.append({"step": "get_config", "ok": False, "error": repr(exc)})
             print_step(False, "get_config", repr(exc))

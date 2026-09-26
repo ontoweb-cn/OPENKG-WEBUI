@@ -539,9 +539,7 @@ class TurnExecutor:
                     from openkg_webui.multi_user.context import get_current_user
                     from openkg_webui.services.knowledge import default_knowledge_kb_ids
 
-                    knowledge_bases = default_knowledge_kb_ids(
-                        str(get_current_user().id)
-                    )
+                    knowledge_bases = default_knowledge_kb_ids(str(get_current_user().id))
                 except Exception:
                     knowledge_bases = []
 

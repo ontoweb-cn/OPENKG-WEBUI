@@ -98,7 +98,9 @@ def _isolate_codebuddy_login(monkeypatch):
     """
     from openkg_webui.services import codebuddy_credentials
 
-    monkeypatch.setenv("OPENKG_WEBUI_CODEBUDDY_AUTH_FILE", str(Path("/nonexistent/codebuddy-auth.info")))
+    monkeypatch.setenv(
+        "OPENKG_WEBUI_CODEBUDDY_AUTH_FILE", str(Path("/nonexistent/codebuddy-auth.info"))
+    )
     monkeypatch.setattr(
         codebuddy_credentials,
         "_local_storage_dir",

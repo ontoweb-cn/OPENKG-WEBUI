@@ -135,8 +135,8 @@ CLI(openkg_webui_cli)   WebSocket /ws        Python SDK(OPENKGWebUIApp)
 ```python
 # tests/api/test_websocket_routing.py:9
 def test_websocket_routes_share_one_canonical_namespace() -> None:
-    expected_paths = {"/ws"}                      # :12
-    prefixes = {id(unified_ws.router): ""}        # ← 显式断言统一 WS 无前缀
+    expected_paths = {"/ws"}  # :12
+    prefixes = {id(unified_ws.router): ""}  # ← 显式断言统一 WS 无前缀
 ```
 
 即：代码是**有意**把所有 WS 端点收在 `/ws` 下的。该测试还断言 WS 路由**不得**携带 `require_signed_in`（HTTP 专用鉴权依赖，`:21`），与 §6 所述「WS 鉴权在 handler 内自理」互为印证。

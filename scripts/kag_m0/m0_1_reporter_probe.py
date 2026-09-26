@@ -48,8 +48,8 @@ def build_probe_reporter(task_id: str, project_id, thinking_enabled: bool):
     class Probe(OpenSPGReporter):
         def __init__(self, *a, **kw):
             super().__init__(*a, **kw)
-            self.probe_events = []          # 原始 add_report_line 调用序列
-            self.probe_snapshots = []       # 周期性产物快照（do_report 时机）
+            self.probe_events = []  # 原始 add_report_line 调用序列
+            self.probe_snapshots = []  # 周期性产物快照（do_report 时机）
             self.probe_report_calls = 0
 
         def add_report_line(self, segment, tag_name, content, status, **kwargs):
@@ -80,9 +80,7 @@ def build_probe_reporter(task_id: str, project_id, thinking_enabled: bool):
                     }
                 )
             except Exception as exc:  # 早期空数据时组装可能异常，记录即可
-                self.probe_snapshots.append(
-                    {"ts": round(time.time(), 3), "error": repr(exc)}
-                )
+                self.probe_snapshots.append({"ts": round(time.time(), 3), "error": repr(exc)})
 
     # host_addr 显式 None：禁止向 server 推流（见文件头"实现要点"）
     return Probe(
@@ -152,7 +150,11 @@ async def run(args) -> dict:
     ok_snapshot = [s for s in reporter.probe_snapshots if "stream_data" in s]
 
     print_step(bool(events), "采集到 add_report_line 事件", f"共 {len(events)} 条")
-    print_step(bool(ok_snapshot), "generate_report_data() 产物快照", f"共 {len(reporter.probe_snapshots)} 次 do_report")
+    print_step(
+        bool(ok_snapshot),
+        "generate_report_data() 产物快照",
+        f"共 {len(reporter.probe_snapshots)} 次 do_report",
+    )
     print_step(answer is not None and answer != "", "do_qa_pipeline 返回 answer", f"耗时 {cost}ms")
 
     return {
@@ -175,7 +177,11 @@ def main():
     ap = argparse.ArgumentParser(description="M0-1/M0-2 Reporter 事件探针")
     ap.add_argument("query", help="测试问题")
     ap.add_argument("--project-dir", default=".", help="KAG 项目目录（含 kag_config.yaml）")
-    ap.add_argument("--pipeline", default="think_pipeline", help="use_pipeline（think_pipeline/default_pipeline/...）")
+    ap.add_argument(
+        "--pipeline",
+        default="think_pipeline",
+        help="use_pipeline（think_pipeline/default_pipeline/...）",
+    )
     args = ap.parse_args()
 
     project_dir = Path(args.project_dir).resolve()

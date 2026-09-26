@@ -53,12 +53,8 @@ jobs:
       - name: Run Ruff lint
         run: ruff check .
 
-      # `ruff format --check .` is deliberately NOT enforced here. It is red on
-      # the upstream tree this fork derives from (43 Python files there), so
-      # gating on it would fail every run for formatting drift that predates the
-      # fork and is unrelated to any change under review. The pre-commit hook
-      # still auto-formats locally (`ruff-format`, pinned to the same version).
-      # Re-enable this step once the tree is formatted clean in one sweep.
+      - name: Run Ruff format check
+        run: ruff format --check .
 
       - name: Enforce dependency boundaries
         run: |

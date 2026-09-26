@@ -37,7 +37,8 @@ class CoordinationSettings:
             backend_workers=max(1, int(system.get("backend_workers") or 1)),
             backend=str(coordination.get("backend") or "memory").lower(),
             redis_url=str(coordination.get("redis_url") or ""),
-            key_prefix=str(coordination.get("key_prefix") or "openkg-webui").strip(":") or "openkg-webui",
+            key_prefix=str(coordination.get("key_prefix") or "openkg-webui").strip(":")
+            or "openkg-webui",
             lease_ttl_seconds=int(coordination.get("lease_ttl_seconds") or 30),
             renew_interval_seconds=int(coordination.get("renew_interval_seconds") or 10),
             recovery_interval_seconds=int(coordination.get("recovery_interval_seconds") or 10),

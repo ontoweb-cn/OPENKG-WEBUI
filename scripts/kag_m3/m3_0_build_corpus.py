@@ -37,8 +37,7 @@ CORPUS = [
     {
         "id": "doc3",
         "name": "王五简介",
-        "content": "王五也是开元大学的教师，与张三是同事。王五主讲数据库课程，"
-        "研究方向为图数据库。",
+        "content": "王五也是开元大学的教师，与张三是同事。王五主讲数据库课程，研究方向为图数据库。",
     },
 ]
 
@@ -57,9 +56,7 @@ def main() -> None:
     from kag.interface import LLMClient, VectorizeModelABC
 
     llm = LLMClient.from_config(dict(KAG_CONFIG.all_config["llm"]))
-    vectorize_model = VectorizeModelABC.from_config(
-        dict(KAG_CONFIG.all_config["vectorize_model"])
-    )
+    vectorize_model = VectorizeModelABC.from_config(dict(KAG_CONFIG.all_config["vectorize_model"]))
     chain = DefaultUnstructuredBuilderChain(
         reader=DictReader(id_col="id", name_col="name", content_col="content"),
         splitter=LengthSplitter(split_length=1000),

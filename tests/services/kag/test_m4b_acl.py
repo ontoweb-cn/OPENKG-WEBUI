@@ -18,6 +18,7 @@ from openkg_webui.services.kag.member_store import (
 
 # —— user_no 派生 ——
 
+
 def test_derive_user_no_is_stable_and_matches_openspg_constraint() -> None:
     user_id = "u_" + "a" * 32
     a = access.derive_user_no(user_id)
@@ -31,10 +32,7 @@ def test_derive_user_no_is_stable_and_matches_openspg_constraint() -> None:
 
 
 def test_derive_user_no_distinguishes_users() -> None:
-    assert (
-        access.derive_user_no("u_" + "1" * 32)
-        != access.derive_user_no("u_" + "2" * 32)
-    )
+    assert access.derive_user_no("u_" + "1" * 32) != access.derive_user_no("u_" + "2" * 32)
 
 
 def test_derive_user_no_collision_resistance_review_m10() -> None:
@@ -54,6 +52,7 @@ def test_derive_user_no_collision_resistance_review_m10() -> None:
 
 
 # —— member_store ——
+
 
 def test_ensure_owner_then_members(tmp_path, monkeypatch) -> None:
     from pathlib import Path
@@ -101,11 +100,15 @@ def test_filter_projects_by_access(tmp_path, monkeypatch) -> None:
     alice = SimpleNamespace(user_id="alice", role="user", is_admin=False)
     admin = SimpleNamespace(role="admin")
     # alice 见 p1；p3 无成员记录一律不可见
-    assert [p["projectId"] for p in access.filter_projects_by_access(
-        alice, projects, kag_configured=True)] == ["p1"]
+    assert [
+        p["projectId"]
+        for p in access.filter_projects_by_access(alice, projects, kag_configured=True)
+    ] == ["p1"]
     # admin 见全部（含无成员项目的 p3）
-    assert [p["projectId"] for p in access.filter_projects_by_access(
-        admin, projects, kag_configured=True)] == ["p1", "p2", "p3"]
+    assert [
+        p["projectId"]
+        for p in access.filter_projects_by_access(admin, projects, kag_configured=True)
+    ] == ["p1", "p2", "p3"]
 
 
 def test_get_tasks_filters_by_membership(tmp_path, monkeypatch) -> None:
@@ -189,9 +192,12 @@ def _mock_transport():
 
     def handler(request: httpx.Request) -> httpx.Response:
         # list_projects 返回 p1/p2
-        return httpx.Response(200, json=[
-            {"projectId": "p1", "name": "a"},
-            {"projectId": "p2", "name": "b"},
-        ])
+        return httpx.Response(
+            200,
+            json=[
+                {"projectId": "p1", "name": "a"},
+                {"projectId": "p2", "name": "b"},
+            ],
+        )
 
     return httpx.MockTransport(handler)

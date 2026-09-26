@@ -48,8 +48,8 @@ class EngineDescriptor:
     engine_id: str
     display_name: str
     capabilities: frozenset[str]
-    configured: bool          # 该引擎是否已配置可用（KAG 看 kag_enabled()）
-    detail_path_template: str # UI 分派用："/knowledge-center/{id}" | "/kag/projects/{id}"
+    configured: bool  # 该引擎是否已配置可用（KAG 看 kag_enabled()）
+    detail_path_template: str  # UI 分派用："/knowledge-center/{id}" | "/kag/projects/{id}"
     create_in_knowledge_center: bool  # KAG=False（创建需 namespace/embedding，跳既有页）
 ```
 

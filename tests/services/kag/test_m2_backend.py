@@ -161,13 +161,13 @@ def test_access_grant_false_denies(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     import openkg_webui.multi_user.grants as grants_mod
     from openkg_webui.services.kag.access import kag_read_allowed
 
-    monkeypatch.setattr(
-        grants_mod, "load_grant", lambda uid: {"kag_projects": False}
-    )
+    monkeypatch.setattr(grants_mod, "load_grant", lambda uid: {"kag_projects": False})
     assert kag_read_allowed(_User(), kag_configured=True) is False
 
 
-def test_access_grant_none_follows_deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_access_grant_none_follows_deployment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import openkg_webui.multi_user.grants as grants_mod
     from openkg_webui.services.kag.access import kag_read_allowed
 
@@ -241,7 +241,11 @@ def test_sanitize_traverses_nested_lists_and_keeps_scalars() -> None:
 
     value = {"items": [{"token": "t1", "ok": 1}, {"secret": "s"}], "n": None, "s": "x"}
     sanitized = _sanitize(value)
-    assert sanitized == {"items": [{"token": "***", "ok": 1}, {"secret": "***"}], "n": None, "s": "x"}
+    assert sanitized == {
+        "items": [{"token": "***", "ok": 1}, {"secret": "***"}],
+        "n": None,
+        "s": "x",
+    }
 
 
 def test_sanitize_catches_key_name_variants() -> None:

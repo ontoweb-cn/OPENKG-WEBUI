@@ -92,9 +92,7 @@ def _slim_item(item: dict[str, Any]) -> None:
     """
     old_adv = item.get("advancedConfig")
     old_adv = old_adv if isinstance(old_adv, dict) else {}
-    slim_adv = {
-        k: v for k, v in old_adv.items() if k not in ("encryptTypeEnum", "withIndex")
-    }
+    slim_adv = {k: v for k, v in old_adv.items() if k not in ("encryptTypeEnum", "withIndex")}
     item["advancedConfig"] = slim_adv
     for key in ("objectTypeRef", "subjectTypeRef"):
         ref = item.get(key)

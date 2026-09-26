@@ -140,5 +140,10 @@ def test_docs_do_not_advertise_removed_cli_forms() -> None:
     assert "openkg-webui memory show summary" not in text
     assert "WS /api/turns" not in text
     # Subsystems removed whole — the docs must not still promise them.
-    for removed in ("openkg-webui kb ", "openkg-webui notebook ", "openkg-webui memory ", "openkg-webui partner "):
+    for removed in (
+        "openkg-webui kb ",
+        "openkg-webui notebook ",
+        "openkg-webui memory ",
+        "openkg-webui partner ",
+    ):
         assert removed not in text, removed

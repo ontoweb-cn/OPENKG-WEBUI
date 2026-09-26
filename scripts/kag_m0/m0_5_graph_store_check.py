@@ -69,7 +69,11 @@ def scan_backends(openspg_dir: Path) -> dict:
         for i, line in enumerate(text.splitlines(), 1):
             if re.search(r"(?i)graph[._-]?store", line) and "=" in line or ":" in line:
                 config_keys.append(f"{rel}:{i} :: {line.strip()[:120]}")
-    return {"scanned_files": scanned, "hits": {k: v[:8] for k, v in hits.items() if v}, "config_keys": config_keys[:10]}
+    return {
+        "scanned_files": scanned,
+        "hits": {k: v[:8] for k, v in hits.items() if v},
+        "config_keys": config_keys[:10],
+    }
 
 
 def probe_uri(uri: str) -> dict:
@@ -87,8 +91,14 @@ def probe_uri(uri: str) -> dict:
 
 def main():
     ap = argparse.ArgumentParser(description="M0-5 图存储后端确认")
-    ap.add_argument("--openspg-dir", default=str(Path.home() / "project" / "openspgapp" / "openspg"), help="OpenSPG server 源码目录（仅静态扫描证据用）")
-    ap.add_argument("--uri", default="", help="图存储地址（缺省读 KAG_GRAPH_STORE_URI；留空则跳过探测）")
+    ap.add_argument(
+        "--openspg-dir",
+        default=str(Path.home() / "project" / "openspgapp" / "openspg"),
+        help="OpenSPG server 源码目录（仅静态扫描证据用）",
+    )
+    ap.add_argument(
+        "--uri", default="", help="图存储地址（缺省读 KAG_GRAPH_STORE_URI；留空则跳过探测）"
+    )
     args = ap.parse_args()
 
     openspg_dir = Path(args.openspg_dir).expanduser().resolve()
@@ -97,7 +107,11 @@ def main():
     if openspg_dir.is_dir():
         result["static"] = scan_backends(openspg_dir)
         backends = list(result["static"]["hits"].keys())
-        print_step(bool(backends), "图存储后端证据", f"命中 {backends}（扫描 {result['static']['scanned_files']} 个文件）")
+        print_step(
+            bool(backends),
+            "图存储后端证据",
+            f"命中 {backends}（扫描 {result['static']['scanned_files']} 个文件）",
+        )
     else:
         print_step(False, "静态扫描跳过", f"目录不存在：{openspg_dir}")
 
@@ -105,7 +119,11 @@ def main():
     if uri:
         result["connectivity"] = probe_uri(uri)
         ok = result["connectivity"].get("ok")
-        print_step(bool(ok), "图存储连通性", f"{uri} -> {'可达' if ok else result['connectivity'].get('error')}")
+        print_step(
+            bool(ok),
+            "图存储连通性",
+            f"{uri} -> {'可达' if ok else result['connectivity'].get('error')}",
+        )
     else:
         print_step(True, "连通性探测跳过", "未提供 --uri 且无 KAG_GRAPH_STORE_URI")
 

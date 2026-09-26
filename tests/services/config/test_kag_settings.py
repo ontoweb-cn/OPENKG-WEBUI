@@ -153,9 +153,10 @@ def test_ensure_session_mcp_config_http_form_writes_token_bearer(
 
     monkeypatch.setattr(kag_service, "_exchange_session_token", fake_exchange)
     workdir = tmp_path / "ws"
-    assert asyncio.run(
-        kag_service.ensure_session_mcp_config(str(workdir), "sess-http", HTTP_BLOCK)
-    ) is True
+    assert (
+        asyncio.run(kag_service.ensure_session_mcp_config(str(workdir), "sess-http", HTTP_BLOCK))
+        is True
+    )
 
     mcp_cfg = json.loads((workdir / ".mcp.json").read_text(encoding="utf-8"))
     server = mcp_cfg["mcpServers"]["kag-bridge"]
@@ -170,9 +171,7 @@ def test_ensure_session_mcp_config_http_form_writes_token_bearer(
     assert "env" not in server
 
 
-def test_ensure_session_mcp_config_token_failure_degrades(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_ensure_session_mcp_config_token_failure_degrades(tmp_path: Path, monkeypatch) -> None:
     """token 换取失败（bridge 不在线/鉴权失败）→ False 且不写任何文件，
     不回落 stdio（operator 只配 http 时回落只会生成无法工作的配置）。"""
     from openkg_webui.services import kag as kag_service
@@ -182,9 +181,9 @@ def test_ensure_session_mcp_config_token_failure_degrades(
 
     monkeypatch.setattr(kag_service, "_exchange_session_token", dead_exchange)
     workdir = tmp_path / "ws"
-    assert asyncio.run(
-        kag_service.ensure_session_mcp_config(str(workdir), "s", HTTP_BLOCK)
-    ) is False
+    assert (
+        asyncio.run(kag_service.ensure_session_mcp_config(str(workdir), "s", HTTP_BLOCK)) is False
+    )
     assert not (workdir / ".mcp.json").exists()
     assert not (workdir / ".claude" / "settings.json").exists()
 

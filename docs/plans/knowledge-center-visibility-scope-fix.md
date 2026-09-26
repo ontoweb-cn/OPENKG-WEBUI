@@ -55,7 +55,7 @@ code=0，total_chunks=8，dataset_aggs={4a582b6a…: 8}   ← 只有私有库
 从身份上下文推导可见租户集合：
 
 ```python
-tenant_ids = {g.id for g in subject_context.groups_of_type("tenant")}   # 只有当前上下文的一个租户
+tenant_ids = {g.id for g in subject_context.groups_of_type("tenant")}  # 只有当前上下文的一个租户
 if tenant_id:
     tenant_ids.add(tenant_id)
 ...
@@ -86,8 +86,10 @@ tenant_visible = (visibility == "tenant" or legacy_team_as_tenant) and row_tenan
 
 ```python
 def _compute_visibility(team_id, project_id):
-    if team_id:    return "team"
-    if project_id: return "project"
+    if team_id:
+        return "team"
+    if project_id:
+        return "project"
     return "private"
 ```
 
@@ -576,3 +578,21 @@ pytest tests/                    → 1771 passed, 6 skipped, 0 failed
 - 若要在 Gitee 上真正跑 CI，需迁到 Gitee Go（`.workflow/` 或网页配置），并重新实现
   同样的 tag 校验；`pypi-release.yml` 的 GHCR/PyPI 集成也需替换为 Gitee 对应制品库。
 - 文件头已注明该现状，避免后来者误以为推送即触发。
+
+## 十一、启用 ruff format 门（2026-09-26）
+
+§十 曾刻意不启用 `ruff format --check`（上游自身即红 43 个文件）。本轮清偿：
+
+- **sweep**：`ruff format .`（ruff==0.16.0，与 CI/pre-commit 同版本）重排 57 个文件
+  （52 py + 5 md；md 指 fenced python 代码块，pre-commit 的 ruff-format hook 本就是
+  该口径）。清单按目录核对过，**不含任何测试夹具**——不存在"故意写坏"被格式化的风险。
+- **验证**：`ruff format --check .` 652 files already formatted；`ruff check .` 仍全过；
+  `pytest tests/` 1771 passed——格式化行为中性。
+- **启用门**：`tests.yml` lint job 恢复 `ruff format --check .` 步骤；
+  CONTRIBUTING 的「刻意空缺」清单相应收敛为一条（Gitee 不跑 Actions），
+  本地复现命令加入 `ruff format --check .`。
+- 与 pre-commit 的版本钉（ruff-pre-commit v0.16.0）一致，本地 hook 与 CI 不会因
+  版本差出现「本地过、CI 红」（`.pre-commit-config.yaml` 注释里记载的历史教训）。
+
+至此 §10.4 列出的 lint job 全部步骤（ruff check + ruff format --check +
+lint-imports + check_architecture）本地均可复现通过。

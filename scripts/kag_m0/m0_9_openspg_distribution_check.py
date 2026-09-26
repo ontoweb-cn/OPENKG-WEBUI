@@ -43,7 +43,11 @@ def http_get_json(url: str, timeout: float = 10):
 def probe_github(result: dict) -> None:
     repo, err = http_get_json(GITHUB_REPO_API)
     if repo is None:
-        result["github_repo"] = {"ok": False, "error": err, "note": "匿名限流或网络问题，请人工复核 github.com/OpenSPG/openspg"}
+        result["github_repo"] = {
+            "ok": False,
+            "error": err,
+            "note": "匿名限流或网络问题，请人工复核 github.com/OpenSPG/openspg",
+        }
         print_step(False, "GitHub 仓库探测", err)
         return
     license_info = (repo.get("license") or {}).get("spdx_id") or "unknown"
@@ -58,10 +62,18 @@ def probe_github(result: dict) -> None:
 
     release, err = http_get_json(GITHUB_RELEASE_API)
     if release is None:
-        result["github_release"] = {"ok": False, "error": err, "note": "可能无 release 或限流，请人工复核 Releases 页"}
+        result["github_release"] = {
+            "ok": False,
+            "error": err,
+            "note": "可能无 release 或限流，请人工复核 Releases 页",
+        }
         print_step(False, "GitHub release 探测", err)
     else:
-        result["github_release"] = {"ok": True, "tag": release.get("tag_name"), "published_at": release.get("published_at")}
+        result["github_release"] = {
+            "ok": True,
+            "tag": release.get("tag_name"),
+            "published_at": release.get("published_at"),
+        }
         print_step(True, "GitHub release 探测", f"latest={release.get('tag_name')}")
 
 
@@ -70,11 +82,19 @@ def probe_dockerhub(result: dict) -> None:
     for name in DOCKERHUB_CANDIDATES:
         data, _ = http_get_json(f"https://hub.docker.com/v2/repositories/{name}/")
         if data and data.get("count", 0) > 0:
-            tags, _ = http_get_json(f"https://hub.docker.com/v2/repositories/{name}/tags/?page_size=5")
+            tags, _ = http_get_json(
+                f"https://hub.docker.com/v2/repositories/{name}/tags/?page_size=5"
+            )
             tag_names = [t.get("name") for t in (tags or {}).get("results", [])]
-            found.append({"image": name, "pull_count": data.get("pull_count"), "tag_samples": tag_names})
+            found.append(
+                {"image": name, "pull_count": data.get("pull_count"), "tag_samples": tag_names}
+            )
     result["dockerhub"] = found
-    print_step(bool(found), "Docker Hub 镜像探测", f"{[f['image'] for f in found] or '候选镜像均未命中，人工确认镜像名'}")
+    print_step(
+        bool(found),
+        "Docker Hub 镜像探测",
+        f"{[f['image'] for f in found] or '候选镜像均未命中，人工确认镜像名'}",
+    )
 
 
 def read_local_pom_version(openspgapp_dir: Path) -> str:
@@ -92,8 +112,14 @@ def read_local_pom_version(openspgapp_dir: Path) -> str:
 
 def main():
     ap = argparse.ArgumentParser(description="M0-9 OpenSPG 开源发行版验证")
-    ap.add_argument("--openspgapp-dir", default=str(Path.home() / "project" / "openspgapp"), help="本地闭源仓库（仅读版本号对照）")
-    ap.add_argument("--deployed-from", default="", help="实际部署物来源（镜像名或路径），用于红线核验")
+    ap.add_argument(
+        "--openspgapp-dir",
+        default=str(Path.home() / "project" / "openspgapp"),
+        help="本地闭源仓库（仅读版本号对照）",
+    )
+    ap.add_argument(
+        "--deployed-from", default="", help="实际部署物来源（镜像名或路径），用于红线核验"
+    )
     args = ap.parse_args()
 
     result = {}
@@ -102,7 +128,11 @@ def main():
 
     openspgapp_dir = Path(args.openspgapp_dir).expanduser().resolve()
     result["local_openspgapp_version"] = read_local_pom_version(openspgapp_dir)
-    print_step(True, "本地版本对照", f"openspgapp/openspg pom 版本 = {result['local_openspgapp_version']}（与上游 release 差异由人工决策）")
+    print_step(
+        True,
+        "本地版本对照",
+        f"openspgapp/openspg pom 版本 = {result['local_openspgapp_version']}（与上游 release 差异由人工决策）",
+    )
 
     # §12 红线：部署物不得来自闭源仓库
     verdict = "PASS"

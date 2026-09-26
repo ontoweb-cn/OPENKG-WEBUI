@@ -126,7 +126,9 @@ def main():
 
     workdir = Path(args.workdir).expanduser().resolve()
     workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / ".mcp.json").write_text(json.dumps(MCP_CONFIG, ensure_ascii=False, indent=2), encoding="utf-8")
+    (workdir / ".mcp.json").write_text(
+        json.dumps(MCP_CONFIG, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     (workdir / "stub_server.py").write_text(STUB_SERVER, encoding="utf-8")
 
     print_step(True, "测试 workdir 已生成", str(workdir))

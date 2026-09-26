@@ -72,9 +72,7 @@ def kag_grounding_block(block: dict[str, Any] | None = None) -> str:
     )
 
 
-async def _exchange_session_token(
-    http_url: str, block: dict[str, Any], session_id: str
-) -> str:
+async def _exchange_session_token(http_url: str, block: dict[str, Any], session_id: str) -> str:
     """向 bridge ``POST /tokens`` 换 per-session 短期 token（M3.6，附录 A.3）。
 
     实例 key 只在本函数（服务端内存）使用，不写入 workdir；失败返回空串

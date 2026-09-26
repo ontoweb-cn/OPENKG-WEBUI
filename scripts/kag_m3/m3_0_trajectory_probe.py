@@ -152,9 +152,7 @@ def main() -> None:
     }
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = RESULTS / "trajectory_probe.json"
-    out.write_text(
-        json.dumps(RESULT, ensure_ascii=False, indent=1, default=str), encoding="utf-8"
-    )
+    out.write_text(json.dumps(RESULT, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     print(
         f"subgraph graphs={len(nodes_edges)} "
         f"nodes={sum(len(g['nodes']) for g in nodes_edges)} "

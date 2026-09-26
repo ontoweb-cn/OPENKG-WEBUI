@@ -41,7 +41,9 @@ def test_python_314_is_supported_by_both_distributions() -> None:
     expected = ">=3.11,<3.15"
     assert _project(REPOSITORY_ROOT / "pyproject.toml")["requires-python"] == expected
     assert (
-        _project(REPOSITORY_ROOT / "packaging" / "openkg-webui-cli" / "pyproject.toml")["requires-python"]
+        _project(REPOSITORY_ROOT / "packaging" / "openkg-webui-cli" / "pyproject.toml")[
+            "requires-python"
+        ]
         == expected
     )
 
