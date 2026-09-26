@@ -35,6 +35,7 @@ import { useTranslation } from "react-i18next";
 import type { SelectedHistorySession } from "@/components/chat/HistorySessionPicker";
 import ChatSpaceMenu from "@/components/chat/space/ChatSpaceMenu";
 import ContextBudgetChip, { type ContextBudget } from "./ContextBudgetChip";
+import type { ReactNode } from "react";
 import ModelSelector, { type ModelPickerOption } from "./ModelSelector";
 
 type SpaceSelectionCounts = {
@@ -144,6 +145,7 @@ export default memo(function ChatComposer({
   attachmentError,
   activeCap,
   modelPickerOptions,
+  knowledgePickerSlot,
   modelSelectorEnabled = true,
   modelSelectedKey,
   modelPickerLoading,
@@ -192,6 +194,8 @@ export default memo(function ChatComposer({
   attachmentError: string | null;
   activeCap: CapabilityDef;
   modelPickerOptions: ModelPickerOption[];
+  /** P3 UI：知识库会话选择（composer 工具行内、模型选择器左侧）；不传则不渲染 */
+  knowledgePickerSlot?: ReactNode;
   modelSelectorEnabled?: boolean;
   /** The selected option's key; "" = the backend default row. */
   modelSelectedKey: string;
@@ -819,6 +823,7 @@ export default memo(function ChatComposer({
               </div>
 
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {knowledgePickerSlot}
                 {modelSelectorEnabled ? (
                   <ModelSelector
                     options={modelPickerOptions}

@@ -21,9 +21,12 @@ import {
 export default function KnowledgeSessionPicker({
   sessionId,
   onChanged,
+  variant = "bar",
 }: {
   sessionId: string;
   onChanged?: (kbIds: string[]) => void;
+  /** bar = composer 上方独立条（默认）；toolbar = composer 工具行内（对齐模型选择器） */
+  variant?: "bar" | "toolbar";
 }) {
   const { t } = useTranslation();
   const [datasets, setDatasets] = useState<KnowledgeDataset[] | null>(null);
@@ -81,17 +84,28 @@ export default function KnowledgeSessionPicker({
 
   const selectedCount = selected.size;
 
+  const toolbar = variant === "toolbar";
   return (
-    <div ref={rootRef} className="relative mb-1.5">
+    <div ref={rootRef} className={toolbar ? "relative" : "relative mb-1.5"}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] transition-colors ${
-          selectedCount > 0
-            ? "border-[var(--primary)]/40 bg-[var(--accent)]/60 text-[var(--foreground)]"
-            : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-        }`}
+        className={
+          toolbar
+            ? `inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+                open
+                  ? "bg-[var(--muted)] text-[var(--foreground)]"
+                  : selectedCount > 0
+                    ? "bg-[var(--accent)]/60 text-[var(--foreground)]"
+                    : "text-[var(--muted-foreground)] hover:bg-[var(--muted)]/55 hover:text-[var(--foreground)]"
+              }`
+            : `inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] transition-colors ${
+                selectedCount > 0
+                  ? "border-[var(--primary)]/40 bg-[var(--accent)]/60 text-[var(--foreground)]"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              }`
+        }
       >
         <BookOpen size={13} strokeWidth={1.8} />
         {selectedCount > 0
@@ -105,7 +119,11 @@ export default function KnowledgeSessionPicker({
       </button>
 
       {open ? (
-        <div className="absolute bottom-full z-40 mb-1.5 w-72 rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-lg">
+        <div
+          className={`absolute bottom-full z-40 mb-1.5 w-72 rounded-xl border border-[var(--border)] bg-[var(--popover)] p-1.5 shadow-lg ${
+            toolbar ? "right-0" : "left-0"
+          }`}
+        >
           {datasets == null ? (
             <div className="flex items-center gap-2 px-3 py-2 text-[12.5px] text-[var(--muted-foreground)]">
               <Loader2 size={13} className="animate-spin" />

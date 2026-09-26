@@ -1462,11 +1462,6 @@ export default function ChatWorkspace() {
             </div>
           )}
 
-          {/* 知识中心会话勾选（Phase 1.5）：挂载于 composer 上方，未启用时自隐藏 */}
-          {state.sessionId ? (
-            <KnowledgeSessionPicker sessionId={state.sessionId} />
-          ) : null}
-
           <ChatComposer
             composerRef={composerRef}
             capMenuRef={capMenuRef}
@@ -1481,6 +1476,11 @@ export default function ChatWorkspace() {
             attachments={attachments}
             attachmentError={attachmentError}
             activeCap={activeCap}
+            knowledgePickerSlot={
+              state.sessionId ? (
+                <KnowledgeSessionPicker sessionId={state.sessionId} variant="toolbar" />
+              ) : null
+            }
             modelPickerOptions={modelPickerOptions}
             modelSelectedKey={modelSelectedKey}
             modelDefaultLabel={useCatalogPicker ? t('System default') : t('Backend default')}
