@@ -21,10 +21,11 @@ from collections import defaultdict
 import io
 import json
 import posixpath
+import re
 from typing import Any
 import zipfile
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 import httpx
 
 from openkg_webui.services.knowledge import (
@@ -51,7 +52,21 @@ from openkg_webui.services.knowledge.engines.registry import (
     engine_id_for_dataset,
 )
 
-router = APIRouter()
+#: 上游资源 id（dataset/document/chunk）均为服务端生成的短 id——路径与查询里
+#: 出现其它字符即可判定为探测/路径混淆（评审安全 S1：id 进入上游 URL 路径
+#: 前统一校验，防 %2F/.. 拼接出未预期的上游端点）。
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_ID_PARAM_KEYS = frozenset({"dataset_id", "document_id", "chunk_id", "doc_id", "log_id"})
+
+
+async def _validate_resource_ids(request: Request) -> None:
+    for key in _ID_PARAM_KEYS:
+        value = request.path_params.get(key) or request.query_params.get(key)
+        if value is not None and not _SAFE_ID_RE.match(str(value)):
+            raise HTTPException(status_code=400, detail=f"invalid {key}")
+
+
+router = APIRouter(dependencies=[Depends(_validate_resource_ids)])
 
 #: 测试注入点（httpx.MockTransport）；生产恒为 None（走默认 transport）。
 _transport: httpx.AsyncBaseTransport | None = None
@@ -179,6 +194,15 @@ def _visibility_from_headers(headers: dict[str, str] | None) -> str:
     return "private"
 
 
+def _int_param(params: Any, key: str, default: int, *, lo: int = 1, hi: int = 1000) -> int:
+    """查询分页参数容错：非数字/越界回退默认（评审质量 Q1，防 500）。"""
+    try:
+        value = int(params.get(key) or default)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(value, hi))
+
+
 async def _json_body(request: Request) -> Any:
     try:
         return await request.json()
@@ -255,8 +279,8 @@ async def knowledge_list_datasets(request: Request, page: int = 1, page_size: in
     q = request.query_params
     page = await _engine_call(
         lambda e: e.list_datasets(
-            page=int(q.get("page") or page),
-            page_size=int(q.get("page_size") or page_size),
+            page=_int_param(q, "page", page),
+            page_size=_int_param(q, "page_size", page_size),
         )
     )
     for ds in page.datasets:
@@ -380,8 +404,8 @@ async def knowledge_list_documents(dataset_id: str, request: Request) -> Any:
     return await _engine_call(
         lambda e: e.list_documents(
             dataset_id,
-            page=int(q.get("page") or 1),
-            page_size=int(q.get("page_size") or 100),
+            page=_int_param(q, "page", 1),
+            page_size=_int_param(q, "page_size", 100),
         ),
         dataset_id=dataset_id,
     )
@@ -1036,8 +1060,8 @@ async def knowledge_list_ingestions(dataset_id: str, request: Request) -> Any:
         lambda e: e.list_ingestions(
             dataset_id,
             log_type=str(q.get("log_type") or "file"),
-            page=int(q.get("page") or 1),
-            page_size=int(q.get("page_size") or 5),
+            page=_int_param(q, "page", 1),
+            page_size=_int_param(q, "page_size", 5),
         ),
         dataset_id=dataset_id,
     )
@@ -1077,8 +1101,8 @@ async def knowledge_list_chunks(dataset_id: str, document_id: str, request: Requ
         lambda e: e.list_chunks(
             dataset_id,
             document_id,
-            page=int(q.get("page") or 1),
-            page_size=int(q.get("page_size") or 20),
+            page=_int_param(q, "page", 1),
+            page_size=_int_param(q, "page_size", 20),
         ),
         dataset_id=dataset_id,
     )
@@ -1186,7 +1210,8 @@ async def knowledge_check_embedding(dataset_id: str, request: Request) -> Any:
     if not embd_id:
         raise HTTPException(status_code=400, detail="embd_id is required.")
     try:
-        check_num = int(payload.get("check_num") or 5)
+        # 上限 20：check_num 直接决定上游重嵌入算力消耗（评审安全 S2）
+        check_num = max(1, min(int(payload.get("check_num") or 5), 20))
     except (TypeError, ValueError):
         check_num = 5
     return await _engine_call(

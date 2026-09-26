@@ -13,6 +13,7 @@
 from .base import (
     CAP_CHAT_BINDING,
     CAP_DELETE,
+    CAP_GRAPH_INDEX,
     CAP_LOGS,
     CAP_MCP_BINDING,
     CAP_PREVIEW,
@@ -54,6 +55,7 @@ __all__ = [
     "BinaryPayload",
     "CAP_CHAT_BINDING",
     "CAP_DELETE",
+    "CAP_GRAPH_INDEX",
     "CAP_LOGS",
     "CAP_MCP_BINDING",
     "CAP_PREVIEW",

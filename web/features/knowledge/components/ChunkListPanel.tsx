@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Trash2, X } from "lucide-react";
 
@@ -76,9 +76,17 @@ export default function ChunkListPanel({
   // 上游 chunk 变更为异步落库：紧跟的 GET 可能读到旧值（T9 live 实测）。
   // 因此变更一律先改本地状态，延迟重拉以服务端为准，期间不让回读覆盖乐观值。
   // （reloadSoon 必须在 early return 之前声明——Rules of Hooks）
+  const reloadTimerRef = useRef<number | null>(null);
   const reloadSoon = useCallback(() => {
-    window.setTimeout(() => void load(), 900);
+    if (reloadTimerRef.current != null) window.clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = window.setTimeout(() => void load(), 900);
   }, [load]);
+  useEffect(
+    () => () => {
+      if (reloadTimerRef.current != null) window.clearTimeout(reloadTimerRef.current);
+    },
+    [],
+  );
 
   if (!doc) return null;
 

@@ -587,7 +587,11 @@ const CITATION_MARKER_RE = /\[rag-(\d+)\]/g;
 
 export function renderCitationMarkers(content: string): string {
   if (!content) return content;
-  return content.replace(CITATION_MARKER_RE, "`$&`");
+  // 围栏代码块内的 [rag-N] 是代码内容而非引用——整块跳过（评审 Q2）
+  const parts = content.split(/(```[\s\S]*?(?:```|$))/g);
+  return parts
+    .map((part) => (part.startsWith("```") ? part : part.replace(CITATION_MARKER_RE, "`$&`")))
+    .join("");
 }
 
 export function repairMalformedStrongEmphasis(content: string): string {

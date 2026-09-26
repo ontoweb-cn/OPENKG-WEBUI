@@ -263,14 +263,9 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     };
   }, [load, running]);
 
-  const gotoPage = useCallback(
-    (next: number) => {
-      setPage(next);
-      // load 依赖 page state，直接以目标页发起，避免等待状态合流
-      void load(undefined, next);
-    },
-    [load],
-  );
+  // 翻页只改 page：load 以 page 为依赖重建，effect 随之拉取一次
+  //（此前手动 + effect 各拉一次，造成重复请求——评审 Q4）
+  const gotoPage = useCallback((next: number) => setPage(next), []);
 
   // P1 收尾 T-D：上传执行移入 UploadDropzone（逐文件 XHR 进度）；父层仅提供刷新
   const refreshAfterUpload = useCallback(async () => {

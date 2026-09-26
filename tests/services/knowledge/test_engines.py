@@ -75,6 +75,7 @@ def test_capabilities_are_declared_constants(pinned) -> None:
         eng.CAP_PREVIEW,
         eng.CAP_CHAT_BINDING,
         eng.CAP_MCP_BINDING,
+        eng.CAP_GRAPH_INDEX,
     }
     assert engine.capabilities <= declared
     # intellect-rag 支持全部已声明能力
