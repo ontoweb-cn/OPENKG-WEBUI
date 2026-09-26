@@ -522,6 +522,34 @@ export function parseKagBuildDetail(raw: unknown): KagBuildDetail | null {
   };
 }
 
+export interface KagSchemaExportRow {
+  name: string;
+  nameZh: string;
+  kind: SpgTypeKind;
+  parent: string | null;
+  desc: string;
+  properties: SpgPropertyRow[];
+  relations: SpgRelationRow[];
+}
+
+export function serializeKagSchema(rows: SpgTypeRow[]): {
+  types: KagSchemaExportRow[];
+} {
+  return {
+    types: rows
+      .filter((row) => row.key !== "")
+      .map((row) => ({
+        name: row.name,
+        nameZh: row.nameZh,
+        kind: row.kind,
+        parent: row.parent,
+        desc: row.desc,
+        properties: row.properties,
+        relations: parseRelations(row.raw.relations),
+      })),
+  };
+}
+
 // —— 概念规则（C2：/projects/{id}/concept/rules 归一行）——
 // 后端归一：reasoning 行 {kind:logical, subject_type/name, predicate,
 // object_type/name, dsl}（TripleSemantic）；taxonomy 行 {kind:taxonomy,
@@ -546,6 +574,8 @@ export interface KagConceptRules {
   typeName: string;
   reasoning: KagConceptRule[];
   taxonomy: KagConceptRule[];
+  /** A-S3：该概念类型下的概念实例名（queryConcept 枚举）。 */
+  concepts: string[];
   /** schema 中是否存在 belongTo 属性（实体类型→该概念类型）；定义门禁。 */
   belongToReady: boolean;
 }
@@ -589,11 +619,64 @@ export function parseConceptRules(raw: unknown): KagConceptRules {
     Array.isArray(rows)
       ? rows.map(parseConceptRule).filter((rule): rule is KagConceptRule => rule !== null)
       : [];
+  const concepts = Array.isArray(payload.concepts)
+    ? Array.from(new Set(payload.concepts.map(text).filter(Boolean)))
+    : [];
   return {
     typeName: text(payload.type_name),
     reasoning: pick(payload.reasoning),
     taxonomy: pick(payload.taxonomy),
+    concepts,
     belongToReady: payload.belong_to_ready === true,
+  };
+}
+
+// —— 概念层级树（B.4：/projects/{id}/concepts/{type}/tree 归一行）——
+// 后端递归 BFS 聚合 `/conceptInstance/level` 一跳子层为嵌套树；节点
+// {id, name, children[]}，name 取自图顶点属性的 nameZh（缺省回退 name）。
+// `nodeCapReached` 为超限残叶标记（前端据此显示"已截断"提示）。
+
+export interface KagConceptTreeNode {
+  id: string;
+  /** 概念显示名（nameZh || name；缺失回退空串，前端兜底显示 id）。 */
+  name: string;
+  children: KagConceptTreeNode[];
+  /** 后端因节点上限截断时置 true（残叶，无 id/name/children 语义）。 */
+  nodeCapReached?: boolean;
+}
+
+export interface KagConceptTree {
+  typeName: string;
+  root: string;
+  nodes: number;
+  /** 深度或节点上限被触发 → 下游提示"已截断"。 */
+  truncated: boolean;
+  children: KagConceptTreeNode[];
+}
+
+function parseConceptTreeNode(raw: unknown): KagConceptTreeNode | null {
+  const row = record(raw);
+  const id = text(row.id);
+  const capReached = row.node_cap_reached === true;
+  if (capReached) return { id: "", name: "", children: [], nodeCapReached: true };
+  if (!id) return null;
+  const children = Array.isArray(row.children)
+    ? row.children.map(parseConceptTreeNode).filter((c): c is KagConceptTreeNode => c !== null)
+    : [];
+  return { id, name: text(row.name), children };
+}
+
+export function parseConceptTree(raw: unknown): KagConceptTree {
+  const payload = record(raw);
+  const children = Array.isArray(payload.children)
+    ? payload.children.map(parseConceptTreeNode).filter((c): c is KagConceptTreeNode => c !== null)
+    : [];
+  return {
+    typeName: text(payload.type_name),
+    root: text(payload.root),
+    nodes: typeof payload.nodes === "number" ? payload.nodes : 0,
+    truncated: payload.truncated === true,
+    children,
   };
 }
 

@@ -51,3 +51,12 @@ Thumbs.db
 # === 打包中间产物 ===
 *.whl
 *.tar.gz
+
+# === Playwright ===
+web/playwright-report/
+web/test-results/
+blob-report/
+playwright/.cache/
+
+# === Redis ===
+dump.rdb

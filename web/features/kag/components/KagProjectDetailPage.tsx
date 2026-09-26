@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
   CircleDot,
+  Download,
   FolderTree,
   Hash,
   MapPin,
@@ -17,16 +18,19 @@ import { fetchKagBuilds, fetchKagProjectDetail, fetchKagProjectSchema } from "..
 import {
   buildSpgTypeTree,
   ownProperties,
+  serializeKagSchema,
   type KagProjectDetail,
   type SpgTypeNode,
   type SpgTypeRow,
 } from "../model";
 import { KagBackLink, KagPageBody, KagPageHeader, KagStateView } from "./KagPageFrame";
 import { ConceptRulePanel } from "./ConceptRulePanel";
+import { ConceptTreePanel } from "./ConceptTreePanel";
 import { GraphExplorerSection } from "./GraphExplorerSection";
 import { MemberBuildPanel } from "./MemberBuildPanel";
 import { KagImportPanel } from "./KagImportPanel";
 import { SchemaEditPanel } from "./SchemaEditPanel";
+import { TypeManagementPanel } from "./TypeManagementPanel";
 
 /**
  * `/kag/projects/[id]` 详情页（M2.4：Schema 树 + graph labels 概览；
@@ -197,7 +201,10 @@ function TypeNodeRow({
                 onAltered={onAltered}
               />
               {node.kind === "concept" ? (
-                <ConceptRulePanel projectId={projectId} typeRow={node} />
+                <>
+                  <ConceptTreePanel projectId={projectId} typeRow={node} />
+                  <ConceptRulePanel projectId={projectId} typeRow={node} />
+                </>
               ) : null}
             </div>
           ) : null}
@@ -339,6 +346,20 @@ export default function KagProjectDetailPage({
     }
   }
 
+  /** A-S2：把当前 schema 归一化为 JSON 下载（client 侧 Blob）。 */
+  function downloadSchema() {
+    if (rows.length === 0) return;
+    const blob = new Blob([JSON.stringify(serializeKagSchema(rows), null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `schema-${detail?.project?.namespace || projectId}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading) {
     return (
       <KagPageBody>
@@ -458,11 +479,24 @@ export default function KagProjectDetailPage({
         <h2 className="mb-2 text-[15px] font-semibold tracking-tight text-[var(--foreground)]">
           {t("Schema")}
         </h2>
+        {rows.length > 0 ? (
+          <button
+            type="button"
+            onClick={downloadSchema}
+            className="mb-3 inline-flex items-center gap-1.5 rounded-md border border-[var(--border)]/60 bg-[var(--card)] px-3 py-1.5 text-[12px] text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]/40"
+          >
+            <Download size={12} aria-hidden />
+            {t("Export schema JSON")}
+          </button>
+        ) : null}
         <p className="mb-3 text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
           {t(
-            "SPG type tree. Expand a business type to add or remove its relations; deletions submit explicitly and are applied server-side.",
+            "SPG type tree. Expand a business type to add or remove its relations and properties; deletions submit explicitly and are applied server-side.",
           )}
         </p>
+        {rows.length > 0 ? (
+          <TypeManagementPanel projectId={projectId} rows={rows} onChanged={reloadSchema} />
+        ) : null}
         {tree === null ? (
           <KagStateView loading error={null} />
         ) : tree.length === 0 ? (

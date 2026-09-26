@@ -32,6 +32,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 import logging
+import os
 from pathlib import Path
 import time
 from typing import Any
@@ -67,8 +68,9 @@ _MODEL_OPTIONS_CACHE: dict[str, tuple[float, list[dict[str, Any]] | None]] = {}
 
 #: Reap a child after this much idle time (no turn touched it). Lazy: the
 #: check runs whenever a handle is acquired, so no background task, no
-#: shutdown hook.
-REAP_AFTER_SECONDS = 600.0
+#: shutdown hook. Overridable so deployments with scarce memory (or browser
+#: test fixtures that mint a session per turn) can reap sooner.
+REAP_AFTER_SECONDS = float(os.getenv("OPENKG_WEBUI_ACP_REAP_SECONDS", "600"))
 
 #: Caps for the G-1 reset fold: a bounded tail of the OPENKG-WebUI transcript,
 #: not a replacement for the agent's own session memory.

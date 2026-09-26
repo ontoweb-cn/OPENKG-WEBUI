@@ -12,6 +12,7 @@ import {
   ownProperties,
   parseBuildLiveStatus,
   parseConceptRules,
+  parseConceptTree,
   parseDslAliasTypes,
   parseDslRelationLabel,
   parseEmbeddingProfiles,
@@ -23,6 +24,7 @@ import {
   parseKagTasks,
   parseSpgSchema,
   projectCreateRequest,
+  serializeKagSchema,
   validateProjectCreateForm,
   EMPTY_PROJECT_CREATE_FORM,
 } from "../features/kag/model";
@@ -620,8 +622,15 @@ test("parseConceptRules degrades malformed rows safely", () => {
     typeName: "",
     reasoning: [],
     taxonomy: [],
+    concepts: [],
     belongToReady: false,
   });
+  // A-S3：概念实例名解析（含缺省）
+  assert.deepEqual(parseConceptRules({ concepts: ["1", "", "2", "1"] }).concepts, [
+    "1",
+    "2",
+  ]);
+  assert.deepEqual(parseConceptRules({}).concepts, []);
   // predicate 缺省回退 leadTo
   const minimal = parseConceptRules({
     reasoning: [
@@ -635,4 +644,87 @@ test("parseConceptRules degrades malformed rows safely", () => {
     ],
   });
   assert.equal(minimal.reasoning[0].predicate, "leadTo");
+});
+
+// —— B.4 概念层级树 ——
+
+test("parseConceptTree builds nested tree with nameZh fallback", () => {
+  const tree = parseConceptTree({
+    type_name: "x.Topic",
+    root: "",
+    nodes: 3,
+    truncated: false,
+    children: [
+      {
+        id: "A",
+        name: "甲",
+        children: [{ id: "a1", name: "乙", children: [] }],
+      },
+      { id: "B", name: "", children: [] },
+    ],
+  });
+  assert.equal(tree.typeName, "x.Topic");
+  assert.equal(tree.nodes, 3);
+  assert.equal(tree.truncated, false);
+  assert.equal(tree.children[0].id, "A");
+  assert.equal(tree.children[0].children[0].id, "a1");
+  assert.equal(tree.children[0].children[0].name, "乙");
+  assert.equal(tree.children[1].id, "B");
+});
+
+test("parseConceptTree keeps nodeCapReached leaves and degrades safely", () => {
+  const tree = parseConceptTree({
+    children: [
+      { id: "A", name: "甲", children: [] },
+      { id: "", name: "", node_cap_reached: true, children: [] }, // 超限残叶
+      null,
+    ],
+  });
+  assert.equal(tree.children.length, 2);
+  assert.equal(tree.children[0].id, "A");
+  assert.equal(tree.truncated, false);
+  assert.equal(tree.children[1].nodeCapReached, true);
+  // 缺省/畸形安全
+  const empty = parseConceptTree({});
+  assert.deepEqual(empty.children, []);
+  assert.equal(empty.nodes, 0);
+  assert.equal(empty.truncated, false);
+  assert.deepEqual(parseConceptTree(null).children, []);
+  // truncated 标记透传
+  assert.equal(parseConceptTree({ truncated: true, children: [] }).truncated, true);
+});
+
+// —— A-S2 Schema 导出 ——
+
+test("serializeKagSchema maps type/property/relation rows", () => {
+  const row = {
+    key: "ns.Person",
+    name: "Person",
+    namespace: "ns",
+    nameZh: "人物",
+    kind: "entity",
+    parent: "ns.Thing",
+    desc: "a person",
+    properties: [
+      { name: "id", nameZh: "标识", objectType: "ns.Text", inherited: false },
+    ],
+    raw: {
+      relations: [
+        {
+          basicInfo: { name: { name: "workFor" }, nameZh: "任职于" },
+          objectTypeRef: { basicInfo: { name: { nameEn: "Organization" } } },
+          inherited: false,
+        },
+      ],
+    },
+  };
+  const exported = serializeKagSchema([row as never]);
+  assert.equal(exported.types.length, 1);
+  const type = exported.types[0];
+  assert.equal(type.name, "Person");
+  assert.equal(type.nameZh, "人物");
+  assert.equal(type.properties[0].nameZh, "标识");
+  // relations 从 raw.relations 经 parseRelations 解析
+  assert.equal(type.relations[0].name, "workFor");
+  assert.equal(type.relations[0].nameZh, "任职于");
 });

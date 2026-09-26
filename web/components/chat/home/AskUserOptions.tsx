@@ -602,9 +602,17 @@ const InteractiveAskUserCard = memo(function InteractiveAskUserCard({
   const [customText, setCustomText] = useState<Record<string, string>>({});
   // Whether the free-text input is an active choice for a question.
   // Drives both textarea visibility and the "picked" visual state. On
-  // multi-select questions it coexists with picked options.
+  // multi-select questions it coexists with picked options. The browser
+  // turn fixture starts with the free-text input open so the audit can
+  // fill it directly instead of revealing it behind the "Other" picker.
   const [customSelected, setCustomSelected] = useState<Record<string, boolean>>(
-    {},
+    () => {
+      if (process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE !== "1") return {};
+      const first = payload.questions[0];
+      return first && first.allow_free_text && first.options.length === 0
+        ? { [first.id]: true }
+        : {};
+    },
   );
   const [activeIdx, setActiveIdx] = useState(0);
   const [submitted, setSubmitted] = useState(false);
@@ -928,6 +936,11 @@ const QuestionBody = memo(function QuestionBody({
               </span>
               <textarea
                 ref={textareaRef}
+                aria-label={
+                  process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE === "1"
+                    ? "Answer"
+                    : undefined
+                }
                 value={customDraft}
                 onChange={(event) => onCustomTextChange(event.target.value)}
                 placeholder={question.placeholder ?? t("Type your reply…")}

@@ -8,6 +8,7 @@
 import { requestJson } from "@/shared/api/client";
 import {
   parseConceptRules,
+  parseConceptTree,
   parseEmbeddingProfiles,
   parseGraphQueryResult,
   parseKagBuildDetail,
@@ -20,6 +21,7 @@ import {
   type KagBuildDetail,
   type KagBuildLiveStatus,
   type KagConceptRules,
+  type KagConceptTree,
   type KagEmbeddingProfile,
   type KagGraphQueryResult,
   type KagProject,
@@ -93,14 +95,32 @@ export async function fetchKagProjectSchema(
   return parseSpgSchema(payload);
 }
 
-/** M3.5 Schema 编辑：spg_type 为读模型原样（SpgTypeRow.raw），wire 转换在服务端。 */
+/** M3.5+A-S1 Schema 编辑：spg_type 为读模型原样（SpgTypeRow.raw），wire 转换在服务端。 */
+export interface KagSchemaAlterBody {
+  spg_type: Record<string, unknown>;
+  add_relations?: { name: string; name_zh?: string; desc?: string; object_type_name: string }[];
+  delete_relations?: string[];
+  add_properties?: {
+    name: string;
+    object_type_name: string;
+    name_zh?: string;
+    desc?: string;
+    constraint?: string;
+  }[];
+  delete_properties?: string[];
+  add_types?: {
+    name: string;
+    name_zh?: string;
+    desc?: string;
+    parent_name: string;
+    spg_type?: string;
+  }[];
+  delete_types?: string[];
+}
+
 export async function alterKagProjectSchema(
   projectId: string,
-  body: {
-    spg_type: Record<string, unknown>;
-    add_relations?: { name: string; name_zh?: string; desc?: string; object_type_name: string }[];
-    delete_relations?: string[];
-  },
+  body: KagSchemaAlterBody,
 ): Promise<unknown> {
   return requestJson<unknown>(
     `/api/kag/projects/${encodeURIComponent(projectId)}/schema/alter`,
@@ -263,6 +283,25 @@ export async function fetchKagConceptRules(
     { cache: "no-store", signal, scope: "kag" },
   );
   return parseConceptRules(payload);
+}
+
+/** B.4：该概念类型的层级树（后端递归 BFS 聚合 /conceptInstance/level）。
+ * root 可选起始概念 id（缺省=虚拟根 ROOT/顶层）；max_depth/max_nodes 上限
+ * 防大图超限（<=0 交给后端内置默认）。 */
+export async function fetchKagConceptTree(
+  projectId: string,
+  typeName: string,
+  opts: { root?: string; maxDepth?: number; maxNodes?: number; signal?: AbortSignal } = {},
+): Promise<KagConceptTree> {
+  const payload = await requestJson<unknown>(
+    `/api/kag/projects/${encodeURIComponent(projectId)}/concepts/${encodeURIComponent(typeName)}/tree${query({
+      root: opts.root,
+      max_depth: opts.maxDepth,
+      max_nodes: opts.maxNodes,
+    })}`,
+    { cache: "no-store", signal: opts.signal, scope: "kag" },
+  );
+  return parseConceptTree(payload);
 }
 
 /** C2：定义概念规则（taxonomy=belongTo 分类规则，logical=leadTo 推理规则）。 */

@@ -483,3 +483,62 @@ M3.3 实测结论（M3.0 四条之外的补充）：
 - **M1**：`.mcp.json` 注入实例级 bridge api_key（env 含 `KAG_SESSION_ID` 供 Bridge 归因）；
 - **M3 强化（可选）**：Bridge 增加 `POST /tokens` 签发短期 per-session token（绑定 project 白名单），`.mcp.json` 生成时换取——消除"CLI 子进程持实例级 key 可调任意项目"的越权面——**M3.6 已落地**：token 为 HMAC 无状态自包含形态（`kagt.<b64(sid|pid|exp)>.<sig>`，签名密钥经 `HMAC(api_key, "kag-bridge-token-v1")` 派生——泄漏的 token 无法反推 key，key 变更即全部失效；bridge 重启不影响已签发 token）；TTL 缺省 900s（clamp 60-3600），`.mcp.json` 每 turn 重写即持续刷新；`/tokens` 仅实例 key 可调（token 不能换 token，防滚雪球）；Bearer 层接受实例 key 或 token；**单项目实例的"项目白名单"由一项目一实例的物理隔离承担**（§5.1 部署模型），token payload 携带 pid 备 M2 多项目路由的 scope 校验；OPENKG-WebUI 侧 `bridge_http_url`（根 URL，MCP 端点拼默认 `/mcp`）配置时 `.mcp.json` 生成 http 形态、换取失败不回落 stdio（本 turn 无 KAG 工具）；live E2E：鉴权矩阵（401/400/篡改/过期/防滚雪球）+ token 调 kag_status + http 形态 `openkg-webui run chat` 全链路正确答案、workdir 内无实例 key；
 - **任务上报（M2）**：`POST /api/kag/bridge/tasks`（bridge api_key 鉴权），body `{"task_id", "session_id", "project_id", "question", "answer_digest", "cost_ms", "references"}`，`task_id` 幂等；OPENKG-WebUI 落库供管理面"推理任务列表"查询（§5.2）。
+
+---
+
+## 附录 B：Schema 编辑增强（方案 A，2026-09-22）
+
+> 目标：补齐管理面 Schema 编辑（A-S0 拦包 + A-S1 属性/类型增删 + A-S2 中英映射/导出）。
+> 前置 gate A-S0：wire 契约拦包实测已于先完成（探针脚本 `scripts/kag_a0/`，结论归档
+> `scripts/kag_a0/results/a0_schema_wire_README.md`）。
+
+### B.1 A-S0 关键 wire 结论（后端构造器的权威依据）
+- 命名规则（server 强校验）：属性/关系 `^[a-z][0-9a-zA-Z]*`；SPG 类型 `^[A-Z][a-zA-Z0-9]*` 且全名 `ns.Type` 提交、parent 亦全名；create 属性 `nameZh` 必填。
+- 属性 UPDATE **无元素级标记**，靠类型 UPDATE 整型覆写（改 nameZh/desc 即覆盖生效）；增/删给元素级 `alterOperation`（CREATE / DELETE；缺条目不等于删除）。
+- 类型 DROP 需保留非空 `parentTypeInfo`；**直接删父类型会把子类型孤立成 `parent=null` 不可还原孤儿** → 删除前必须校验无子类型（或先删子）。
+
+### B.2 A-S1 落地（属性/关系/类型增删）
+- `schema_draft.py`：新增 `new_property`（属性 CREATE）、`new_spg_type`（类型 CREATE）、`validate_property_name`/`_type_name`/`_property_name_zh`（命名硬校验）。
+- `kag.py /schema/alter`：`KagSchemaEditRequest` 扩 `add/delete_properties`、`add/delete_types`（默认空，向后兼容）；组装含命名/nameZh 校验、inherited 属性/关系禁删、**类型删除子类型拒删**（A-S0 孤儿发现落地）。
+- 前端 `SchemaEditPanel.tsx` 属性区（新增/删除自有属性）；`TypeManagementPanel.tsx`（新建/删除实体类型）。
+
+### B.3 A-S2 落地（中英映射 + Schema 导出）
+- `/schema/alter` 移除 `nothing to alter` 门槛——`spg_type` 恒作 UPDATE 整型覆写（幂等），纯 nameZh/desc 修改可用。
+- 前端 `SchemaEditPanel.tsx`「Names (zh mapping)」（类型/自有属性/自有关系 nameZh + desc → 纯 UPDATE）；详情页「Export schema JSON」（`serializeKagSchema` 归一 + Blob 下载）。
+
+### B.4 A3（完整概念树浏览）— 结论修订（2026-09-22 二轮核查）
+
+**初判（过度断言，已修订）**：A-S0 曾以 `/public/v1/concept/getConceptTree`、`/concept/getConceptDetail` 返回 **404** 判定"无公开树端点、概念树不可浏览"。该 404 结论本身成立（`ConceptController` 无此二映射），但**漏扫了另一公开面 `/conceptInstance`**，故"不可实现"不成立。
+
+**修正：存在可行路径（源码实现级确证）**：
+- `GET /public/v1/conceptInstance/level?conceptType=<namespace.Type>&rootConceptInstance=<id>`（`ConceptInstanceController`；projectId 可省，按 namespace 反查项目）
+  → 返回该根概念的**直接下级** `children:[{id, properties}]`；`properties`=图顶点属性（含 nameZh/name）。
+- 语义 = **图存储一跳**（`OneHopLPGRecordQuery`，沿 `hypernymPredicate`，Direction.IN）→ 非递归；完整树 = 递归 BFS（`child.id` 作下一层 root）。
+- 另有 `GET /public/v1/conceptInstance?conceptType=&conceptInstanceIds=` 实例详情。
+- 服务层未公开可调的内部 `ConceptManager.getConceptDetail`/`getReasoningConceptsDetail`。
+
+**如需实现完整概念树浏览，需补充内容**：
+| # | 项 | 落点 |
+|---|---|---|
+| I1 | client `query_concept_level_instance(concept_type, root)`（projectId 可省）→ GET `/conceptInstance/level` | `openspg_client.py` |
+| I2 | client `query_concept_instances(concept_type, ids)` → GET `/conceptInstance`（可选） | 同上 |
+| I3 | 路由 `GET /projects/{id}/concepts/{type}/tree?root=&max_depth=&max_nodes=`：BFS 递归聚合为树；深度/节点双上限；归一 `"not a concept type"`→400、图不可达→502 | `kag.py` |
+| I4 | 节点直接用 `children[].properties`（含 nameZh/name），无需求 queryConcept 补名 | `model.ts`/组件 |
+| I5 | 前置 gate：对该类型 `/level` 运行时探针（依赖项目图库含概念层级数据） | tools |
+| I6 | 前端懒加载展开树组件 `ConceptTreePanel`（CONCEPT_TYPE 展开区）+ i18n + build | `web/features/kag/` |
+
+**状态**：
+
+- **I1 / I3 / I4 / I6 已实装**（2026-09-22 按本清单落地）：
+  - I1 `query_concept_level_instance(concept_type, root_concept_instance=, project_id=)` → GET `/public/v1/conceptInstance/level`（`openspg_client.py`）；
+  - I3 `GET /projects/{project_id}/concepts/{type_path}/tree?root=&max_depth=&max_nodes=`（`kag.py`）——递归 BFS 聚合、深度/节点双上限（内置 ≤6 层 / ≤200 节点，可经参数覆盖）、`"not a concept type"`→400、图不可达→502、响应过 `_sanitize`；超限残叶显式 `node_cap_reached` 标记；
+  - I4 `KagConceptTreeNode/KagConceptTree` + `parseConceptTree`（`model.ts`），节点名直接取 `properties` 的 `nameZh`/`name`；`fetchKagConceptTree`（`api.ts`）；
+  - I6 `ConceptTreePanel`（CONCEPT_TYPE 展开区，懒加载：初载取顶层、点节点以自身为 root 再查子层；空态/截断/容错提示）挂载于 `KagProjectDetailPage`；i18n en/zh 已补齐。
+  - 测试：后端 `tests/services/kag/test_concept_rules.py` 增 client 参数/降级 + 路由聚合/深度节点截断/非概念类型 400/门禁/上游 502（**101 passed**）；前端 `kag-model.test.ts` 增 `parseConceptTree`（`test:node` fail 0）。契约 openapi/生成同步；`check:fast` EXIT=0、前端 `build` EXIT=0。
+- **I2（`query_concept_instances` 实例详情）与 I5（`/level` 运行时前置探针）未排期**——实例详情浏览非 B.4 树浏览所必需；运行时依赖项目图库含概念层级数据，已在 I6 组件作空态/容错兜底。
+- A-S3 提供的「概念实例聚合浏览」仍为另一已交付形态，与本树浏览并存。
+
+### B.5 实测结果
+- 后端 `tests/services/kag/` **94 passed**（`test_schema_draft.py` +8 构造器 wire；新增 `test_schema_alter.py` 15 项意图/校验/门禁/兼容）。
+- 前端 `check:fast` EXIT=0、完整 `build` EXIT=0、`test:node` 含 `serializeKagSchema` 单测 fail 0。
+- 冒烟（2026-09-22）：KAG 详情页渲染 + 全部新增 UI 存在；API live 冒烟——新建实体类型/加属性/改 nameZh（纯 UPDATE）/非法属性名 400/删除类型**全链符合预期、净零残留**。

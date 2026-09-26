@@ -117,6 +117,8 @@ export type Message = string;
 export type Retryable = boolean;
 export type MinimumWebProtocolVersion = "2.0";
 export type ProtocolVersion11 = "2.0";
+export type Backend = "memory" | "redis";
+export type Healthy = boolean;
 export type CoordinationMode = "memory" | "redis";
 export type LeaderHealthy = boolean | null;
 export type LeaderId = string | null;
@@ -126,6 +128,8 @@ export type OwnerTurnCount = number;
 export type ProtocolVersion12 = "2.0";
 export type RecoveryBacklog = number;
 export type RecoveryIntervalSeconds = number;
+export type Configured = boolean;
+export type Healthy1 = boolean;
 export type RedisConfigured = boolean;
 export type RedisStatus = "ok" | "unavailable" | "not_configured";
 export type RenewIntervalSeconds = number;
@@ -472,6 +476,7 @@ export interface ErrorEnvelope {
  * via the `definition` "RuntimeStatus".
  */
 export interface RuntimeStatus {
+  coordination?: CoordinationStatus | null;
   coordination_mode: CoordinationMode;
   leader_healthy?: LeaderHealthy;
   leader_id?: LeaderId;
@@ -481,11 +486,28 @@ export interface RuntimeStatus {
   protocol_version?: ProtocolVersion12;
   recovery_backlog?: RecoveryBacklog;
   recovery_interval_seconds: RecoveryIntervalSeconds;
+  redis?: RedisStatusDetail | null;
   redis_configured: RedisConfigured;
   redis_status: RedisStatus;
   renew_interval_seconds: RenewIntervalSeconds;
   worker_count: WorkerCount;
   worker_id: WorkerId;
+}
+/**
+ * This interface was referenced by `TurnProtocolDocument`'s JSON-Schema
+ * via the `definition` "CoordinationStatus".
+ */
+export interface CoordinationStatus {
+  backend: Backend;
+  healthy: Healthy;
+}
+/**
+ * This interface was referenced by `TurnProtocolDocument`'s JSON-Schema
+ * via the `definition` "RedisStatusDetail".
+ */
+export interface RedisStatusDetail {
+  configured: Configured;
+  healthy: Healthy1;
 }
 /**
  * This interface was referenced by `TurnProtocolDocument`'s JSON-Schema

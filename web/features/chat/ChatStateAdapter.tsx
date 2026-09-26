@@ -965,7 +965,11 @@ const initialState: ProviderState = {
 // Grace window between the orchestrator's ``done`` event and the actual
 // WS disconnect. Keeps the connection alive long enough for post-turn
 // pushes like the LLM-generated ``session_meta`` title update to land.
-const POST_DONE_DISCONNECT_DELAY_MS = 15_000;
+// Under the E2E turn fixture there is no real title to wait for, and the
+// long hold-open would delay the fixture's per-connection delivered flush
+// past its evidence poll.
+const POST_DONE_DISCONNECT_DELAY_MS =
+  process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE === "1" ? 500 : 15_000;
 
 /**
  * How long after DONE to refetch the sidebar so a post-turn title shows up.
@@ -1650,6 +1654,22 @@ export function ChatStateAdapterProvider({
     },
     [ensureRunner],
   );
+
+  // Fixture-only: the critical-turns browser audit clicks a "Drop connection"
+  // button that dispatches this event; each live runner drops its socket
+  // transiently so the client reconnects with its resume cursor intact. The
+  // affordance is compiled in only when NEXT_PUBLIC_TURN_E2E_FIXTURE=1.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_TURN_E2E_FIXTURE !== "1") return;
+    const onDropConnection = () => {
+      for (const record of runnersRef.current.values()) {
+        if (record.client.connected) record.client.dropConnectionForTest();
+      }
+    };
+    window.addEventListener("openkg-e2e-drop-connection", onDropConnection);
+    return () =>
+      window.removeEventListener("openkg-e2e-drop-connection", onDropConnection);
+  }, []);
 
   /** Select a session we already hold in memory, if we do.
    *

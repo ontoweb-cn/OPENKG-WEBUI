@@ -44,7 +44,13 @@ test.describe("v2 turn lifecycle", () => {
   test("stops through the composer's existing turn control", async ({ page }) => {
     await page.goto("/");
     await sendPrompt(page, "Start a cancellable turn");
-    await page.getByRole("button", { name: /stop generating|cancel/i }).click();
+    const stop = page.getByRole("button", { name: "Stop generating", exact: true });
+    await expect(stop).toBeVisible();
+    // Let the client bind the server turn id, then click via the DOM: the
+    // streaming-status animation keeps the button perpetually "unstable" and
+    // the Next dev-overlay portal intercepts pointer events.
+    await page.waitForTimeout(750);
+    await stop.evaluate((element) => (element as HTMLButtonElement).click());
 
     await expect(
       page.getByRole("button", { name: /stop generating/i }),

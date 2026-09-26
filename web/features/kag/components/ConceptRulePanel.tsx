@@ -181,6 +181,29 @@ export function ConceptRulePanel({ projectId, typeRow }: ConceptRulePanelProps) 
         <p className="px-1 text-[11.5px] text-red-600">{error}</p>
       ) : rules ? (
         <>
+          {/* —— A-S3：概念实例列表（queryConcept 枚举）—— */}
+          <div className="space-y-1">
+            <p className="px-1 text-[11px] font-medium text-[var(--muted-foreground)]">
+              {t("Concept instances")}
+            </p>
+            {rules.concepts.length === 0 ? (
+              <p className="px-1 text-[11.5px] text-[var(--muted-foreground)]">
+                {t("No concept instances")}
+              </p>
+            ) : (
+              <div className="flex max-h-40 flex-wrap gap-1 overflow-y-auto">
+                {rules.concepts.map((name) => (
+                  <span
+                    key={name}
+                    className="rounded-full border border-[var(--border)]/60 bg-[var(--card)]/60 px-2 py-0.5 font-mono text-[11px] text-[var(--foreground)]"
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {rules.taxonomy.length === 0 && rules.reasoning.length === 0 ? (
             <p className="px-1 text-[11.5px] text-[var(--muted-foreground)]">
               {t("No concept rules")}

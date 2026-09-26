@@ -97,8 +97,18 @@ export class MultiWorkerRuntimeFixture {
       fixture.ok(),
       "the deterministic failure-injection fixture must be enabled",
     ).toBeTruthy();
-    const fixtureStatus = (await fixture.json()) as { worker_ids?: string[] };
-    expect(fixtureStatus.worker_ids).toHaveLength(4);
+    // ``kill_owner`` kills a uvicorn worker process; the supervisor respawns
+    // it, but registration lags — poll instead of a single-shot check.
+    await expect
+      .poll(
+        async () => {
+          const polled = await this.request.get(this.controlUrl("health"));
+          const fixtureStatus = (await polled.json()) as { worker_ids?: string[] };
+          return fixtureStatus.worker_ids?.length ?? 0;
+        },
+        { message: "four workers must be live", timeout: 20_000 },
+      )
+      .toBe(4);
   }
 
   async reset(): Promise<void> {
@@ -143,14 +153,71 @@ export class MultiWorkerRuntimeFixture {
     await expect
       .poll(
         async () => {
-          latest = await this.evidence(scenarioId);
-          return predicate(latest);
+          try {
+            latest = await this.evidence(scenarioId);
+            return predicate(latest);
+          } catch {
+            // The owner-loss audit kills a backend worker mid-poll; a request
+            // that lands on the dying process resets transiently. Treat that
+            // as "not yet satisfied" and keep polling.
+            return false;
+          }
         },
         { message: description, timeout: 60_000 },
       )
       .toBe(true);
     assert(latest);
     return latest;
+  }
+
+  /**
+   * Wait until the armed scenario's turn has started publishing stream events.
+   *
+   * The browser UI activity locators can match a *stale* turn from an earlier
+   * run (the fixture home accumulates sessions), so gating failure-injection
+   * actions on the UI races the subscription: the action lands before
+   * ``gate_subscription`` runs and the new connection clears the flag. Waiting
+   * on evidence (``emitted_sequences`` non-empty) is deterministic — the turn
+   * exists and the browser's subscription is already live by the time events
+   * flow.
+   */
+  async waitForTurnStreaming(scenarioId: string): Promise<void> {
+    await this.expectEvidence(
+      scenarioId,
+      (value) => (value.emitted_sequences?.length ?? 0) > 0,
+      "the turn did not start streaming",
+    );
+  }
+
+  /**
+   * Wait for a completed turn whose delivery is fully settled.
+   *
+   * ``terminal_status`` flips to "completed" as soon as the backend commits
+   * the turn, but the last connection's delivered buffer flushes only when
+   * that socket closes (the client holds it open ~2s after ``done`` for the
+   * post-turn title). Asserting on a bare terminal poll races that flush, so
+   * the delivery proofs (delivered==emitted, zero duplicates/gaps) belong in
+   * the poll predicate.
+   */
+  async expectCompletedWithFullDelivery(
+    scenarioId: string,
+    description: string,
+  ): Promise<ScenarioEvidence> {
+    return this.expectEvidence(
+      scenarioId,
+      (value) => {
+        const delivered = value.delivered_sequences?.length ?? 0;
+        const emitted = value.emitted_sequences?.length ?? 0;
+        return (
+          value.terminal_status === "completed" &&
+          delivered === emitted &&
+          delivered > 0 &&
+          value.duplicate_count === 0 &&
+          value.gap_count === 0
+        );
+      },
+      description,
+    );
   }
 
   assertNoLegacyRequests(): void {

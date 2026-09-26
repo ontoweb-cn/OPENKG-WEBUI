@@ -476,57 +476,111 @@ class KagSchemaRelationAdd(BaseModel):
     object_type_name: str
 
 
+class KagPropertyAdd(BaseModel):
+    """新增属性（A-S0 实测 wire：属性 CREATE，nameZh 必填）。"""
+
+    name: str
+    object_type_name: str
+    name_zh: str = ""
+    desc: str = ""
+    constraint: str = ""  # 可选约束类型枚举名（如 NOT_NULL）；空=无约束
+
+
+class KagTypeAdd(BaseModel):
+    """新增 SPG 类型（A-S0 实测 wire：类型 CREATE；parent 为 schema 内现有
+    实体类型的裸名，后端拼 namespace 全名）。首版仅 ENTITY_TYPE。"""
+
+    name: str
+    name_zh: str = ""
+    desc: str = ""
+    parent_name: str
+    spg_type: str = "ENTITY_TYPE"
+
+
 class KagSchemaEditRequest(BaseModel):
-    """Schema 编辑（M3.5）：读模型进、wire 转换在后端。
+    """Schema 编辑（M3.5+A-S1）：读模型进、wire 转换在后端。
 
     ``spg_type`` 为 queryProjectSchema 返回的 SPG type 原样（前端就地编辑
-    中文名/描述等）；新增/删除关系以意图列表表达（CREATE/DELETE 元素级
-    操作由服务端组装——M3.5 实测 wire 契约，schema_draft.py）。
+    中文名/描述等）；新增/删除以意图列表表达（CREATE/DELETE 元素级操作由
+    服务端组装——wire 契约实测见 schema_draft.py）。新增字段默认空列表，
+    对旧客户端向后兼容。
     """
 
     spg_type: dict[str, Any]
     add_relations: list[KagSchemaRelationAdd] = []
     delete_relations: list[str] = []
+    add_properties: list[KagPropertyAdd] = []
+    delete_properties: list[str] = []
+    add_types: list[KagTypeAdd] = []
+    delete_types: list[str] = []
 
 
 @router.post("/projects/{project_id}/schema/alter")
 async def alter_project_schema(
     request: Request, project_id: str, payload: KagSchemaEditRequest
 ) -> dict[str, Any]:
-    """提交 Schema 变更（项目成员 + same-origin；M3.5）。
+    """提交 Schema 变更（项目成员 + same-origin；M3.5 + A-S1）。
 
-    语义（M3.5 实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于
-    删除（服务端 500），删除必须显式 DELETE 操作。T2（M4-B）写操作由
-    admin-only 放宽为项目 membership（owner/成员可改自己的项目）。
+    语义（wire 契约实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于
+    删除（服务端 500），删除必须显式 DELETE 操作。A-S1 扩展：属性/关系/类型
+    的新增与删除意图；类型删除做子类型拒删（A-S0：直接删父会留不可还原孤儿）；
+    inherited 属性/关系禁删（沿 M3.5 关系先例）。T2 写操作由 admin-only 放宽
+    为项目 membership。
     """
     _require_project_access(project_id)
     _require_same_origin(request)
-    from openkg_webui.services.kag.schema_draft import new_relation, read_type_to_draft
+    from openkg_webui.services.kag.schema_draft import (
+        new_property,
+        new_relation,
+        new_spg_type,
+        read_type_to_draft,
+    )
 
     spg_type = payload.spg_type
     name = (spg_type.get("basicInfo") or {}).get("name") or {}
     if not str(name.get("nameEn") or "").strip():
         raise HTTPException(status_code=400, detail="spg_type.basicInfo.name.nameEn is required")
-    if not payload.add_relations and not payload.delete_relations:
-        raise HTTPException(status_code=400, detail="nothing to alter")
-    # 组装：读模型 → wire draft
+    namespace = str(name.get("namespace") or "").strip()
+    if not namespace:
+        raise HTTPException(status_code=400, detail="spg_type.basicInfo.name.namespace is required")
+
+    # A-S2：spg_type 恒作 UPDATE 整型覆写提交（A-S0 实测语义）。
+    #   - 中英映射等"改既有名称/描述"无 add/delete 意图，仅回传修改过的
+    #     spg_type 即由覆盖生效（幂等；未改变更提交无害）。
+    #   - 不对"空意图"设 nothing-to-alter 门槛——它会把纯 nameZh 覆写误拒。
+
     draft = read_type_to_draft(spg_type)
+    drafts = [draft]
+    _types: list[dict[str, Any]] | None = None
+
+    async def _load_types() -> list[dict[str, Any]]:
+        nonlocal _types
+        if _types is None:
+            try:
+                schema = await _client().query_schema(project_id)
+            except OpenSPGError as exc:
+                raise _upstream_error(exc) from exc
+            _types = schema.get("spgTypes") or []
+        return _types
+
+    def _find_type(bare_name: str) -> dict[str, Any] | None:
+        return next(
+            (
+                t
+                for t in _types
+                if ((t.get("basicInfo") or {}).get("name") or {}).get("nameEn") == bare_name
+            ),
+            None,
+        )
+
+    def _reject_on_value_error(exc: ValueError) -> HTTPException:
+        return HTTPException(status_code=400, detail=f"{exc}")
+
+    # —— 关系：新增（现有） / 删除（新增 inherited 保护）——
     if payload.add_relations:
-        try:
-            schema = await _client().query_schema(project_id)
-        except OpenSPGError as exc:
-            raise _upstream_error(exc) from exc
-        types = schema.get("spgTypes") or []
+        await _load_types()
         for add in payload.add_relations:
-            target = next(
-                (
-                    t
-                    for t in types
-                    if ((t.get("basicInfo") or {}).get("name") or {}).get("nameEn")
-                    == add.object_type_name
-                ),
-                None,
-            )
+            target = _find_type(add.object_type_name)
             if target is None:
                 raise HTTPException(
                     status_code=400, detail=f"object type not found: {add.object_type_name}"
@@ -543,18 +597,101 @@ async def alter_project_schema(
             )
     if payload.delete_relations:
         doomed = {str(n) for n in payload.delete_relations}
-        existing = {
-            str(((r.get("basicInfo") or {}).get("name") or {}).get("name") or "")
+        rel_els = {
+            str(((r.get("basicInfo") or {}).get("name") or {}).get("name") or ""): r
             for r in (draft.get("relations") or [])
         }
-        unknown = doomed - existing
+        unknown = doomed - set(rel_els)
         if unknown:
             raise HTTPException(status_code=400, detail=f"relations not found: {sorted(unknown)}")
-        for rel in draft.get("relations") or []:
-            if str(((rel.get("basicInfo") or {}).get("name") or {}).get("name") or "") in doomed:
-                rel["alterOperation"] = "DELETE"
+        for rel_name in doomed:
+            if rel_els[rel_name].get("inherited"):
+                raise HTTPException(
+                    status_code=400, detail=f"inherited relation cannot be deleted: {rel_name}"
+                )
+            rel_els[rel_name]["alterOperation"] = "DELETE"
+
+    # —— 属性：新增（nameZh 必填）/ 删除（inherited 禁删）——
+    if payload.add_properties:
+        await _load_types()
+        for p in payload.add_properties:
+            obj = _find_type(p.object_type_name)
+            if obj is None:
+                raise HTTPException(
+                    status_code=400, detail=f"object type not found: {p.object_type_name}"
+                )
+            constraint_items = (
+                [{"constraintTypeEnum": p.constraint, "@type": p.constraint}]
+                if p.constraint
+                else None
+            )
+            try:
+                prop_el = new_property(
+                    object_type=obj,
+                    name=str(p.name or "").strip(),
+                    name_zh=str(p.name_zh or ""),
+                    desc=str(p.desc or ""),
+                    constraint_items=constraint_items,
+                )
+            except ValueError as exc:
+                raise _reject_on_value_error(exc) from exc
+            draft.setdefault("properties", []).append(prop_el)
+    if payload.delete_properties:
+        doomed = {str(n) for n in payload.delete_properties}
+        prop_els = {
+            str(((r.get("basicInfo") or {}).get("name") or {}).get("name") or ""): r
+            for r in (draft.get("properties") or [])
+        }
+        unknown = doomed - set(prop_els)
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"properties not found: {sorted(unknown)}")
+        for prop_name in doomed:
+            if prop_els[prop_name].get("inherited"):
+                raise HTTPException(
+                    status_code=400, detail=f"inherited property cannot be deleted: {prop_name}"
+                )
+            prop_els[prop_name]["alterOperation"] = "DELETE"
+
+    # —— 类型：新增（首版仅 ENTITY_TYPE）/ 删除（子类型拒删）——
+    if payload.add_types:
+        for t in payload.add_types:
+            if str(t.spg_type or "") != "ENTITY_TYPE":
+                raise HTTPException(
+                    status_code=400, detail="only ENTITY_TYPE type creation is supported"
+                )
+            try:
+                drafts.append(
+                    new_spg_type(
+                        namespace=namespace,
+                        name=str(t.name or "").strip(),
+                        name_zh=str(t.name_zh or ""),
+                        desc=str(t.desc or ""),
+                        parent_name=str(t.parent_name or "").strip(),
+                        spg_type_enum=str(t.spg_type or ""),
+                    )
+                )
+            except ValueError as exc:
+                raise _reject_on_value_error(exc) from exc
+    if payload.delete_types:
+        await _load_types()
+        for type_name in payload.delete_types:
+            target = _find_type(type_name)
+            if target is None:
+                raise HTTPException(status_code=400, detail=f"spg type not found: {type_name}")
+            # 子类型拒删（A-S0：直接删父会把子类型孤立成不可还原孤儿）
+            for t in _types:
+                pt = ((t.get("parentTypeInfo") or {}).get("parentTypeIdentifier") or {}).get(
+                    "nameEn"
+                ) or ""
+                if pt == type_name and t is not target:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"cannot delete type {type_name}: it has subtype(s); delete them first",
+                    )
+            drafts.append(read_type_to_draft(target, operation="DELETE"))
+
     try:
-        result = await _client().alter_schema(project_id, [draft])
+        result = await _client().alter_schema(project_id, drafts)
     except OpenSPGError as exc:
         raise _upstream_error(exc) from exc
     # 跨请求回读验证（防 knext 式"进程内缓存假阳性"在代理层复现）：alter 后
@@ -971,12 +1108,19 @@ async def get_concept_rules(project_id: str, type_name: str = "") -> dict[str, A
     except OpenSPGError:
         reasoning = []
     taxonomy: list[dict[str, Any]] = []
+    concept_names: list[str] = []
+    seen_concepts: set[str] = set()
     try:
         detail = await client.get_concept_detail(concept_type_name)
         concepts = detail.get("concepts") if isinstance(detail.get("concepts"), list) else []
         for concept in concepts:
             if not isinstance(concept, dict):
                 continue
+            # A-S3：概念实例名（queryConcept 的 CONCEPT 标识符），set 判重保序
+            cname = _concept_name(concept.get("name"))
+            if cname and cname not in seen_concepts:
+                seen_concepts.add(cname)
+                concept_names.append(cname)
             semantics = concept.get("semantics")
             if not isinstance(semantics, list):
                 continue
@@ -991,6 +1135,7 @@ async def get_concept_rules(project_id: str, type_name: str = "") -> dict[str, A
                     taxonomy.append(rule)
     except OpenSPGError:
         taxonomy = []
+        concept_names = []
     belong_to_ready = False
     try:
         schema = await client.query_schema(project_id)
@@ -1001,7 +1146,113 @@ async def get_concept_rules(project_id: str, type_name: str = "") -> dict[str, A
         "type_name": concept_type_name,
         "reasoning": _sanitize(reasoning),
         "taxonomy": _sanitize(taxonomy),
+        "concepts": _sanitize(concept_names),
         "belong_to_ready": belong_to_ready,
+    }
+
+
+# —— 概念层级树（附录 B.4；I3）——
+# 端点语义：/conceptInstance/level 为图存储**一跳**聚合（沿 hypernymPredicate/
+# Direction.IN），完整树须以 child.id 作下一层 root 递归 BFS。本路由做递归
+# 聚合，并施加深度/节点双上限，避免大层级图打爆响应。
+_MAX_TREE_DEPTH = 6
+_MAX_TREE_NODES = 200
+
+
+async def _build_concept_tree(
+    client: OpenSPGClient,
+    type_name: str,
+    root: str,
+    project_id: str,
+    depth_cap: int,
+    node_cap: int,
+) -> tuple[list[dict[str, Any]], bool, int]:
+    """递归 BFS 聚合概念层级，返回 (children, truncated, node_count)。
+
+    - root 缺省为虚拟根 ``ROOT``（server 端语义）；非空则以该概念作根。
+    - depth_cap：某节点所在层 >= depth_cap 时不再展开其子层。
+    - node_cap：累计实际概念节点数到达后停止，标记 truncated 并在残叶显式
+      标注 ``node_cap_reached``（前端据此显示"已截断"提示）。
+    - seen：以概念 id 去重，防层级图成环导致死循环。
+    """
+    seen: set[str] = set()
+    truncated = False
+    count = 0
+
+    async def expand(root_id: str, depth: int) -> list[dict[str, Any]]:
+        nonlocal truncated, count
+        if depth >= depth_cap:
+            truncated = True
+            return []
+        resp = await client.query_concept_level_instance(type_name, root_id, project_id)
+        rows = resp.get("children") if isinstance(resp, dict) else []
+        children: list[dict[str, Any]] = []
+        for child in rows:
+            if not isinstance(child, dict):
+                continue
+            cid = str(child.get("id") or "")
+            if not cid or cid in seen:
+                continue
+            if count >= node_cap:
+                # 超限：残叶显式标注 node_cap_reached（前端据此显示"已截断"）
+                truncated = True
+                children.append({"id": "", "name": "", "node_cap_reached": True, "children": []})
+                break
+            seen.add(cid)
+            count += 1
+            props = child.get("properties") if isinstance(child.get("properties"), dict) else {}
+            item: dict[str, Any] = {
+                "id": cid,
+                "name": str(props.get("nameZh") or props.get("name") or ""),
+                "children": [],
+            }
+            item["children"] = await expand(cid, depth + 1)
+            children.append(item)
+        return children
+
+    top = await expand(root, 0)
+    return top, truncated, count
+
+
+@router.get("/projects/{project_id}/concepts/{type_path}/tree")
+async def get_concept_tree(
+    project_id: str,
+    type_path: str,
+    root: str = "",
+    max_depth: int = 0,
+    max_nodes: int = 0,
+) -> dict[str, Any]:
+    """概念层级树（read + membership；B.4 完整概念树浏览）。
+
+    - ``type_path`` 为 SPG 概念类型全名（``ns.Type``，含点，故用 path 型变量）。
+    - ``root``：可选起始概念 id（缺省=虚拟根 ROOT，即顶层概念们）。
+    - ``max_depth``/``max_nodes``：可选上限（<=0 取内置默认），防大图打爆。
+    - conceptType 非概念类型：归一 ``"not a concept type"`` → 400；图不可达/
+      上游错误 → 502；响应经 ``_sanitize``（properties 可能含凭据）。
+    """
+    _require_project_access(project_id)
+    type_name = str(type_path or "").strip()
+    if not type_name:
+        raise HTTPException(status_code=400, detail="type_name is required")
+    depth_cap = max_depth if max_depth > 0 else _MAX_TREE_DEPTH
+    node_cap = max_nodes if max_nodes > 0 else _MAX_TREE_NODES
+    try:
+        children, truncated, count = await _build_concept_tree(
+            _client(), type_name, str(root or ""), project_id, depth_cap, node_cap
+        )
+    except OpenSPGError as exc:
+        body = exc.body if isinstance(exc.body, str) else ""
+        if "not a concept type" in body:
+            raise HTTPException(
+                status_code=400, detail=f"{type_name} is not a concept type"
+            ) from exc
+        raise _upstream_error(exc) from exc
+    return {
+        "type_name": type_name,
+        "root": str(root or ""),
+        "nodes": count,
+        "truncated": truncated,
+        "children": _sanitize(children),
     }
 
 

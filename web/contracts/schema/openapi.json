@@ -559,6 +559,29 @@
         "title": "ChatStarterSettingsUpdate",
         "type": "object"
       },
+      "CoordinationStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "enum": [
+              "memory",
+              "redis"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "backend",
+          "healthy"
+        ],
+        "title": "CoordinationStatus",
+        "type": "object"
+      },
       "DatasetPage": {
         "description": "知识库分页。\n\n注（评审 P2）：上游 ``GET /datasets`` 的 total 位于**信封顶层**\n``total_datasets``（``data`` 是裸列表）——与文档列表的 ``data.total``\n不同，provider 负责在各自端点取正确位置。",
         "properties": {
@@ -1128,9 +1151,51 @@
         "title": "KagProjectCreateRequest",
         "type": "object"
       },
-      "KagSchemaEditRequest": {
-        "description": "Schema 编辑（M3.5）：读模型进、wire 转换在后端。\n\n``spg_type`` 为 queryProjectSchema 返回的 SPG type 原样（前端就地编辑\n中文名/描述等）；新增/删除关系以意图列表表达（CREATE/DELETE 元素级\n操作由服务端组装——M3.5 实测 wire 契约，schema_draft.py）。",
+      "KagPropertyAdd": {
+        "description": "新增属性（A-S0 实测 wire：属性 CREATE，nameZh 必填）。",
         "properties": {
+          "constraint": {
+            "default": "",
+            "title": "Constraint",
+            "type": "string"
+          },
+          "desc": {
+            "default": "",
+            "title": "Desc",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_zh": {
+            "default": "",
+            "title": "Name Zh",
+            "type": "string"
+          },
+          "object_type_name": {
+            "title": "Object Type Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "object_type_name"
+        ],
+        "title": "KagPropertyAdd",
+        "type": "object"
+      },
+      "KagSchemaEditRequest": {
+        "description": "Schema 编辑（M3.5+A-S1）：读模型进、wire 转换在后端。\n\n``spg_type`` 为 queryProjectSchema 返回的 SPG type 原样（前端就地编辑\n中文名/描述等）；新增/删除以意图列表表达（CREATE/DELETE 元素级操作由\n服务端组装——wire 契约实测见 schema_draft.py）。新增字段默认空列表，\n对旧客户端向后兼容。",
+        "properties": {
+          "add_properties": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KagPropertyAdd"
+            },
+            "title": "Add Properties",
+            "type": "array"
+          },
           "add_relations": {
             "default": [],
             "items": {
@@ -1139,12 +1204,36 @@
             "title": "Add Relations",
             "type": "array"
           },
+          "add_types": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KagTypeAdd"
+            },
+            "title": "Add Types",
+            "type": "array"
+          },
+          "delete_properties": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Delete Properties",
+            "type": "array"
+          },
           "delete_relations": {
             "default": [],
             "items": {
               "type": "string"
             },
             "title": "Delete Relations",
+            "type": "array"
+          },
+          "delete_types": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Delete Types",
             "type": "array"
           },
           "spg_type": {
@@ -1186,6 +1275,40 @@
           "object_type_name"
         ],
         "title": "KagSchemaRelationAdd",
+        "type": "object"
+      },
+      "KagTypeAdd": {
+        "description": "新增 SPG 类型（A-S0 实测 wire：类型 CREATE；parent 为 schema 内现有\n实体类型的裸名，后端拼 namespace 全名）。首版仅 ENTITY_TYPE。",
+        "properties": {
+          "desc": {
+            "default": "",
+            "title": "Desc",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_zh": {
+            "default": "",
+            "title": "Name Zh",
+            "type": "string"
+          },
+          "parent_name": {
+            "title": "Parent Name",
+            "type": "string"
+          },
+          "spg_type": {
+            "default": "ENTITY_TYPE",
+            "title": "Spg Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "parent_name"
+        ],
+        "title": "KagTypeAdd",
         "type": "object"
       },
       "KnowledgeDataset": {
@@ -1703,6 +1826,25 @@
         "title": "ReadingViewport",
         "type": "object"
       },
+      "RedisStatusDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "healthy"
+        ],
+        "title": "RedisStatusDetail",
+        "type": "object"
+      },
       "RegisterRequest": {
         "description": "Payload for the POST /register endpoint.",
         "properties": {
@@ -1725,6 +1867,17 @@
       "RuntimeStatus": {
         "additionalProperties": false,
         "properties": {
+          "coordination": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CoordinationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "coordination_mode": {
             "enum": [
               "memory",
@@ -1790,6 +1943,17 @@
             "minimum": 1,
             "title": "Recovery Interval Seconds",
             "type": "integer"
+          },
+          "redis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RedisStatusDetail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "redis_configured": {
             "title": "Redis Configured",
@@ -5095,6 +5259,122 @@
         ]
       }
     },
+    "/api/kag/projects/{project_id}/concepts/{type_path}/tree": {
+      "get": {
+        "description": "概念层级树（read + membership；B.4 完整概念树浏览）。\n\n- ``type_path`` 为 SPG 概念类型全名（``ns.Type``，含点，故用 path 型变量）。\n- ``root``：可选起始概念 id（缺省=虚拟根 ROOT，即顶层概念们）。\n- ``max_depth``/``max_nodes``：可选上限（<=0 取内置默认），防大图打爆。\n- conceptType 非概念类型：归一 ``\"not a concept type\"`` → 400；图不可达/\n  上游错误 → 502；响应经 ``_sanitize``（properties 可能含凭据）。",
+        "operationId": "get_concept_tree_api_kag_projects__project_id__concepts__type_path__tree_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "type_path",
+            "required": true,
+            "schema": {
+              "title": "Type Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "root",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Root",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_depth",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Max Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_nodes",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Max Nodes",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Concept Tree Api Kag Projects  Project Id  Concepts  Type Path  Tree Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Concept Tree",
+        "tags": [
+          "kag"
+        ]
+      }
+    },
     "/api/kag/projects/{project_id}/graph/query": {
       "post": {
         "description": "图浏览 DSL 查询（read 权限 + same-origin；M3.4）——rows ≤200 裁剪。\n\nsame-origin 与其他 POST 端点一致（评审 M-3，纵深防御：跨站无法读\n响应，但保持写类端点的统一门禁面）。T2（M4-B）项目级门禁。",
@@ -5422,7 +5702,7 @@
     },
     "/api/kag/projects/{project_id}/schema/alter": {
       "post": {
-        "description": "提交 Schema 变更（项目成员 + same-origin；M3.5）。\n\n语义（M3.5 实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于\n删除（服务端 500），删除必须显式 DELETE 操作。T2（M4-B）写操作由\nadmin-only 放宽为项目 membership（owner/成员可改自己的项目）。",
+        "description": "提交 Schema 变更（项目成员 + same-origin；M3.5 + A-S1）。\n\n语义（wire 契约实测）：UPDATE 覆写 + 元素级 CREATE/DELETE；缺条目不等于\n删除（服务端 500），删除必须显式 DELETE 操作。A-S1 扩展：属性/关系/类型\n的新增与删除意图；类型删除做子类型拒删（A-S0：直接删父会留不可还原孤儿）；\ninherited 属性/关系禁删（沿 M3.5 关系先例）。T2 写操作由 admin-only 放宽\n为项目 membership。",
         "operationId": "alter_project_schema_api_kag_projects__project_id__schema_alter_post",
         "parameters": [
           {

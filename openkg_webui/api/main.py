@@ -139,6 +139,21 @@ async def lifespan(app: FastAPI):
     app.state.background_supervisor = background_supervisor
     await background_supervisor.start()
 
+    # Multi-worker E2E fixture (env-gated; inert in production deployments).
+    from openkg_webui.services.e2e_fixture import (
+        install as install_e2e_fixture,
+    )
+    from openkg_webui.services.e2e_fixture import install_emission_gate
+
+    e2e_fixture = install_e2e_fixture(application_container)
+    if e2e_fixture is not None:
+        await e2e_fixture.register_worker()
+        e2e_fixture.start_background()
+        install_emission_gate()
+        app.state.e2e_fixture = e2e_fixture
+    else:
+        app.state.e2e_fixture = None
+
     # Ping PocketBase if configured — logs a warning (not an error) if unreachable
     try:
         from openkg_webui.services.pocketbase_client import ping_pocketbase
@@ -153,6 +168,13 @@ async def lifespan(app: FastAPI):
     # Execute on shutdown
     app.state.ready = False
     logger.info("Application shutdown")
+
+    e2e_fixture = getattr(app.state, "e2e_fixture", None)
+    if e2e_fixture is not None:
+        try:
+            await e2e_fixture.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"E2E fixture shutdown failed: {e}")
 
     try:
         await background_supervisor.close()
@@ -389,6 +411,19 @@ app.include_router(
 # Unified WebSocket endpoint — auth is checked inside the handler (WebSockets
 # cannot use FastAPI dependencies in the standard way)
 app.include_router(unified_ws.router, tags=["unified-ws"])
+
+# Multi-worker E2E fixture controller — registered only in test deployments
+# (OPENKG_WEBUI_MULTI_WORKER_E2E=1); the module's router raises 404 otherwise.
+from openkg_webui.services.e2e_fixture import ENABLED as E2E_FIXTURE_ENABLED  # noqa: E402
+
+if E2E_FIXTURE_ENABLED:
+    from openkg_webui.api.routers.e2e_turn_fixture import router as e2e_fixture_router  # noqa: E402
+
+    app.include_router(
+        e2e_fixture_router,
+        prefix="/__e2e__/v2-turn-runtime",
+        tags=["e2e-fixture"],
+    )
 
 
 @app.get("/")

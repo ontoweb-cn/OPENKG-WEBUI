@@ -8,7 +8,23 @@ fixture 取自 M3.5 live 实测（m0ProbeLive.Person 的 queryProjectSchema 读
 
 from __future__ import annotations
 
-from openkg_webui.services.kag.schema_draft import new_relation, read_type_to_draft
+import pytest
+
+from openkg_webui.services.kag.schema_draft import (
+    new_property,
+    new_relation,
+    new_spg_type,
+    read_type_to_draft,
+    validate_property_name,
+    validate_property_name_zh,
+    validate_type_name,
+)
+
+#: 基本数据类型（A-S0 §2.1：objectTypeRef 用 Text + BASIC_TYPE）
+BASIC_TEXT = {
+    "basicInfo": {"name": {"@type": "SPG_TYPE", "nameEn": "Text", "identityType": "SPG_TYPE"}},
+    "spgTypeEnum": "BASIC_TYPE",
+}
 
 #: Person 读模型裁剪版（实测形态：富化 ref + @type + visibleScope 等）
 READ_TYPE = {
@@ -179,3 +195,104 @@ def test_new_relation_uses_create_operation_template() -> None:
     assert rel["objectTypeRef"]["spgTypeEnum"] == "ENTITY_TYPE"
     assert rel["advancedConfig"]["constraint"] == {"constraintItems": []}
     assert rel["isDynamic"] is False
+
+
+# ---- 命名校验（A-S0 §1） ----
+
+
+def test_validate_property_name_rejects_bad_pattern() -> None:
+    with pytest.raises(ValueError):
+        validate_property_name("BadName")  # 大写开头非法
+    with pytest.raises(ValueError):
+        validate_property_name("has_underscore")  # 下划线非法
+    with pytest.raises(ValueError):
+        validate_property_name("")  # 空名非法
+    validate_property_name("goodprop2")  # 合法（小写开头+数字）
+
+
+def test_validate_type_name_rejects_bad_pattern() -> None:
+    with pytest.raises(ValueError):
+        validate_type_name("lowerCaseStart")
+    with pytest.raises(ValueError):
+        validate_type_name("Has.Dot")
+    validate_type_name("ValidType")
+
+
+def test_validate_property_name_zh_required() -> None:
+    validate_property_name_zh("昵称")
+    with pytest.raises(ValueError):
+        validate_property_name_zh("")
+    with pytest.raises(ValueError):
+        validate_property_name_zh("   ")
+
+
+# ---- new_property（A-S0 §2.1 权威形态） ----
+
+
+def test_new_property_create_matches_a0_wire() -> None:
+    prop = new_property(
+        object_type=BASIC_TEXT,
+        name="nickname",
+        name_zh="昵称",
+        desc="",
+        constraint_items=[{"constraintTypeEnum": "NOT_NULL", "@type": "NOT_NULL"}],
+    )
+    assert prop["alterOperation"] == "CREATE"
+    assert prop["isDynamic"] is False
+    assert prop["basicInfo"]["name"] == {
+        "@type": "PREDICATE",
+        "name": "nickname",
+        "identityType": "PREDICATE",
+    }
+    assert prop["basicInfo"]["nameZh"] == "昵称"
+    assert prop["subjectTypeRef"]["basicInfo"]["name"] == {
+        "identityType": "SPG_TYPE",
+        "@type": "SPG_TYPE",
+    }
+    assert prop["objectTypeRef"]["basicInfo"]["name"]["nameEn"] == "Text"
+    assert prop["objectTypeRef"]["spgTypeEnum"] == "BASIC_TYPE"
+    assert prop["advancedConfig"]["constraint"] == {
+        "constraintItems": [{"constraintTypeEnum": "NOT_NULL", "@type": "NOT_NULL"}]
+    }
+    assert prop["advancedConfig"]["subProperties"] == []
+    assert prop["advancedConfig"]["semantics"] == []
+
+
+def test_new_property_validates_name_and_namezh() -> None:
+    with pytest.raises(ValueError):
+        new_property(object_type=BASIC_TEXT, name="Bad_Name", name_zh="x")
+    with pytest.raises(ValueError):
+        new_property(object_type=BASIC_TEXT, name="nickname", name_zh="")  # nameZh 必填
+
+
+# ---- new_spg_type（A-S0 §2.2 权威形态） ----
+
+
+def test_new_spg_type_create_matches_a0_wire() -> None:
+    t = new_spg_type(
+        namespace="m2ReviewProj", name="Product", name_zh="产品", desc="k", parent_name="Person"
+    )
+    assert t["@type"] == "ENTITY_TYPE"
+    assert t["alterOperation"] == "CREATE"
+    assert t["spgTypeEnum"] == "ENTITY_TYPE"
+    assert t["basicInfo"]["name"] == {
+        "@type": "SPG_TYPE",
+        "identityType": "SPG_TYPE",
+        "namespace": "m2ReviewProj",
+        "nameEn": "Product",
+    }
+    assert t["basicInfo"]["nameZh"] == "产品"
+    assert t["parentTypeInfo"]["parentTypeIdentifier"] == {
+        "@type": "SPG_TYPE",
+        "identityType": "SPG_TYPE",
+        "namespace": "m2ReviewProj",
+        "nameEn": "Person",
+    }
+    assert t["parentTypeInfo"]["inheritPath"] == []
+    assert t["properties"] == []
+    assert t["relations"] == []
+
+
+def test_new_spg_type_validates_type_name() -> None:
+    with pytest.raises(ValueError):
+        new_spg_type(namespace="ns", name="product", name_zh="x", parent_name="Person")

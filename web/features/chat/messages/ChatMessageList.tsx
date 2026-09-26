@@ -1082,13 +1082,21 @@ export const ChatMessageList = memo(function ChatMessageList({
                   Boolean((e.metadata as { turn_terminal?: boolean } | undefined)?.turn_terminal)
               )
               if (!terminalError) return null
+              // A retryable failure (e.g. worker_lost) can strike before the
+              // turn produced any content, which hides the action-row
+              // regenerate button. The card's own text promises "regenerate to
+              // retry", so a retryable error must offer the button regardless.
+              const retryable = Boolean(
+                (terminalError.metadata as { retryable?: boolean } | undefined)?.retryable
+              )
+              const canRetry = showRegenerate || retryable
               return (
                 <div className="mt-3 flex w-full max-w-[min(520px,90%)] items-center gap-2 rounded-xl border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 px-3 py-2">
                   <AlertCircle className="h-4 w-4 shrink-0 text-[var(--destructive)]" />
                   <span className="min-w-0 flex-1 text-[12px] leading-[1.5] text-[var(--foreground)]">
                     {terminalError.content || t('The turn was interrupted.')}
                   </span>
-                  {showRegenerate ? (
+                  {canRetry ? (
                     <button
                       type="button"
                       onClick={() => onRegenerateMessage()}

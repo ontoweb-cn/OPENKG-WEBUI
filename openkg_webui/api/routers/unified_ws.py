@@ -25,6 +25,19 @@ logger = logging.getLogger(__name__)
 _CLIENT_COMMAND_ADAPTER = TypeAdapter(ClientCommand)
 
 
+def _e2e_fixture():
+    """The multi-worker fixture facade, or ``None`` when not enabled.
+
+    Imported lazily so production deployments never load the fixture package.
+    """
+    try:
+        from openkg_webui.services.e2e_fixture import get_fixture
+
+        return get_fixture()
+    except Exception:  # noqa: BLE001 - fixture wiring must never break the socket
+        return None
+
+
 def _clean_answers(value: Any) -> list[dict[str, Any]] | None:
     if not isinstance(value, list):
         return None
@@ -136,9 +149,26 @@ async def unified_websocket(ws: WebSocket) -> None:
             pass
 
     async def subscribe_turn(turn_id: str, after_seq: int = 0) -> None:
+        fixture = _e2e_fixture()
+        if fixture is not None and await fixture.gate_subscription(turn_id) == "close":
+            # Connection-generation gate: only the designated worker may serve
+            # this turn's subscription; the browser's durable outbox reconnects
+            # until the right worker lands it.
+            await ws.close()
+            closed = True
+            return
+
         async def _forward() -> None:
             try:
                 async for event in turns.subscribe_turn(turn_id, after_seq=after_seq):
+                    if fixture is not None:
+                        if await fixture.should_drop(turn_id):
+                            await ws.close()
+                            closed = True
+                            return
+                        seq = event.get("seq") if isinstance(event, dict) else None
+                        if isinstance(seq, int):
+                            await fixture.on_delivered(turn_id, seq)
                     await safe_send(event)
             except asyncio.CancelledError:
                 raise
@@ -150,6 +180,19 @@ async def unified_websocket(ws: WebSocket) -> None:
                     turn_id=turn_id,
                     retryable=True,
                 )
+            finally:
+                if fixture is not None:
+                    # A reconnect's stop_subscription cancels this task while
+                    # the old connection is still tearing down. Shield the
+                    # fixture's delivered-buffer flush so the evidence survives
+                    # the cancellation — passing our own task id explicitly,
+                    # because the shield runs the flush in a different task.
+                    try:
+                        await asyncio.shield(
+                            fixture.on_connection_end(turn_id, task_id=id(asyncio.current_task()))
+                        )
+                    except asyncio.CancelledError:
+                        pass
 
         await stop_subscription(turn_id)
         subscription_tasks[turn_id] = asyncio.create_task(_forward())
@@ -209,6 +252,14 @@ async def unified_websocket(ws: WebSocket) -> None:
             msg_type = msg.get("type")
 
             if msg_type in {"message", "start_turn"}:
+                fixture = _e2e_fixture()
+                prompt = str(msg.get("content") or "")
+                if fixture is not None and await fixture.gate_turn_start(prompt) == "close":
+                    # Only the scenario's designated worker may start its turn;
+                    # the browser's durable outbox re-sends after reconnect.
+                    await ws.close()
+                    closed = True
+                    continue
                 try:
                     _, turn = await turns.start_turn(
                         {
@@ -225,6 +276,11 @@ async def unified_websocket(ws: WebSocket) -> None:
                         terminal=True,
                     )
                     continue
+                if fixture is not None and prompt:
+                    scenario_id = await fixture.scenario_for_prompt(prompt)
+                    if scenario_id:
+                        await fixture.tag_turn(scenario_id, turn["id"])
+                        await fixture.tag_session(scenario_id, str(turn.get("session_id") or ""))
                 await subscribe_turn(turn["id"])
                 continue
 
@@ -281,6 +337,9 @@ async def unified_websocket(ws: WebSocket) -> None:
                 if not turn_id:
                     await send_error("Missing turn_id.", error_code="missing_turn_id")
                     continue
+                fixture = _e2e_fixture()
+                if fixture is not None:
+                    await fixture.record_command(turn_id, "cancel")
                 accepted = await turns.cancel_turn(turn_id, command_id=str(msg["command_id"]))
                 if not accepted:
                     await send_command_ack(
@@ -298,6 +357,9 @@ async def unified_websocket(ws: WebSocket) -> None:
                 if not turn_id:
                     await send_error("Missing turn_id.", error_code="missing_turn_id")
                     continue
+                fixture = _e2e_fixture()
+                if fixture is not None:
+                    await fixture.record_command(turn_id, "reply")
                 text = msg.get("text")
                 accepted = await turns.submit_user_reply(
                     turn_id,
@@ -332,6 +394,14 @@ async def unified_websocket(ws: WebSocket) -> None:
                         terminal=True,
                     )
                     continue
+                fixture = _e2e_fixture()
+                if fixture is not None:
+                    scenario_id = await fixture.scenario_for_session(session_id)
+                    if scenario_id:
+                        # The worker that regenerated the failed scenario turn
+                        # is its recovery worker (owner_loss expectation).
+                        await fixture.record_recovery(scenario_id)
+                        await fixture.tag_turn(scenario_id, turn["id"])
                 await subscribe_turn(turn["id"])
                 continue
 
