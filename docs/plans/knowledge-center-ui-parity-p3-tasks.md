@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | 12.1 | 引擎目录端点：`GET /api/knowledge-center/engines`——遍历 `registry`，序列化 `{engine_id, display_name, capabilities[], configured, kb_count, detail_path_template}`（T5 §3.2 的目录模型）。**健壮性（评审二轮 R6）**：单引擎的 kb_count 为 best-effort——其列表调用失败置 `kb_count: null` + `error` 字段，不得拖垮整个目录响应 | router + 契约 |
 | 12.2 | KC 首页"引擎"分组网格：引擎卡（名称/能力徽标/KB 数/configured 态），点击按 `detail_path_template` 分派（intellect-rag → 本页；KAG → `/kag/projects`）——T5 推荐 B 的"统一目录" | `KnowledgeHomePage` |
-| 12.3 | 创建流程引擎选择：新建对话框第一步选引擎（未 configured 的引擎卡禁用 + 原因文案），选 KAG 时跳既有 KAG 创建页（不复制其表单） | `CreateDatasetDialog` |
+| 12.3 | 创建流程引擎选择：新建对话框第一步选引擎（未 configured 的引擎卡禁用 + 原因文案），选 KAG 时跳既有 KAG 创建页（不复制其表单）——**入口已核实存在**（`KagProjectsPage` 内 `CreateProjectDialog` + `createKagProject`，评审二轮） | `CreateDatasetDialog` |
 | 12.4 | 详情页引擎徽标：dataset 卡与详情头显示引擎名（数据来自目录端点按 engine_id 反查） | 列表卡 + 详情头 |
 
 ### 验收
@@ -40,9 +40,9 @@
 - **硬依赖**：T5 方案评审通过 + 其 provider（`engines/kag.py`）落地——UI 无 provider 可列出时只显示 intellect-rag，不阻塞本项开发（目录端点天然兼容单引擎）。
 - 风险：能力集合与 UI tab 的映射需防漂移（CAP_* 常量即契约，UI 侧建映射表并有单测）。
 
-## 二、T13' 索引兼容性检查（1.5 人日）
+## 二、T13' 索引兼容性检查（1.5~2 人日）
 
-**定位**：原"索引版本管理"收窄——上游无多版本存储，可交付的是**换嵌入模型的兼容性检查与引导**。
+**定位**：原"索引版本管理"收窄——上游无多版本存储，可交付的是**换嵌入模型的兼容性检查与引导**。实施无需再探针（返回形状已源码钉死，见 13.1；模型清单形状已 live 实测，见 13.0）。
 
 ### 任务
 
@@ -56,13 +56,22 @@
 
 ### 验收
 
-- live：对联调测试库执行一次兼容性检查（embd_id 用当前模型自检 → compatible=true）；
-- 不兼容路径以 mock 单测覆盖。
+- live：`GET /models?type=embedding` 返回 embedding 候选（至少含 qwen3-embedding-4b）；
+- live：对联调测试库执行一次兼容性检查（embd_id 用当前模型自检 → compatible=true，
+  avg_cos_sim 接近 1、sampled≥1）；
+- 不兼容/维度不匹配/上游错误三路径以 mock 单测覆盖（13.4）；
+- 契约四层联动（13.0 新端点 + check 结果/models 实体）+ 双门绿；
+- 更换流程空态：模型清单为空（上游未配置 embedding 模型）时显示引导文案
+  （"请在 RAG 服务端配置嵌入模型"），不渲染下拉。
 
 ### 风险
 
-- `/embedding/check` 消耗 embedding 算力（抽样 N 条）——UI 明示"将抽样重嵌入"，检查按钮二次确认。
-- 换模型后**存量 chunk 向量不自动重建**（上游行为）——UI 必须强提示"需重新解析文档以重建向量"。
+- `/embedding/check` 消耗 embedding 算力（`check_num` 默认 5 条重嵌入）——UI 明示
+  "将抽样重嵌入"，检查按钮二次确认。
+- 换模型后**存量 chunk 向量不自动重建**（上游行为）——UI 必须强提示"需重新解析文档
+  以重建向量"（D5）。
+- 兼容阈值是产品口径而非上游语义——`COMPAT_THRESHOLD = 0.6` 常量置于 engine 模块
+  一处（D6），调整不动 UI。
 
 ## 三、T14' 进度文案本地化（0.5 人日，收窄）
 
@@ -92,7 +101,7 @@
 
 ### G2 前端渲染（本仓，1 人日）
 
-- `CITATION_MARKER_RE` 识别 `[rag-N]` → 上标 citation 徽标（hover 显示来源文档名——来源映射需网关在块尾附带编号→文档名清单，G1 一并输出）；
+- `CITATION_MARKER_RE` 识别 `[rag-N]` → 上标 citation 徽标（hover 显示来源文档名——来源映射需网关在块尾附带编号→文档名清单，G1 一并输出）；DeepMentor 的正则本就覆盖 `rag|web|paper|code|src` 前缀，移植时保留本仓实际会出现的 `rag` 子集；
 - 移植 DeepMentor `RichMarkdownRenderer.tsx:535-564` 的渲染模式至本仓聊天渲染链路。
 
 ### 依赖与风险
