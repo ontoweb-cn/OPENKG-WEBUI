@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -67,6 +67,41 @@ class DocumentPage(BaseModel):
 
     documents: list[KnowledgeDocument] = []
     total: int = 0
+
+
+class KnowledgeChunk(BaseModel):
+    """文档分块（P2-T9；上游列表键 `docnm_kwd/available_int` 由引擎归一）。"""
+
+    id: str
+    content: str = ""
+    available: bool = True
+    important_keywords: list[str] = []
+
+
+class ChunkPage(BaseModel):
+    """分块分页（上游 ``data.chunks`` + ``data.total``）。"""
+
+    chunks: list[KnowledgeChunk] = []
+    total: int = 0
+
+
+class MutationResult(BaseModel):
+    """变更类操作的通用应答（上游仅回 code 0，无回读载荷）。"""
+
+    ok: bool = True
+
+
+class KnowledgeGraph(BaseModel):
+    """知识图谱载荷（P2-T10；未构建时 nodes/edges 为空）。"""
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+
+class GraphIndexStatus(BaseModel):
+    """graph/raptor 索引任务状态（未构建时上游回空对象）。"""
+
+    raw: dict[str, Any] = {}
 
 
 class SearchChunk(BaseModel):

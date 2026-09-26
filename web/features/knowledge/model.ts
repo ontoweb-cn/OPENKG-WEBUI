@@ -210,6 +210,86 @@ export function parseKnowledgePreferences(raw: unknown): KnowledgePreferences {
   return { defaultDatasetId: id.length > 0 ? id : null };
 }
 
+// —— chunk 管理（P2-T9；上游 available_int 为权威，available 键可 null）——
+
+export interface KnowledgeChunk {
+  id: string;
+  content: string;
+  available: boolean;
+  importantKeywords: string[];
+}
+
+export function parseKnowledgeChunk(raw: unknown): KnowledgeChunk {
+  const row = record(raw);
+  const available = row.available ?? row.available_int;
+  const keywords = Array.isArray(row.important_keywords)
+    ? row.important_keywords.map((k) => text(k)).filter((k) => k.length > 0)
+    : [];
+  return {
+    id: text(row.id),
+    content: text(row.content),
+    available: available == null ? true : Boolean(available),
+    importantKeywords: keywords,
+  };
+}
+
+export function parseKnowledgeChunks(raw: unknown): {
+  chunks: KnowledgeChunk[];
+  total: number;
+} {
+  const row = record(raw);
+  const rows = Array.isArray(row.chunks) ? row.chunks : [];
+  let total = 0;
+  const n = Number(row.total);
+  total = Number.isFinite(n) ? n : rows.length;
+  return { chunks: rows.map(parseKnowledgeChunk), total };
+}
+
+// —— 知识图谱（P2-T10；未构建时 nodes/edges 为空）——
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  /** 原始载荷其余键（entity_type 等），画布着色可用 */
+  raw: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  label: string;
+  weight: number;
+}
+
+export interface KnowledgeGraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export function parseKnowledgeGraph(raw: unknown): KnowledgeGraphData {
+  const row = record(raw);
+  const graph = record(row.graph);
+  const nodeRows = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const edgeRows = Array.isArray(graph.edges) ? graph.edges : [];
+  const nodes: GraphNode[] = nodeRows.map((n) => {
+    const r = record(n);
+    const id = text(r.id);
+    const name = text(r.entity_name) || text(r.name) || text(r.label) || id;
+    return { id, label: name, raw: r };
+  });
+  const edges: GraphEdge[] = edgeRows.map((e) => {
+    const r = record(e);
+    const w = Number(r.weight);
+    return {
+      source: text(r.source),
+      target: text(r.target),
+      label: text(r.description) || text(r.relationship) || "",
+      weight: Number.isFinite(w) ? w : 1,
+    };
+  });
+  return { nodes, edges };
+}
+
 // —— 工具 ——
 
 export function formatBytes(size: number): string {

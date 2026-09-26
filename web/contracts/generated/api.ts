@@ -762,6 +762,50 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents/{document_id}/chunks": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * Knowledge List Chunks
+     * @description 文档内分块列表（P2-T9；上游 data.chunks + data.total）。
+     */
+    readonly get: operations["knowledge_list_chunks_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks_get"];
+    readonly put?: never;
+    readonly post?: never;
+    /**
+     * Knowledge Delete Chunks
+     * @description 批量删除分块（上游为集合端点 + chunk_ids body，item DELETE 405——见探针）。
+     */
+    readonly delete: operations["knowledge_delete_chunks_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks_delete"];
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/documents/{document_id}/chunks/{chunk_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    /**
+     * Knowledge Update Chunk
+     * @description 分块编辑（content/available/important_keywords 可选；available→available_int）。
+     */
+    readonly put: operations["knowledge_update_chunk_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks__chunk_id__put"];
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/knowledge-center/datasets/{dataset_id}/documents/parse": {
     readonly parameters: {
       readonly query?: never;
@@ -816,6 +860,52 @@ export interface paths {
      */
     readonly post: operations["knowledge_upload_structured_api_knowledge_center_datasets__dataset_id__documents_structured_post"];
     readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/graph": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * Knowledge Graph
+     * @description 知识图谱载荷（未构建时 nodes/edges 为空数组）。
+     */
+    readonly get: operations["knowledge_graph_api_knowledge_center_datasets__dataset_id__graph_get"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/knowledge-center/datasets/{dataset_id}/index": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * Knowledge Index Status
+     * @description graph/raptor 索引任务状态——上游原样对象。未构建必须序列化为 `{}`：
+     *     包一层 `{"raw": …}` 会让前端"非空键即构建中"的判定误报。
+     */
+    readonly get: operations["knowledge_index_status_api_knowledge_center_datasets__dataset_id__index_get"];
+    readonly put?: never;
+    /**
+     * Knowledge Build Index
+     * @description 显式触发 graph/raptor 索引构建（成本高，仅用户动作；不做自动触发）。
+     */
+    readonly post: operations["knowledge_build_index_api_knowledge_center_datasets__dataset_id__index_post"];
+    /** Knowledge Delete Index */
+    readonly delete: operations["knowledge_delete_index_api_knowledge_center_datasets__dataset_id__index_delete"];
     readonly options?: never;
     readonly head?: never;
     readonly patch?: never;
@@ -2782,6 +2872,22 @@ export interface components {
       /** Trace Count */
       readonly trace_count: number;
     };
+    /**
+     * ChunkPage
+     * @description 分块分页（上游 ``data.chunks`` + ``data.total``）。
+     */
+    readonly ChunkPage: {
+      /**
+       * Chunks
+       * @default []
+       */
+      readonly chunks: readonly components["schemas"]["KnowledgeChunk"][];
+      /**
+       * Total
+       * @default 0
+       */
+      readonly total: number;
+    };
     /** CoordinationStatus */
     readonly CoordinationStatus: {
       /**
@@ -3281,6 +3387,29 @@ export interface components {
       readonly spg_type: string;
     };
     /**
+     * KnowledgeChunk
+     * @description 文档分块（P2-T9；上游列表键 `docnm_kwd/available_int` 由引擎归一）。
+     */
+    readonly KnowledgeChunk: {
+      /**
+       * Available
+       * @default true
+       */
+      readonly available: boolean;
+      /**
+       * Content
+       * @default
+       */
+      readonly content: string;
+      /** Id */
+      readonly id: string;
+      /**
+       * Important Keywords
+       * @default []
+       */
+      readonly important_keywords: readonly string[];
+    };
+    /**
      * KnowledgeDataset
      * @description 知识库（域模型；`engine_id` 由路由层按需附加，不属引擎出站形状）。
      */
@@ -3365,6 +3494,26 @@ export interface components {
        * @default 0
        */
       readonly token_count: number;
+    };
+    /**
+     * KnowledgeGraph
+     * @description 知识图谱载荷（P2-T10；未构建时 nodes/edges 为空）。
+     */
+    readonly KnowledgeGraph: {
+      /**
+       * Edges
+       * @default []
+       */
+      readonly edges: readonly {
+        readonly [key: string]: unknown;
+      }[];
+      /**
+       * Nodes
+       * @default []
+       */
+      readonly nodes: readonly {
+        readonly [key: string]: unknown;
+      }[];
     };
     /**
      * KnowledgeSelectionRequest
@@ -3521,6 +3670,17 @@ export interface components {
        * @default
        */
       readonly model: string;
+    };
+    /**
+     * MutationResult
+     * @description 变更类操作的通用应答（上游仅回 code 0，无回读载荷）。
+     */
+    readonly MutationResult: {
+      /**
+       * Ok
+       * @default true
+       */
+      readonly ok: boolean;
     };
     /** NetworkSettingsUpdate */
     readonly NetworkSettingsUpdate: {
@@ -4250,6 +4410,7 @@ export type SchemaChatResponseTimeoutUpdate =
   components["schemas"]["ChatResponseTimeoutUpdate"];
 export type SchemaChatStarterSettingsUpdate =
   components["schemas"]["ChatStarterSettingsUpdate"];
+export type SchemaChunkPage = components["schemas"]["ChunkPage"];
 export type SchemaCoordinationStatus =
   components["schemas"]["CoordinationStatus"];
 export type SchemaDatasetPage = components["schemas"]["DatasetPage"];
@@ -4290,9 +4451,11 @@ export type SchemaKagSchemaEditRequest =
 export type SchemaKagSchemaRelationAdd =
   components["schemas"]["KagSchemaRelationAdd"];
 export type SchemaKagTypeAdd = components["schemas"]["KagTypeAdd"];
+export type SchemaKnowledgeChunk = components["schemas"]["KnowledgeChunk"];
 export type SchemaKnowledgeDataset = components["schemas"]["KnowledgeDataset"];
 export type SchemaKnowledgeDocument =
   components["schemas"]["KnowledgeDocument"];
+export type SchemaKnowledgeGraph = components["schemas"]["KnowledgeGraph"];
 export type SchemaKnowledgeSelectionRequest =
   components["schemas"]["KnowledgeSelectionRequest"];
 export type SchemaLanguageUpdate = components["schemas"]["LanguageUpdate"];
@@ -4306,6 +4469,7 @@ export type SchemaMinerUSettingsUpdate =
   components["schemas"]["MinerUSettingsUpdate"];
 export type SchemaModelCapabilitiesQuery =
   components["schemas"]["ModelCapabilitiesQuery"];
+export type SchemaMutationResult = components["schemas"]["MutationResult"];
 export type SchemaNetworkSettingsUpdate =
   components["schemas"]["NetworkSettingsUpdate"];
 export type SchemaOutgoingAttachment =
@@ -6060,6 +6224,115 @@ export interface operations {
       };
     };
   };
+  readonly knowledge_list_chunks_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+        readonly document_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["ChunkPage"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_delete_chunks_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks_delete: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+        readonly document_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["MutationResult"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_update_chunk_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks__chunk_id__put: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly chunk_id: string;
+        readonly dataset_id: string;
+        readonly document_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["MutationResult"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   readonly knowledge_parse_documents_api_knowledge_center_datasets__dataset_id__documents_parse_post: {
     readonly parameters: {
       readonly query?: never;
@@ -6156,6 +6429,146 @@ export interface operations {
         };
         content: {
           readonly "application/json": readonly components["schemas"]["StructuredUploadResult"][];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_graph_api_knowledge_center_datasets__dataset_id__graph_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["KnowledgeGraph"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_index_status_api_knowledge_center_datasets__dataset_id__index_get: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_build_index_api_knowledge_center_datasets__dataset_id__index_post: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["MutationResult"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly knowledge_delete_index_api_knowledge_center_datasets__dataset_id__index_delete: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly dataset_id: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["MutationResult"];
         };
       };
       /** @description Validation Error */

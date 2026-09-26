@@ -5046,5 +5046,17 @@
   "Vector weight": "向量权重",
   "Rename & description": "名称与描述",
   "Name cannot be empty.": "名称不能为空。",
-  "Page {{page}} of {{pages}} · {{count}} documents": "第 {{page}} / {{pages}} 页 · 共 {{count}} 个文档"
+  "Page {{page}} of {{pages}} · {{count}} documents": "第 {{page}} / {{pages}} 页 · 共 {{count}} 个文档",
+  "Manage chunks": "管理分块",
+  "Confirm delete?": "确认删除？",
+  "(empty chunk)": "（空分块）",
+  "No chunks in this document yet. Parse the document first.": "该文档还没有分块。请先解析文档。",
+  "{{count}} nodes · {{count2}} edges": "{{count}} 个节点 · {{count2}} 条边",
+  "sampled to top {{count}} by degree": "按关联度采样至 {{count}} 个节点",
+  "Delete graph": "删除图谱",
+  "Graph index is building…": "图谱索引构建中……",
+  "No knowledge graph yet. Build one from the parsed documents.": "还没有知识图谱。可基于已解析文档构建。",
+  "Graph builds run on the server and may take a while; raptor builds a summary tree instead.": "图谱构建在服务端运行，可能耗时较长；raptor 构建的是摘要树。",
+  "Build graph index": "构建图谱索引",
+  "Build raptor index": "构建 Raptor 索引"
 }

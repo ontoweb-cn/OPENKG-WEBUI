@@ -34,11 +34,14 @@ from openkg_webui.services.knowledge import (
     knowledge_enabled,
 )
 from openkg_webui.services.knowledge.engines.models import (
+    ChunkPage,
     DatasetPage,
     DocumentPage,
     IngestionLog,
     KnowledgeDataset,
     KnowledgeDocument,
+    KnowledgeGraph,
+    MutationResult,
     SearchResult,
     StructuredUploadResult,
     UploadResult,
@@ -1034,6 +1037,113 @@ async def knowledge_search_dataset(dataset_id: str, request: Request) -> Any:
             size=int(payload.get("size") or 30),
         ),
         dataset_id=dataset_id,
+    )
+
+
+@router.get("/datasets/{dataset_id}/documents/{document_id}/chunks", response_model=ChunkPage)
+async def knowledge_list_chunks(dataset_id: str, document_id: str, request: Request) -> Any:
+    """文档内分块列表（P2-T9；上游 data.chunks + data.total）。"""
+    _require_enabled()
+    q = request.query_params
+    return await _engine_call(
+        lambda e: e.list_chunks(
+            dataset_id,
+            document_id,
+            page=int(q.get("page") or 1),
+            page_size=int(q.get("page_size") or 20),
+        ),
+        dataset_id=dataset_id,
+    )
+
+
+@router.put(
+    "/datasets/{dataset_id}/documents/{document_id}/chunks/{chunk_id}",
+    response_model=MutationResult,
+)
+async def knowledge_update_chunk(
+    dataset_id: str, document_id: str, chunk_id: str, request: Request
+) -> Any:
+    """分块编辑（content/available/important_keywords 可选；available→available_int）。"""
+    _require_enabled()
+    _require_same_origin(request)
+    body = await _json_body(request)
+    payload = body if isinstance(body, dict) else {}
+    content = payload.get("content")
+    available = payload.get("available")
+    keywords = payload.get("important_keywords")
+    return await _engine_call(
+        lambda e: e.update_chunk(
+            dataset_id,
+            document_id,
+            chunk_id,
+            content=None if content is None else str(content),
+            available=None if available is None else bool(available),
+            important_keywords=[str(k) for k in keywords if isinstance(k, (str, int))]
+            if isinstance(keywords, list)
+            else None,
+        ),
+        dataset_id=dataset_id,
+    )
+
+
+@router.delete(
+    "/datasets/{dataset_id}/documents/{document_id}/chunks", response_model=MutationResult
+)
+async def knowledge_delete_chunks(dataset_id: str, document_id: str, request: Request) -> Any:
+    """批量删除分块（上游为集合端点 + chunk_ids body，item DELETE 405——见探针）。"""
+    _require_enabled()
+    _require_same_origin(request)
+    body = await _json_body(request)
+    payload = body if isinstance(body, dict) else {}
+    ids = payload.get("chunk_ids")
+    chunk_ids = [str(x) for x in ids if str(x).strip()] if isinstance(ids, list) else []
+    if not chunk_ids:
+        raise HTTPException(status_code=400, detail="chunk_ids is required.")
+    return await _engine_call(
+        lambda e: e.delete_chunks(dataset_id, document_id, chunk_ids),
+        dataset_id=dataset_id,
+    )
+
+
+@router.get("/datasets/{dataset_id}/graph", response_model=KnowledgeGraph)
+async def knowledge_graph(dataset_id: str) -> Any:
+    """知识图谱载荷（未构建时 nodes/edges 为空数组）。"""
+    _require_enabled()
+    return await _engine_call(lambda e: e.get_knowledge_graph(dataset_id), dataset_id=dataset_id)
+
+
+@router.get("/datasets/{dataset_id}/index")
+async def knowledge_index_status(dataset_id: str, request: Request) -> Any:
+    """graph/raptor 索引任务状态——上游原样对象。未构建必须序列化为 `{}`：
+    包一层 `{"raw": …}` 会让前端"非空键即构建中"的判定误报。"""
+    _require_enabled()
+    index_type = str(request.query_params.get("type") or "graph").lower()
+
+    async def _status(engine: Any) -> dict[str, Any]:
+        status = await engine.get_index_status(dataset_id, index_type)
+        return dict(getattr(status, "raw", {}) or {})
+
+    return await _engine_call(_status, dataset_id=dataset_id)
+
+
+@router.post("/datasets/{dataset_id}/index", response_model=MutationResult)
+async def knowledge_build_index(dataset_id: str, request: Request) -> Any:
+    """显式触发 graph/raptor 索引构建（成本高，仅用户动作；不做自动触发）。"""
+    _require_enabled()
+    _require_same_origin(request)
+    index_type = str(request.query_params.get("type") or "graph").lower()
+    return await _engine_call(
+        lambda e: e.build_index(dataset_id, index_type), dataset_id=dataset_id
+    )
+
+
+@router.delete("/datasets/{dataset_id}/index", response_model=MutationResult)
+async def knowledge_delete_index(dataset_id: str, request: Request) -> Any:
+    _require_enabled()
+    _require_same_origin(request)
+    index_type = str(request.query_params.get("type") or "graph").lower()
+    return await _engine_call(
+        lambda e: e.delete_index(dataset_id, index_type), dataset_id=dataset_id
     )
 
 

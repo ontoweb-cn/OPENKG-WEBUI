@@ -33,7 +33,9 @@ import {
   uploadDocuments,
   uploadStructured,
 } from "../api";
+import ChunkListPanel from "./ChunkListPanel";
 import GithubSourcePanel from "./GithubSourcePanel";
+import KnowledgeGraphPanel from "./KnowledgeGraphPanel";
 import ParseTasksPanel from "./ParseTasksPanel";
 import WebSourcePanel from "./WebSourcePanel";
 import KnowledgeDatasetSettingsPanel from "./KnowledgeDatasetSettingsPanel";
@@ -62,7 +64,7 @@ import {
 
 const POLL_INTERVAL_MS = 4000;
 
-const SECTIONS = ["documents", "sources", "retrieval", "settings"] as const;
+const SECTIONS = ["documents", "sources", "retrieval", "graph", "settings"] as const;
 type DetailSection = (typeof SECTIONS)[number];
 
 function normalizeSection(value: string | null): DetailSection {
@@ -84,6 +86,8 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
   const [liveLogs, setLiveLogs] = useState<string[]>([]);
   // P0-T2：预览源（文件名驱动渲染器分流，url 指向代理 preview 字节流）
   const [previewSource, setPreviewSource] = useState<FilePreviewSource | null>(null);
+  // P2-T9：分块管理面板的目标文档
+  const [chunkDoc, setChunkDoc] = useState<KnowledgeDocument | null>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const running = documents ? anyDocumentRunning(documents) : false;
@@ -287,6 +291,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     documents: t("Documents"),
     sources: t("Sources"),
     retrieval: t("Retrieval"),
+    graph: t("Graph"),
     settings: t("Settings"),
   };
 
@@ -376,6 +381,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
               id: doc.id,
             })
           }
+          onOpenChunks={setChunkDoc}
         />
         <PagePager
           page={page}
@@ -408,6 +414,10 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         <RetrievalPlayground datasetId={datasetId} />
       </div>
 
+      <div className={section === "graph" ? "" : "hidden"}>
+        <KnowledgeGraphPanel datasetId={datasetId} />
+      </div>
+
       <div className={section === "settings" ? "" : "hidden"}>
         <KnowledgeDatasetSettingsPanel dataset={dataset} onUpdated={setDataset} />
       </div>
@@ -432,6 +442,8 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         source={previewSource}
         onClose={() => setPreviewSource(null)}
       />
+
+      <ChunkListPanel datasetId={datasetId} doc={chunkDoc} onClose={() => setChunkDoc(null)} />
     </KnowledgePageBody>
   );
 }
@@ -687,6 +699,7 @@ function DocumentTable({
   onRequestDelete,
   onReparse,
   onOpenPreview,
+  onOpenChunks,
 }: {
   documents: KnowledgeDocument[] | null;
   search: string;
@@ -695,6 +708,7 @@ function DocumentTable({
   onRequestDelete: (ids: string[]) => void;
   onReparse: (doc: KnowledgeDocument) => void;
   onOpenPreview: (doc: KnowledgeDocument) => void;
+  onOpenChunks: (doc: KnowledgeDocument) => void;
 }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -797,6 +811,7 @@ function DocumentTable({
               onRequestDelete={onRequestDelete}
               onReparse={onReparse}
               onOpenPreview={onOpenPreview}
+              onOpenChunks={onOpenChunks}
             />
           ))}
         </tbody>
@@ -814,6 +829,7 @@ function GroupRows({
   onRequestDelete,
   onReparse,
   onOpenPreview,
+  onOpenChunks,
 }: {
   dir: string;
   rows: KnowledgeDocument[];
@@ -823,6 +839,7 @@ function GroupRows({
   onRequestDelete: (ids: string[]) => void;
   onReparse: (doc: KnowledgeDocument) => void;
   onOpenPreview: (doc: KnowledgeDocument) => void;
+  onOpenChunks: (doc: KnowledgeDocument) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -856,7 +873,20 @@ function GroupRows({
           <td className="px-2 py-2.5">
             <RunBadge run={doc.run} progress={doc.progress} />
           </td>
-          <td className="px-2 py-2.5 text-[var(--muted-foreground)]">{doc.chunkCount}</td>
+          <td className="px-2 py-2.5">
+            {doc.chunkCount > 0 ? (
+              <button
+                type="button"
+                className="text-[var(--muted-foreground)] underline-offset-2 hover:text-[var(--foreground)] hover:underline"
+                title={t("Manage chunks")}
+                onClick={() => onOpenChunks(doc)}
+              >
+                {doc.chunkCount}
+              </button>
+            ) : (
+              <span className="text-[var(--muted-foreground)]">{doc.chunkCount}</span>
+            )}
+          </td>
           <td className="px-2 py-2.5 text-[var(--muted-foreground)]">{formatBytes(doc.size)}</td>
           <td className="px-4 py-2.5">
             <div className="flex items-center justify-end gap-1.5">

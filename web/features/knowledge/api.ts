@@ -16,12 +16,16 @@ import { ApiError } from "@/shared/api/errors";
 
 import {
   parseIngestionLogs,
+  parseKnowledgeChunks,
   parseKnowledgeDatasets,
   parseKnowledgeDocuments,
+  parseKnowledgeGraph,
   parseKnowledgePreferences,
   parseSearchChunks,
+  type KnowledgeChunk,
   type KnowledgeDataset,
   type KnowledgeDocument,
+  type KnowledgeGraphData,
   type KnowledgeIngestionLog,
   type KnowledgePreferences,
   type KnowledgeSearchChunk,
@@ -205,6 +209,95 @@ export async function putKnowledgePreferences(
     scope: "knowledge",
   });
   return parseKnowledgePreferences(payload);
+}
+
+// —— chunk 管理（P2-T9）——
+
+export async function listChunks(
+  datasetId: string,
+  documentId: string,
+  options: { page?: number; pageSize?: number; signal?: AbortSignal } = {},
+): Promise<{ chunks: KnowledgeChunk[]; total: number }> {
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.max(1, options.pageSize ?? 20);
+  const payload = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks?page=${page}&page_size=${pageSize}&_t=${Date.now()}`,
+    { cache: "no-store", signal: options.signal },
+  );
+  return parseKnowledgeChunks(payload);
+}
+
+export async function updateChunk(
+  datasetId: string,
+  documentId: string,
+  chunkId: string,
+  patch: { content?: string; available?: boolean; importantKeywords?: string[] },
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (patch.content != null) body.content = patch.content;
+  if (patch.available != null) body.available = patch.available;
+  if (patch.importantKeywords != null) body.important_keywords = patch.importantKeywords;
+  await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(chunkId)}`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+}
+
+export async function deleteChunks(
+  datasetId: string,
+  documentId: string,
+  chunkIds: string[],
+): Promise<void> {
+  await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}/chunks`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chunk_ids: chunkIds }),
+    },
+  );
+}
+
+// —— 知识图谱 / 索引构建（P2-T10）——
+
+export async function fetchKnowledgeGraph(datasetId: string): Promise<KnowledgeGraphData> {
+  const payload = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/graph`,
+    { cache: "no-store" },
+  );
+  return parseKnowledgeGraph(payload);
+}
+
+/** 索引任务状态：raw 为上游原样对象，空对象 = 未构建。 */
+export async function fetchIndexStatus(
+  datasetId: string,
+  indexType: "graph" | "raptor",
+): Promise<Record<string, unknown>> {
+  const payload = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/index?type=${indexType}`,
+    { cache: "no-store" },
+  );
+  return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+}
+
+export async function buildIndex(
+  datasetId: string,
+  indexType: "graph" | "raptor",
+): Promise<void> {
+  await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/index?type=${indexType}`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteIndex(
+  datasetId: string,
+  indexType: "graph" | "raptor",
+): Promise<void> {
+  await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/index?type=${indexType}`,
+    { method: "DELETE" },
+  );
 }
 
 // —— 摄取记录（进度日志） ——

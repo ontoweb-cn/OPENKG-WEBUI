@@ -559,6 +559,26 @@
         "title": "ChatStarterSettingsUpdate",
         "type": "object"
       },
+      "ChunkPage": {
+        "description": "分块分页（上游 ``data.chunks`` + ``data.total``）。",
+        "properties": {
+          "chunks": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeChunk"
+            },
+            "title": "Chunks",
+            "type": "array"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "ChunkPage",
+        "type": "object"
+      },
       "CoordinationStatus": {
         "additionalProperties": false,
         "properties": {
@@ -1311,6 +1331,38 @@
         "title": "KagTypeAdd",
         "type": "object"
       },
+      "KnowledgeChunk": {
+        "description": "文档分块（P2-T9；上游列表键 `docnm_kwd/available_int` 由引擎归一）。",
+        "properties": {
+          "available": {
+            "default": true,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "content": {
+            "default": "",
+            "title": "Content",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "important_keywords": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Important Keywords",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "KnowledgeChunk",
+        "type": "object"
+      },
       "KnowledgeDataset": {
         "description": "知识库（域模型；`engine_id` 由路由层按需附加，不属引擎出站形状）。",
         "properties": {
@@ -1419,6 +1471,31 @@
           "name"
         ],
         "title": "KnowledgeDocument",
+        "type": "object"
+      },
+      "KnowledgeGraph": {
+        "description": "知识图谱载荷（P2-T10；未构建时 nodes/edges 为空）。",
+        "properties": {
+          "edges": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "title": "KnowledgeGraph",
         "type": "object"
       },
       "KnowledgeSelectionRequest": {
@@ -1645,6 +1722,18 @@
           }
         },
         "title": "ModelCapabilitiesQuery",
+        "type": "object"
+      },
+      "MutationResult": {
+        "description": "变更类操作的通用应答（上游仅回 code 0，无回读载荷）。",
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "title": "MutationResult",
         "type": "object"
       },
       "NetworkSettingsUpdate": {
@@ -6863,6 +6952,560 @@
           }
         },
         "summary": "Knowledge Get Document",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/datasets/{dataset_id}/documents/{document_id}/chunks": {
+      "delete": {
+        "description": "批量删除分块（上游为集合端点 + chunk_ids body，item DELETE 405——见探针）。",
+        "operationId": "knowledge_delete_chunks_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Delete Chunks",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "get": {
+        "description": "文档内分块列表（P2-T9；上游 data.chunks + data.total）。",
+        "operationId": "knowledge_list_chunks_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge List Chunks",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/datasets/{dataset_id}/documents/{document_id}/chunks/{chunk_id}": {
+      "put": {
+        "description": "分块编辑（content/available/important_keywords 可选；available→available_int）。",
+        "operationId": "knowledge_update_chunk_api_knowledge_center_datasets__dataset_id__documents__document_id__chunks__chunk_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "chunk_id",
+            "required": true,
+            "schema": {
+              "title": "Chunk Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Update Chunk",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/datasets/{dataset_id}/graph": {
+      "get": {
+        "description": "知识图谱载荷（未构建时 nodes/edges 为空数组）。",
+        "operationId": "knowledge_graph_api_knowledge_center_datasets__dataset_id__graph_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGraph"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Graph",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/datasets/{dataset_id}/index": {
+      "delete": {
+        "operationId": "knowledge_delete_index_api_knowledge_center_datasets__dataset_id__index_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Delete Index",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "get": {
+        "description": "graph/raptor 索引任务状态——上游原样对象。未构建必须序列化为 `{}`：\n包一层 `{\"raw\": …}` 会让前端\"非空键即构建中\"的判定误报。",
+        "operationId": "knowledge_index_status_api_knowledge_center_datasets__dataset_id__index_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Knowledge Index Status Api Knowledge Center Datasets  Dataset Id  Index Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Index Status",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "description": "显式触发 graph/raptor 索引构建（成本高，仅用户动作；不做自动触发）。",
+        "operationId": "knowledge_build_index_api_knowledge_center_datasets__dataset_id__index_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MutationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Build Index",
         "tags": [
           "knowledge"
         ]

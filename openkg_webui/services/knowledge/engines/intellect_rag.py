@@ -39,11 +39,16 @@ from .base import (
 )
 from .models import (
     BinaryPayload,
+    ChunkPage,
     DatasetPage,
     DocumentPage,
+    GraphIndexStatus,
     IngestionLog,
+    KnowledgeChunk,
     KnowledgeDataset,
     KnowledgeDocument,
+    KnowledgeGraph,
+    MutationResult,
     SearchChunk,
     SearchResult,
     UploadResult,
@@ -536,6 +541,121 @@ class IntellectRagEngine:
             content=resp.content,
             media_type=resp.headers.get("content-type", "application/octet-stream"),
         )
+
+    # -- chunk 管理（P2-T9；变更语义见 scripts/knowledge_a0/results/t9p_chunk_mutation_probe.md）--
+
+    async def list_chunks(
+        self, dataset_id: str, document_id: str, *, page: int = 1, page_size: int = 20
+    ) -> ChunkPage:
+        resp = await self.request(
+            "GET",
+            f"/datasets/{dataset_id}/documents/{document_id}/chunks",
+            params={"page": page, "page_size": page_size},
+        )
+        data = self._unwrap(resp)
+        inner = data if isinstance(data, dict) else {}
+        rows = inner.get("chunks") if isinstance(inner.get("chunks"), list) else []
+        try:
+            total = int(inner.get("total") or len(rows))
+        except (TypeError, ValueError):
+            total = len(rows)
+        return ChunkPage(
+            chunks=[self._chunk(r) for r in rows if isinstance(r, dict)],
+            total=total,
+        )
+
+    async def update_chunk(
+        self,
+        dataset_id: str,
+        document_id: str,
+        chunk_id: str,
+        *,
+        content: str | None = None,
+        available: bool | None = None,
+        important_keywords: list[str] | None = None,
+    ) -> MutationResult:
+        body: dict[str, Any] = {}
+        if content is not None:
+            body["content"] = content
+        if available is not None:
+            body["available"] = available
+        if important_keywords is not None:
+            body["important_keywords"] = important_keywords
+        if not body:
+            return MutationResult(ok=True)
+        resp = await self.request(
+            "PATCH", f"/datasets/{dataset_id}/documents/{document_id}/chunks/{chunk_id}", json=body
+        )
+        self._unwrap(resp)
+        return MutationResult(ok=True)
+
+    async def delete_chunks(
+        self, dataset_id: str, document_id: str, chunk_ids: list[str]
+    ) -> MutationResult:
+        # 上游删除在集合端点 + chunk_ids body（item DELETE 为 405，见探针）
+        resp = await self.request(
+            "DELETE",
+            f"/datasets/{dataset_id}/documents/{document_id}/chunks",
+            json={"chunk_ids": list(chunk_ids)},
+        )
+        self._unwrap(resp)
+        return MutationResult(ok=True)
+
+    @staticmethod
+    def _chunk(raw: Any) -> KnowledgeChunk:
+        row = raw if isinstance(raw, dict) else {}
+        # available 键在 list 载荷中可为 null，以 available_int(0/1) 为权威（探针 R1）
+        available = row.get("available")
+        if available is None:
+            available = row.get("available_int")
+        keywords = row.get("important_keywords")
+        return KnowledgeChunk(
+            id=str(row.get("id") or ""),
+            content=str(row.get("content") or ""),
+            available=bool(available) if available is not None else True,
+            important_keywords=[str(k) for k in keywords if isinstance(k, (str, int))]
+            if isinstance(keywords, list)
+            else [],
+        )
+
+    # -- 知识图谱 / 索引构建（P2-T10）--
+
+    async def get_knowledge_graph(self, dataset_id: str) -> KnowledgeGraph:
+        resp = await self.request("GET", f"/datasets/{dataset_id}/knowledge_graph")
+        data = self._unwrap(resp)
+        inner = data if isinstance(data, dict) else {}
+        graph = inner.get("graph") if isinstance(inner.get("graph"), dict) else {}
+        nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+        edges = graph.get("edges") if isinstance(graph.get("edges"), list) else []
+        return KnowledgeGraph(
+            nodes=[n for n in nodes if isinstance(n, dict)],
+            edges=[e for e in edges if isinstance(e, dict)],
+        )
+
+    async def get_index_status(self, dataset_id: str, index_type: str) -> GraphIndexStatus:
+        resp = await self.request(
+            "GET", f"/datasets/{dataset_id}/index", params={"type": index_type}
+        )
+        data = self._unwrap(resp)
+        return GraphIndexStatus(raw=data if isinstance(data, dict) else {})
+
+    async def build_index(self, dataset_id: str, index_type: str) -> MutationResult:
+        if index_type not in ("graph", "raptor"):
+            raise ValueError(f"unsupported index type: {index_type}")
+        resp = await self.request(
+            "POST", f"/datasets/{dataset_id}/index", params={"type": index_type}
+        )
+        self._unwrap(resp)
+        return MutationResult(ok=True)
+
+    async def delete_index(self, dataset_id: str, index_type: str) -> MutationResult:
+        if index_type not in ("graph", "raptor"):
+            raise ValueError(f"unsupported index type: {index_type}")
+        resp = await self.request(
+            "DELETE", f"/datasets/{dataset_id}/index", params={"type": index_type}
+        )
+        self._unwrap(resp)
+        return MutationResult(ok=True)
 
     # -- 聊天面（P1-1：本引擎的 runs ``rag`` 块，intellect-team 网关契约）--
 

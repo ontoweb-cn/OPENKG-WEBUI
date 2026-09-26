@@ -1,7 +1,7 @@
 # 知识中心 UI 对齐 P2 细化任务清单（chunk 管理 + 知识图谱 + 引用标注调研）
 
 - 日期：2026-09-26
-- 状态：**评审通过（§四），实施中**
+- 状态：**已实施完成（2026-09-26）**——T9/T10 落地并 live 验证；T11 调研结论 no-go（见 §六）
 - 依据：[knowledge-center-ui-parity.md](knowledge-center-ui-parity.md) §四 P2（T9/T10/T11）；
   P0/P1 已交付（p0-tasks/p1-tasks 实施记录）
 - 上游探针（2026-09-26，service key + 委托用户直探，只读）：
@@ -92,3 +92,34 @@ UI 以"status 非空即有信息"渲染原始字段 + 轮询，T10 实施时以�
 
 **通过**。T9-P 为硬前置（PATCH 语义不实测不写 engine）；R1/R2/R4 为实现口径，
 R3 为前端行为要求。
+
+## 六、实施记录（2026-09-26）
+
+**T9-P 探针**（归档 `scripts/knowledge_a0/results/t9p_chunk_mutation_probe.md`）：
+PATCH 语义 `{content?, available?(bool), important_keywords?}` 确认；**item DELETE 为
+405，删除走集合端点 + chunk_ids body**；单 GET 不含 content（回读验证走 LIST）；
+探针数据自建自删，无残留。
+
+**T9**：engine `list_chunks/update_chunk/delete_chunks`（PATCH 上游；删除走集合端点）
++ `KnowledgeChunk/ChunkPage/MutationResult` 模型 + 路由 GET/PUT/DELETE 三端点 + 契约
+重生成；前端 `ChunkListPanel`（内容展开/available 开关/关键词徽标/行内编辑/两步删除，
+20/页）。**live 验证抓出两个真问题并修复**：
+1. 上游变更异步落库——紧跟的 GET 回读到旧值覆盖 UI；改为乐观更新 + 900ms 延迟重拉；
+2. 首版 `reloadSoon`（useCallback）误置于 early return 之后触发 Rules of Hooks 崩溃
+   （控制台 "Rendered more hooks"），已移至条件返回前。
+live 启停往返：true→false→true 全部按预期落库并回读。
+
+**T10**：engine `get_knowledge_graph/get_index_status/build_index/delete_index` +
+路由 GET graph、GET/POST/DELETE index；前端"图谱"tab（空态构建按钮 graph/raptor、
+构建中轮询 5s、cytoscape/fcose 画布 + 节点采样 500、危险区删除）。**live 验证抓出**
+`GraphIndexStatus(raw={})` 序列化为 `{"raw":{}}` 导致前端"非空即构建中"误报——路由改为
+透传上游原样对象（未构建 = `{}`）。live：空态/构建按钮/无假"构建中"全部通过；
+真实构建验收留待用户显式触发（成本高，UI 已具备轮询与画布路径）。
+
+**T11 引用标注调研（no-go）**：本仓 `web/features/chat` 渲染链路无任何 `[rag-N]`
+类标记处理（DeepMentor 在 `TracePresentation.tsx`）；标记是否出现取决于 intellect-team
+网关把 RAG 召回内容注入 agent-loop 的模板，而非前端——需要抓一条真实"附加知识库"
+会话的网关回包才能判定。结论：**T11 移交 P3（或独立调研）**，不实施渲染。
+
+**验证**：后端 ruff/pytest 59 项全绿；前端 typecheck / lint（0 错误）/ vitest 67 /
+node 693 / 契约双门全绿；live：chunk 面板开关往返、图谱空态、5 tab 深链通过。
