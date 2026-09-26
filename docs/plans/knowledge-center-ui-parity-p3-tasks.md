@@ -1,7 +1,7 @@
 # 知识中心 UI 对齐 P3 立项方案：长线四项细化（多引擎 UI / 索引兼容性检查 / 进度文案本地化 / 引用标注）
 
 - 日期：2026-09-26
-- 状态：**细化方案待评审**——四项相互独立，评审通过后按 §五 排期逐项实施
+- 状态：**评审通过（两轮，§八/§九）**——四项相互独立，按 §五 排期逐项实施
 - 依据：[knowledge-center-ui-parity.md](knowledge-center-ui-parity.md) §四 P3；
   P0-P2 与收尾批次已交付（其任务文档的实施记录）
 - 前置调研（本轮完成，均有源码/实测证据）：
@@ -21,7 +21,7 @@
 
 | # | 任务 | 落点 |
 | --- | --- | --- |
-| 12.1 | 引擎目录端点：`GET /api/knowledge-center/engines`——遍历 `registry`，序列化 `{engine_id, display_name, capabilities[], configured, kb_count, detail_path_template}`（T5 §3.2 的目录模型） | router + 契约 |
+| 12.1 | 引擎目录端点：`GET /api/knowledge-center/engines`——遍历 `registry`，序列化 `{engine_id, display_name, capabilities[], configured, kb_count, detail_path_template}`（T5 §3.2 的目录模型）。**健壮性（评审二轮 R6）**：单引擎的 kb_count 为 best-effort——其列表调用失败置 `kb_count: null` + `error` 字段，不得拖垮整个目录响应 | router + 契约 |
 | 12.2 | KC 首页"引擎"分组网格：引擎卡（名称/能力徽标/KB 数/configured 态），点击按 `detail_path_template` 分派（intellect-rag → 本页；KAG → `/kag/projects`）——T5 推荐 B 的"统一目录" | `KnowledgeHomePage` |
 | 12.3 | 创建流程引擎选择：新建对话框第一步选引擎（未 configured 的引擎卡禁用 + 原因文案），选 KAG 时跳既有 KAG 创建页（不复制其表单） | `CreateDatasetDialog` |
 | 12.4 | 详情页引擎徽标：dataset 卡与详情头显示引擎名（数据来自目录端点按 engine_id 反查） | 列表卡 + 详情头 |
@@ -29,7 +29,11 @@
 ### 验收
 
 - 目录端点返回两引擎（intellect-rag configured=true；KAG 按 `kag_enabled()`）；
-- 首页网格/创建分派/徽标三处渲染正确；`capability` 驱动 UI（无 search 能力的引擎不显示检索 tab——能力门逻辑落 UI）。
+- 首页网格/创建分派/徽标三处渲染正确。
+- **能力映射表的验收口径（评审二轮 R7）**：分派模式下 KAG 不进 KC 详情页（跳
+  `/kag/projects/{id}`），因此能力门（按 capabilities 裁剪 tab）在只有 intellect-rag
+  一个 in-KC 引擎的现实下**无法被集成验证**——映射表落码 + 单测（CAP_* ↔ tab 映射），
+  集成验证留给第三个 in-KC 引擎；本项验收以目录端点与分派流为准。
 
 ### 依赖与风险
 
@@ -44,10 +48,11 @@
 
 | # | 任务 | 落点 |
 | --- | --- | --- |
-| 13.1 | engine `check_embedding_compatibility(dataset_id, embd_id)` → `POST /embedding/check`（源码确认：抽样 chunk 重嵌入 + 余弦相似度，**只读**）；返回 `{compatible, similarity, sample_count}` 归一模型 | engine + models |
+| 13.0 | **嵌入模型清单端点**（评审二轮新增）：`GET /api/knowledge-center/models?type=embedding` 透传上游 `GET /api/v1/models`（实测返回 instance 列表：name/provider_name/model_type）——更换流程的候选来源，替代原"文本输入 embd_id"（R5） | router + 契约 |
+| 13.1 | engine `check_embedding_compatibility(dataset_id, embd_id, check_num=5)` → `POST /embedding/check`；**返回形状已按源码钉死**：`{model, sampled, valid, avg_cos_sim, min_cos_sim, max_cos_sim, match_mode, results:[{chunk_id, doc_name, vector_dim, cos_sim, reason?}]}`；维度不匹配上游直接报错（"dimension … different"）→ 归一为不兼容结论。兼容判定阈值本仓定：`avg_cos_sim ≥ 0.6`（D6，可调） | engine + models |
 | 13.2 | engine `update_dataset` 支持 `embedding_model` 参数（上游 PUT 已支持该字段）；**换模型前强制走 13.1** | engine |
-| 13.3 | Settings 嵌入模型行升级：显示当前模型 + "更换"流程（输入新 embd_id → 兼容性检查结果展示 → 兼容才允许保存；不兼容给出重建指引：删除重建或重新解析） | Settings 面板 + 契约 |
-| 13.4 | 单测：mock 上游 check 三态（success/not_effective/error） | tests |
+| 13.3 | Settings 嵌入模型行升级：当前模型 + "更换"流程（**下拉选 13.0 的候选** → 兼容性检查结果展示（avg/min/max + 抽样数）→ 兼容才允许保存；不兼容给出重建指引：删除重建或重新解析） | Settings 面板 + 契约 |
+| 13.4 | 单测：mock 上游 check 三态（success/not_effective/error）+ 维度不匹配错误归一 | tests |
 
 ### 验收
 
@@ -82,6 +87,7 @@
 
 - `plugins/rag/intellect-rag/_render_search_result`：chunk 渲染改为 `[rag-N] [{doc}]\n{content}`（N 为序号）；
 - `agent/rag_manager.build_rag_context_block`：block 头部追加指示："回答时按 `[rag-N]` 标注引用来源，无依据不要编造编号"；
+- **可行性已核实（评审二轮 R8）**：`sanitize_rag_context` 的三个正则（`_FENCE_TAG_RE`/`_INTERNAL_CONTEXT_RE`/`_INTERNAL_NOTE_RE`）只剥 `<rag-context>` 包裹与 `[System note: …]` 信封，**不触及 `[rag-N]` 编号**——标记可存活进入 prompt；
 - 网关仓自测：prefetch 输出含编号；prompt 指示生效（一条真实 turn 的回包含 `[rag-1]`）。
 
 ### G2 前端渲染（本仓，1 人日）
@@ -97,7 +103,7 @@
 ## 五、排期建议
 
 ```
-T14'（0.5d，独立）→ T13'（1.5d，独立）→ T12（2-3d UI，随 T5 评审/实施）→ T11（G1 上游仓 → G2 本仓）
+T14'（0.5d，独立）→ T13'（1.5~2d，独立，R5 增补 13.0）→ T12（2-3d UI，随 T5 评审/实施）→ T11（G1 上游仓 → G2 本仓）
 ```
 
 四项无相互依赖；T12 与 T5 合并为一个实施波次最高效（T5 的验收项天然包含 12.2-12.4 的场景）。
@@ -111,6 +117,7 @@ T14'（0.5d，独立）→ T13'（1.5d，独立）→ T12（2-3d UI，随 T5 评
 | D3 | T14 收窄为最小映射表（≤10 条） | 上游无 message_key；全量翻译自由文本不可行且脆弱 |
 | D4 | T11 拆 G1（网关仓）/G2（本仓），G2 依赖 G1 | 根因在网关模板；单仓无法闭环 |
 | D5 | 嵌入模型更换必须先过兼容性检查 | 换模型后存量向量不自动重建（上游行为），防"换完即检索退化" |
+| D6 | 兼容判定阈值 `avg_cos_sim ≥ 0.6`，本仓可配 | 上游只回统计不判兼容；阈值是产品决策，默认值取 RagFlow 生态惯用口径，集中常量便于调 |
 
 ## 七、风险与缓解
 
@@ -158,3 +165,46 @@ intellect-team 网关 RAG 插件）逐项核对原 P3 设想，四项全部据�
 
 **通过**。四项均按调研实质修订（R1/R2/R3 重定义、R4 转提案）；每项相互独立、
 可单独排期。实施前无需再调研——各项的验收口径见 §一-四。
+
+## 九、补充评审（第二轮，2026-09-26）
+
+首轮评审（§八）基于调研结论重定义了四项。第二轮对方案中**悬空的技术断言**逐条
+取证（上游服务源码 + 网关正则 + 前端组件现状），发现并修订如下：
+
+### R5 更换模型需要候选清单端点（计划缺口，新增 13.0）
+
+原 13.3 的"输入新 embd_id"文本输入不成立——用户无从得知合法 embd_id（形如
+`qwen3-embedding-4b@default@GPUStack`）。上游 `GET /api/v1/models` 返回 instance
+清单（name/provider_name/model_type），新增 13.0 代理端点（type=embedding 过滤），
+更换流程改为下拉选择。**13.0/13.3 均为契约面改动**（新增端点 + models 实体化），
+契约四层联动成本已计入。
+
+### R6 目录端点健壮性（采纳进 12.1）
+
+目录端点聚合各引擎的列表调用——单引擎失败（如 KAG 未配置/超时）不得以 5xx 拖垮
+整个目录。kb_count 改 best-effort（失败置 null + error 字段）。
+
+### R7 能力门验收弱化（澄清）
+
+分派模式下 KAG 不进 KC 详情页，能力门在单 in-KC 引擎现实下无法集成验证。验收
+改为"目录端点 + 分派流"；CAP_*↔tab 映射表落码 + 单测，作为第三引擎的预留。
+
+### R8 G1 可行性确认（消除 T11 残留风险）
+
+`sanitize_rag_context` 三正则逐一核对——只剥 `<rag-context>` 包裹与
+`[System note: …]` 信封，`[rag-N]` 编号可存活进 prompt。T11 的"标记是否会中途
+被剥"风险解除，G1 可直接实施（待上游仓排期）。
+
+### R9 check_embedding 返回形状钉死（细化 13.1）
+
+源码实测：请求可带 `check_num`（默认 5，从最多前 1000 条 available chunk 随机采样）；
+返回 `{model, sampled, valid, avg/min/max_cos_sim, match_mode, results[…]}`；
+**维度不匹配在上游直接抛错**（"dimension … different"）→ 归一为"不兼容（维度）"
+而非笼统失败。13.1 的归一模型由假设形状改为实测形状；兼容阈值本仓定
+（D6：avg_cos_sim ≥ 0.6）。
+
+### 第二轮结论
+
+**通过（修订版）**。R5 为计划缺口补全（新增 13.0），R6/R7 为健壮性与验收口径，
+R8/R9 消除残余不确定性。四项实施无需再调研；T13' 的工作量因 13.0 上调至
+**1.5~2 人日**，其余不变。
