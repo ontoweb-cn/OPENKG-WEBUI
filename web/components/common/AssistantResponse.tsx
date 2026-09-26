@@ -8,6 +8,7 @@ import type { StreamEvent } from '@/features/chat/model/protocol'
 import {
   hasVisibleMarkdownContent,
   repairMalformedStrongEmphasis,
+  renderCitationMarkers,
   stripArtifactAnnotations,
 } from '@/lib/markdown-display'
 import { parseModelThinkingSegments } from '@/lib/think-segments'
@@ -76,16 +77,19 @@ function AssistantResponseImpl({
             />
           )
         }
-        const repairedContent = repairMalformedStrongEmphasis(segment.content)
+        // P3 T11(G2)：[rag-N] 引用标记 → 行内代码 chip（无标记零副作用）
+        const citedContent = renderCitationMarkers(
+          repairMalformedStrongEmphasis(segment.content),
+        )
 
-        if (!hasVisibleMarkdownContent(repairedContent)) {
+        if (!hasVisibleMarkdownContent(citedContent)) {
           return <Fragment key={`text-${index}`} />
         }
 
         return (
           <MarkdownRenderer
             key={`text-${index}`}
-            content={repairedContent}
+            content={citedContent}
             variant="prose"
             className="text-[var(--foreground)]"
           />

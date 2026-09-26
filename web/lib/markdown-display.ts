@@ -575,6 +575,21 @@ function maskProtectedSpans(
   };
 }
 
+/**
+ * P3 T11(G2)：把网关注入的 `[rag-N]` 引用标记渲染为行内代码 chip。
+ *
+ * 网关（intellect-team rag 插件）在召回文本里按 chunk 顺序打 `[rag-N]` 编号，
+ * 并指示模型按编号内联引用。这里把编号转成行内代码——Simple/Rich 两种渲染器
+ * 都原生呈现为等宽 chip，无需改动渲染器本体；无标记时零副作用。
+ * 上标徽标 + 悬浮来源文档名需要网关把映射写入 turn 元数据，留后续迭代。
+ */
+const CITATION_MARKER_RE = /\[rag-(\d+)\]/g;
+
+export function renderCitationMarkers(content: string): string {
+  if (!content) return content;
+  return content.replace(CITATION_MARKER_RE, "`$&`");
+}
+
 export function repairMalformedStrongEmphasis(content: string): string {
   if (!content.includes("**")) return content;
 

@@ -258,3 +258,18 @@ R8/R9 消除残余不确定性。四项实施无需再调研；T13' 的工作量
   sources/search/graph_index 门控）+ 3 项单测；详情页 tab 按能力裁剪。
 - live：目录端点（含能力全集）、首页引擎条、对话框 radiogroup 全部通过。
 - 契约：KnowledgeDataset.engine_id + 引擎目录实体，四层联动双门绿。
+
+### 阶段 4：T11 引用标注（G1 网关仓 + G2 本仓，2026-09-26）
+
+- **G1（intellect-team 仓，53ccade4，分支 simon）**：
+  `_render_search_result` 加 `[rag-N]` 编号前缀（1-based、空内容不占号）；
+  `build_rag_context_block` 的 System note 指示模型按编号内联引用，块尾附
+  编号→来源文档名清单；插件 84 项测试全过（含 2 项新增：编号渲染、块清单）。
+  **生效需网关重启/部署**。
+- **G2（本仓）**：`renderCitationMarkers`（markdown-display 库）把正文中的
+  `[rag-N]` 转为行内代码 chip——Simple/Rich 渲染器原生支持、无标记零副作用；
+  AssistantResponse 管道接入。**悬停文档名 defer**：块尾清单在 prompt 侧，
+  前端不可见——需网关把映射写入 turn 元数据，留后续迭代（P3 文档 G2 描述
+  已按此收窄）。node 测试 695 项全过（含 2 项新增）。
+- 端到端验证路径：网关重启后，附加知识库发起会话 → 模型按 [rag-N] 引用 →
+  前端 chip 渲染。

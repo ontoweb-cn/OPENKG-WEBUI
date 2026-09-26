@@ -6,6 +6,7 @@ import {
   hasVisibleMarkdownContent,
   markdownUrlTransform,
   normalizeMarkdownForDisplay,
+  renderCitationMarkers,
   repairMalformedStrongEmphasis,
   safeDecodeURIComponent,
 } from "../lib/markdown-display";
@@ -373,4 +374,17 @@ test("hasVisibleMarkdownContent keeps meaningful markdown", () => {
     hasVisibleMarkdownContent("这是一个正常回复。\n\n- 第一条"),
     true,
   );
+});
+// —— P3 T11(G2)：引用标记 → 行内代码 chip ——
+
+test("renderCitationMarkers wraps [rag-N] markers in inline code", () => {
+  assert.equal(
+    renderCitationMarkers("答案内容 [rag-1] 另一依据 [rag-2]。"),
+    "答案内容 `[rag-1]` 另一依据 `[rag-2]`。",
+  );
+});
+
+test("renderCitationMarkers leaves text without markers untouched", () => {
+  assert.equal(renderCitationMarkers("普通回答，无引用。"), "普通回答，无引用。");
+  assert.equal(renderCitationMarkers(""), "");
 });
