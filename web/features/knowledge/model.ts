@@ -321,8 +321,7 @@ export function formatEpochMillis(raw: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** 文档类型图标（扩展名 → 语义色徽标文本）；对齐 DeepMentor docIconFor 的概念。 */
-export function docIconFor(name: string): { label: string; className: string } {
+/** 文档类型图标（扩展名 → 语义色徽标文本）；对齐 DeepMentor docIconFor 的概念。 */export function docIconFor(name: string): { label: string; className: string } {
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : "";
   const table: Record<string, { label: string; className: string }> = {
@@ -348,4 +347,29 @@ export function docIconFor(name: string): { label: string; className: string } {
       className: "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]",
     }
   );
+}
+
+// —— 进度文案最小映射（P3 T14'；D3：上游 progress_msg 为自由文本，无 message_key）——
+
+/** i18n 翻译函数形状（避免模型层依赖 react-i18next）。 */
+export type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
+
+/**
+ * 从上游 progress_msg 片段识别已知的失败/完成原因，给出本地化提示；
+ * 无命中的片段原样展示（调用方兜底）——映射表是解释性补充，不是整行替换。
+ */
+const PROGRESS_HINT_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
+  // 实测出现过的两类真实失败（P2 T10 / 收尾批次）
+  { pattern: /Provider\s+not found for model/i, key: "The RAG server has no chat model configured for this operation." },
+  { pattern: /dimension \(\d+\) of given embedding model is different/i, key: "Embedding dimension mismatch — the vector index must be rebuilt." },
+  { pattern: /\[ERROR\]|Exception/i, key: "An error occurred during parsing." },
+  { pattern: /task finished|finished successfully|completed/i, key: "Parsing completed." },
+];
+
+export function progressHint(raw: string, t: TranslateFn): string | null {
+  if (!raw) return null;
+  for (const entry of PROGRESS_HINT_PATTERNS) {
+    if (entry.pattern.test(raw)) return t(entry.key);
+  }
+  return null;
 }

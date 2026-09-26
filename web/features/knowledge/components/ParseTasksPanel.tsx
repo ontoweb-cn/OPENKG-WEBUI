@@ -7,7 +7,7 @@ import { ChevronDown, ChevronRight, RotateCw, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 import { fetchIngestionLogs } from "../api";
-import type { KnowledgeDocument, KnowledgeIngestionLog } from "../model";
+import { progressHint, type KnowledgeDocument, type KnowledgeIngestionLog } from "../model";
 
 /**
  * 解析任务面板（P1-T6/R4）：数据 = 当前页文档的 RUNNING 进度 + 既有
@@ -169,9 +169,17 @@ export default function ParseTasksPanel({
                       </span>
                     </button>
                     {open && log.message ? (
-                      <pre className="ml-6 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--muted)]/30 p-2 font-mono text-[11px] leading-relaxed text-[var(--muted-foreground)]">
-                        {log.message}
-                      </pre>
+                      <div className="ml-6">
+                        {/* T14'：已知失败/完成原因给本地化提示，原始日志保留在下方 */}
+                        {progressHint(log.message, t) ? (
+                          <p className="mt-1 rounded bg-[var(--muted)]/40 px-2 py-1 text-[11px] text-[var(--foreground)]">
+                            {progressHint(log.message, t)}
+                          </p>
+                        ) : null}
+                        <pre className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded bg-[var(--muted)]/30 p-2 font-mono text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                          {log.message}
+                        </pre>
+                      </div>
                     ) : null}
                   </li>
                 );

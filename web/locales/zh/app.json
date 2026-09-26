@@ -5062,5 +5062,9 @@
   "Uploaded. Waiting for server…": "已上传，等待服务端处理…",
   "{{percent}}%": "{{percent}}%",
   "Graph index build failed": "图谱索引构建失败",
-  "Graph extraction requires a chat model on the RAG server; configure one and rebuild.": "图谱抽取需要 RAG 服务端配置对话模型；请先配置再重新构建。"
+  "Graph extraction requires a chat model on the RAG server; configure one and rebuild.": "图谱抽取需要 RAG 服务端配置对话模型；请先配置再重新构建。",
+  "The RAG server has no chat model configured for this operation.": "RAG 服务端未配置本操作所需的对话模型。",
+  "Embedding dimension mismatch — the vector index must be rebuilt.": "嵌入向量维度不匹配——需要重建向量索引。",
+  "An error occurred during parsing.": "解析过程出错。",
+  "Parsing completed.": "解析完成。"
 }

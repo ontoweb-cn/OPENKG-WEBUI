@@ -54,3 +54,32 @@ describe("extensionOf", () => {
     expect(isSupportedExtension("payload.EXE")).toBe(false);
   });
 });
+
+// —— P3 T14'：progressHint 最小映射 ——
+
+import { progressHint } from "@/features/knowledge/model";
+
+const t = (key: string) => key;
+
+describe("progressHint", () => {
+  it("maps known failure patterns to localized hints", () => {
+    expect(progressHint("18:34:16 [ERROR][Exception]: Provider  not found for model .", t)).toBe(
+      "The RAG server has no chat model configured for this operation.",
+    );
+    expect(
+      progressHint("AssertionError: The dimension (1024) of given embedding model is different from the original (768)", t),
+    ).toBe("Embedding dimension mismatch — the vector index must be rebuilt.");
+    expect(progressHint("bla [ERROR] boom", t)).toBe("An error occurred during parsing.");
+  });
+
+  it("returns null for unmatched free text", () => {
+    expect(progressHint("parsing docs 3/10", t)).toBeNull();
+    expect(progressHint("", t)).toBeNull();
+  });
+
+  it("prioritizes the most specific pattern", () => {
+    // Provider not found 同时含 [ERROR] —— 具体模式优先
+    const hint = progressHint("[ERROR]: Provider  not found for model .", t);
+    expect(hint).toBe("The RAG server has no chat model configured for this operation.");
+  });
+});

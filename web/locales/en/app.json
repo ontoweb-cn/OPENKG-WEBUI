@@ -339,5 +339,9 @@
   "Uploaded. Waiting for server…": "Uploaded. Waiting for server…",
   "{{percent}}%": "{{percent}}%",
   "Graph index build failed": "Graph index build failed",
-  "Graph extraction requires a chat model on the RAG server; configure one and rebuild.": "Graph extraction requires a chat model on the RAG server; configure one and rebuild."
+  "Graph extraction requires a chat model on the RAG server; configure one and rebuild.": "Graph extraction requires a chat model on the RAG server; configure one and rebuild.",
+  "The RAG server has no chat model configured for this operation.": "The RAG server has no chat model configured for this operation.",
+  "Embedding dimension mismatch — the vector index must be rebuilt.": "Embedding dimension mismatch — the vector index must be rebuilt.",
+  "An error occurred during parsing.": "An error occurred during parsing.",
+  "Parsing completed.": "Parsing completed."
 }
