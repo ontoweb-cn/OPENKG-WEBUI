@@ -110,11 +110,12 @@ i18n：本仓知识中心 70 key 中文零缺失，新增 UI 需同步补 `web/l
 | T10 | 知识图谱：构建入口（`POST /datasets/{id}/index?type=graph\|raptor`，D5）+ 状态轮询（`GET …/index?type=`）+ 取数 `GET /knowledge_graph`（先 probe 载荷）+ cytoscape/fcose 画布渲染（复用 KAG 域）；容量上限见 §七 | 四层全链 | T1 |
 | T11 | 聊天引用标注 `[rag-N]`（**调研项**，D7）：先验证 agent-loop 网关是否透传引用标记，可行再移植 `RichMarkdownRenderer` 的渲染 | `web/features/chat/` | 调研结论 |
 
-### P3 —— 长线（另立项）
+### P3 —— 长线（已立项细化：[p3-tasks](knowledge-center-ui-parity-p3-tasks.md)，2026-09-26 评审通过）
 
-- T12 多引擎 UI：移植 EngineDetail 模式（引擎网格 + 配置页），让 `registry.py` 被用户看见。
-- T13 索引版本管理：依赖上游 `/embedding/check` 签名语义调研。
-- T14 进度消息 `message_key` 模板化本地化。
+- T12 多引擎 UI：**按 T5 KAG 方案实施**（统一目录+分派详情），本仓只补 UI 侧（引擎目录端点/首页网格/创建分派/徽标）；不移植 EngineDetail 全量配置面（R1）。
+- T13 ~~索引版本管理~~ → **换嵌入模型兼容性检查**：上游单索引无多版本存储；`/embedding/check` 源码证实为只读探针（抽样重嵌入算余弦），换模型强制先检查（R2/D5）。
+- T14 ~~message_key 本地化~~ → **自由文本最小映射表**（≤10 条 pattern→key）：上游 progress_msg 为追加式自由文本、无 message_key 机制（R3）；结构化字段本地化 P1 已达成。
+- T11 引用标注：根因确定在网关注入模板（`_render_search_result` 无 `[rag-N]` 编号）——拆 G1 网关仓模板改造 + G2 本仓渲染，G2 依赖 G1（R4）。
 
 ### 明确不做
 
