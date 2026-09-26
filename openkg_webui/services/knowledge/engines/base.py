@@ -38,6 +38,7 @@ CAP_LOGS = "logs"  # 解析日志流
 CAP_PREVIEW = "preview"  # 文档预览/缩略图
 CAP_CHAT_BINDING = "chat_binding"  # 参与聊天召回（runs rag 块）
 CAP_MCP_BINDING = "mcp_binding"  # 提供会话 MCP 注入
+CAP_GRAPH_INDEX = "graph_index"  # 知识图谱/索引构建（P2-T10）
 
 
 class EngineErrorKind:

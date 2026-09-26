@@ -83,3 +83,25 @@ describe("progressHint", () => {
     expect(hint).toBe("The RAG server has no chat model configured for this operation.");
   });
 });
+
+// —— P3 T12：能力 → 详情页 tab 映射（R7 映射表落码）——
+
+import { detailTabsForCapabilities } from "@/features/knowledge/model";
+
+describe("detailTabsForCapabilities", () => {
+  it("returns the full tab set for null (catalog not yet loaded)", () => {
+    expect(detailTabsForCapabilities(null)).toEqual([
+      "documents", "sources", "retrieval", "graph", "settings",
+    ]);
+  });
+
+  it("keeps documents/settings always and gates by capability", () => {
+    const all = ["upload", "structured_upload", "search", "delete", "sources", "logs", "preview", "chat_binding", "mcp_binding", "graph_index"];
+    expect(detailTabsForCapabilities(all)).toEqual([
+      "documents", "sources", "retrieval", "graph", "settings",
+    ]);
+    const minimal = ["search"];
+    expect(detailTabsForCapabilities(minimal)).toEqual(["documents", "retrieval", "settings"]);
+    expect(detailTabsForCapabilities([])).toEqual(["documents", "settings"]);
+  });
+});

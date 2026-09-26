@@ -45,6 +45,8 @@ export interface KnowledgeDataset {
   embeddingModel: string;
   /** 上游 create_time（epoch 毫秒串） */
   createdAt: string;
+  /** 所属引擎（路由层按 pin/默认附加；单引擎下恒为默认引擎） */
+  engineId: string;
 }
 
 /** 上游 `visibility` 列：private | tenant | team | project */
@@ -72,6 +74,7 @@ export function parseKnowledgeDataset(raw: unknown): KnowledgeDataset {
     // 此前读错侧导致创建时间恒为空（收尾批次 R2）
     createdAt: text(row.created_at) || text(row.create_time),
     embeddingModel: text(row.embedding_model),
+    engineId: text(row.engine_id),
   };
 }
 
@@ -258,6 +261,53 @@ export function parseEmbeddingCheckResult(raw: unknown): EmbeddingCheckResult {
     maxCosSim: num(row.max_cos_sim),
     matchMode: text(row.match_mode),
   };
+}
+
+// —— 引擎目录（P3 T12 12.1）——
+
+export interface EngineCatalogEntry {
+  engineId: string;
+  displayName: string;
+  capabilities: string[];
+  configured: boolean;
+  isDefault: boolean;
+  /** best-effort：单引擎列表失败时为 null */
+  kbCount: number | null;
+  detailPathTemplate: string;
+  error: string;
+}
+
+export function parseEngineCatalog(payload: unknown): EngineCatalogEntry[] {
+  const rows = Array.isArray(payload) ? payload : [];
+  return rows.map((item) => {
+    const row = record(item);
+    const caps = Array.isArray(row.capabilities)
+      ? row.capabilities.map((c) => text(c)).filter((c) => c.length > 0)
+      : [];
+    const kbCount = row.kb_count == null ? null : num(row.kb_count);
+    return {
+      engineId: text(row.engine_id),
+      displayName: text(row.display_name),
+      capabilities: caps,
+      configured: Boolean(row.configured),
+      isDefault: Boolean(row.is_default),
+      kbCount,
+      detailPathTemplate: text(row.detail_path_template),
+      error: text(row.error),
+    };
+  });
+}
+
+// —— 能力 → 详情页 tab 映射（P3 T12/R7：映射表落码 + 单测；文档/设置常驻）——
+
+export function detailTabsForCapabilities(capabilities: string[] | null): string[] {
+  if (capabilities == null) return ["documents", "sources", "retrieval", "graph", "settings"];
+  const tabs: string[] = ["documents"];
+  if (capabilities.includes("sources")) tabs.push("sources");
+  if (capabilities.includes("search")) tabs.push("retrieval");
+  if (capabilities.includes("graph_index")) tabs.push("graph");
+  tabs.push("settings");
+  return tabs;
 }
 
 // —— chunk 管理（P2-T9；上游 available_int 为权威，available 键可 null）——

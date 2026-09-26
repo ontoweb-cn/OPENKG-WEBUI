@@ -5075,5 +5075,7 @@
   "No embedding models are configured on the RAG server.": "RAG 服务端尚未配置嵌入模型。",
   "The compatibility check re-embeds {{count}} sampled chunks on the server.": "兼容性检查会在服务端对 {{count}} 条抽样分块重新嵌入。",
   "Existing chunk vectors are not rebuilt automatically — re-parse documents after switching.": "存量分块向量不会自动重建——切换后请重新解析文档。",
-  "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid": "平均 {{avg}} · 最低 {{min}} · 最高 {{max}} · {{valid}}/{{sampled}} 条样本有效"
+  "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid": "平均 {{avg}} · 最低 {{min}} · 最高 {{max}} · {{valid}}/{{sampled}} 条样本有效",
+  "Current engine": "当前引擎",
+  "Knowledge engine": "知识引擎"
 }

@@ -243,3 +243,18 @@ R8/R9 消除残余不确定性。四项实施无需再调研；T13' 的工作量
 - **观察（非本仓问题）**：73df（209 chunks）自检 sampled=0——上游采样走 docstore
   （elasticsearch 向量库），该库内容侧需另行核查；UI 对"无法判定"结论如实呈现。
   4 项新 pytest：类型过滤 / 兼容 / 维度结论 / D5 强制 409。
+
+### 阶段 3：T12 多引擎 UI——单引擎交付（2026-09-26）
+
+- 12.1：`GET /engines` 目录端点（registry 新增 `iter_engine_ids`/
+  `engine_display_name`/`engine_detail_path_template`；kb_count best-effort，
+  单引擎失败置 null + error——R6）；`CAP_GRAPH_INDEX` 能力常量新增并纳入
+  intellect-rag 能力集。
+- 12.2：首页"知识引擎"条——引擎卡（名称/KB 计数/当前引擎徽标/未配置琥珀徽标）。
+- 12.3：创建对话框引擎选择卡（radiogroup；未 configured 禁选 + 原因；KAG 分派随 T5）。
+- 12.4：dataset 域模型 + 路由附加 `engine_id`（list/get 两端点）；
+  详情页头按目录反查显示非默认引擎徽标（单引擎下不出现，符合 T5 B 方案）。
+- R7 映射表落码：`detailTabsForCapabilities`（documents/settings 常驻，
+  sources/search/graph_index 门控）+ 3 项单测；详情页 tab 按能力裁剪。
+- live：目录端点（含能力全集）、首页引擎条、对话框 radiogroup 全部通过。
+- 契约：KnowledgeDataset.engine_id + 引擎目录实体，四层联动双门绿。

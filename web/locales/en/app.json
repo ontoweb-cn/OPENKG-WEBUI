@@ -352,5 +352,10 @@
   "No embedding models are configured on the RAG server.": "No embedding models are configured on the RAG server.",
   "The compatibility check re-embeds {{count}} sampled chunks on the server.": "The compatibility check re-embeds {{count}} sampled chunks on the server.",
   "Existing chunk vectors are not rebuilt automatically — re-parse documents after switching.": "Existing chunk vectors are not rebuilt automatically — re-parse documents after switching.",
-  "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid": "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid"
+  "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid": "avg {{avg}} · min {{min}} · max {{max}} · {{valid}}/{{sampled}} samples valid",
+  "Knowledge engines": "Knowledge engines",
+  "{{count}} knowledge bases": "{{count}} knowledge bases",
+  "Current engine": "Current engine",
+  "Knowledge engine": "Knowledge engine",
+  "Needs setup": "Needs setup"
 }

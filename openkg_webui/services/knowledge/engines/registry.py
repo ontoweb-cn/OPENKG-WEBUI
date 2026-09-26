@@ -22,6 +22,23 @@ from .base import ENGINE_INTELLECT_RAG
 
 DEFAULT_ENGINE_ID = ENGINE_INTELLECT_RAG
 
+# 引擎目录元数据（P3 T12；T5 落地第二引擎时在此追加注册行）
+_ENGINE_DISPLAY_NAMES = {ENGINE_INTELLECT_RAG: "Intellect RAG"}
+_ENGINE_DETAIL_PATHS = {ENGINE_INTELLECT_RAG: "/knowledge-center/{id}"}
+
+
+def iter_engine_ids() -> list[str]:
+    """枚举已注册引擎（T5 第二引擎落地时扩展此列表与两张元数据表）。"""
+    return [ENGINE_INTELLECT_RAG]
+
+
+def engine_display_name(engine_id: str) -> str:
+    return _ENGINE_DISPLAY_NAMES.get(engine_id, engine_id)
+
+
+def engine_detail_path_template(engine_id: str) -> str:
+    return _ENGINE_DETAIL_PATHS.get(engine_id, "/knowledge-center/{id}")
+
 
 def _pins_file() -> Path:
     from openkg_webui.services.path_service import get_path_service

@@ -46,7 +46,10 @@ from openkg_webui.services.knowledge.engines.models import (
     StructuredUploadResult,
     UploadResult,
 )
-from openkg_webui.services.knowledge.engines.registry import engine_id_for_dataset
+from openkg_webui.services.knowledge.engines.registry import (
+    DEFAULT_ENGINE_ID,
+    engine_id_for_dataset,
+)
 
 router = APIRouter()
 
@@ -250,12 +253,15 @@ async def knowledge_put_preferences(request: Request, payload: dict[str, Any]) -
 async def knowledge_list_datasets(request: Request, page: int = 1, page_size: int = 30) -> Any:
     _require_enabled()
     q = request.query_params
-    return await _engine_call(
+    page = await _engine_call(
         lambda e: e.list_datasets(
             page=int(q.get("page") or page),
             page_size=int(q.get("page_size") or page_size),
         )
     )
+    for ds in page.datasets:
+        ds.engine_id = engine_id_for_dataset(ds.id)
+    return page
 
 
 @router.post("/datasets", response_model=KnowledgeDataset)
@@ -298,7 +304,9 @@ async def knowledge_create_dataset(request: Request) -> Any:
 @router.get("/datasets/{dataset_id}", response_model=KnowledgeDataset)
 async def knowledge_get_dataset(dataset_id: str) -> Any:
     _require_enabled()
-    return await _engine_call(lambda e: e.get_dataset(dataset_id), dataset_id=dataset_id)
+    dataset = await _engine_call(lambda e: e.get_dataset(dataset_id), dataset_id=dataset_id)
+    dataset.engine_id = engine_id_for_dataset(dataset_id)
+    return dataset
 
 
 @router.put("/datasets/{dataset_id}", response_model=KnowledgeDataset)
@@ -1123,6 +1131,41 @@ async def knowledge_delete_chunks(dataset_id: str, document_id: str, request: Re
         lambda e: e.delete_chunks(dataset_id, document_id, chunk_ids),
         dataset_id=dataset_id,
     )
+
+
+@router.get("/engines")
+async def knowledge_engine_catalog() -> Any:
+    """引擎目录（P3 T12 12.1）：kb_count 为 best-effort（R6：单引擎失败置 null）。"""
+    _require_enabled()
+    from openkg_webui.services.knowledge.engines import build_context, build_engine
+    from openkg_webui.services.knowledge.engines.registry import (
+        engine_detail_path_template,
+        engine_display_name,
+        iter_engine_ids,
+    )
+
+    entries: list[dict[str, Any]] = []
+    for engine_id in iter_engine_ids():
+        entry: dict[str, Any] = {
+            "engine_id": engine_id,
+            "display_name": engine_display_name(engine_id),
+            "capabilities": [],
+            "configured": True,
+            "is_default": engine_id == DEFAULT_ENGINE_ID,
+            "kb_count": None,
+            "detail_path_template": engine_detail_path_template(engine_id),
+            "error": "",
+        }
+        try:
+            ctx = build_context(user_id=_user_id())
+            engine = build_engine(engine_id, ctx=ctx, transport=_transport)
+            entry["capabilities"] = sorted(getattr(engine, "capabilities", []) or [])
+            page = await engine.list_datasets(page=1, page_size=1)
+            entry["kb_count"] = int(page.total)
+        except Exception as exc:  # noqa: BLE001 — R6：单引擎失败不拖垮目录
+            entry["error"] = str(exc)
+        entries.append(entry)
+    return entries
 
 
 @router.get("/models")

@@ -23,6 +23,7 @@ import type { FilePreviewSource } from "@/components/chat/preview/previewerFor";
 import {
   deleteDocuments,
   fetchDataset,
+  fetchEngineCatalog,
   fetchDocuments,
   fetchIngestionLogs,
   getDocument,
@@ -44,6 +45,8 @@ import {
   docIconFor,
   formatBytes,
   anyDocumentRunning,
+  detailTabsForCapabilities,
+  type EngineCatalogEntry,
   type KnowledgeDataset,
   type KnowledgeDocument,
   type KnowledgeIngestionLog,
@@ -69,17 +72,20 @@ const POLL_INTERVAL_MS = 4000;
 const SECTIONS = ["documents", "sources", "retrieval", "graph", "settings"] as const;
 type DetailSection = (typeof SECTIONS)[number];
 
-function normalizeSection(value: string | null): DetailSection {
-  return (SECTIONS as readonly string[]).includes(value ?? "") ? (value as DetailSection) : "documents";
+function normalizeSection(value: string | null, available: readonly DetailSection[]): DetailSection {
+  return (available as readonly string[]).includes(value ?? "")
+    ? (value as DetailSection)
+    : available[0];
 }
 
 export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }) {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const section = normalizeSection(searchParams.get("section"));
 
   const [dataset, setDataset] = useState<KnowledgeDataset | null>(null);
+  // P3 T12：引擎目录——驱动能力门（tab 裁剪）与页头引擎徽标
+  const [engineCatalog, setEngineCatalog] = useState<EngineCatalogEntry[] | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -93,6 +99,16 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const running = documents ? anyDocumentRunning(documents) : false;
+
+  // P3 T12：能力 → tab 裁剪（R7：单 in-KC 引擎下恒为全集，映射表单测兜底）
+  const engineCaps =
+    engineCatalog?.find(
+      (entry) =>
+        entry.engineId ===
+        (dataset?.engineId || engineCatalog.find((c) => c.isDefault)?.engineId),
+    )?.capabilities ?? null;
+  const availableSections = detailTabsForCapabilities(engineCaps) as DetailSection[];
+  const section = normalizeSection(searchParams.get("section"), availableSections);
 
   const switchSection = useCallback(
     (next: DetailSection) => {
@@ -203,6 +219,12 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         // 元数据解析失败不阻塞详情页——Settings 面板回落 loading 态
       });
   }, [datasetId]);
+
+  useEffect(() => {
+    fetchEngineCatalog()
+      .then(setEngineCatalog)
+      .catch(() => setEngineCatalog(null));
+  }, []);
 
   // P1-T5：服务端分页（page_size=50）+ 页内筛选（R2：先翻页再过滤）
   const [page, setPage] = useState(1);
@@ -350,6 +372,17 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       <KnowledgePageHeader
         icon={Database}
         title={dataset?.name || datasetId}
+        meta={
+          (() => {
+            const entry = engineCatalog?.find((item) => item.engineId === dataset?.engineId);
+            if (!entry || entry.isDefault) return null;
+            return (
+              <span className="rounded-md border border-[var(--border)] bg-[var(--muted)]/50 px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)]">
+                {entry.displayName}
+              </span>
+            );
+          })()
+        }
         description={t("Documents are parsed and indexed by Intellect RAG after upload.")}
         action={
           <div className="flex items-center gap-2">
@@ -383,7 +416,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       {/* P0-T1：下划线式 tab（对齐 DeepMentor KnowledgeBaseDetail）；面板常驻
           挂载以 hidden 切换，保住轮询/SSE/表单状态（P0 评审 R5） */}
       <div className="mb-4 flex gap-5 border-b border-[var(--border)]/60" role="tablist">
-        {SECTIONS.map((key) => (
+        {availableSections.map((key) => (
           <button
             key={key}
             type="button"
@@ -447,16 +480,16 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
         ) : null}
       </div>
 
-      <div className={section === "sources" ? "max-w-3xl" : "hidden"}>
+      <div className={availableSections.includes("sources") ? (section === "sources" ? "max-w-3xl" : "hidden") : "hidden"}>
         <GithubSourcePanel datasetId={datasetId} />
         <WebSourcePanel datasetId={datasetId} />
       </div>
 
-      <div className={section === "retrieval" ? "" : "hidden"}>
+      <div className={availableSections.includes("retrieval") ? (section === "retrieval" ? "" : "hidden") : "hidden"}>
         <RetrievalPlayground datasetId={datasetId} />
       </div>
 
-      <div className={section === "graph" ? "" : "hidden"}>
+      <div className={availableSections.includes("graph") ? (section === "graph" ? "" : "hidden") : "hidden"}>
         <KnowledgeGraphPanel datasetId={datasetId} />
       </div>
 

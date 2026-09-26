@@ -23,6 +23,7 @@ import httpx
 from .base import (
     CAP_CHAT_BINDING,
     CAP_DELETE,
+    CAP_GRAPH_INDEX,
     CAP_LOGS,
     CAP_MCP_BINDING,
     CAP_PREVIEW,
@@ -113,6 +114,7 @@ class IntellectRagEngine:
             CAP_PREVIEW,
             CAP_CHAT_BINDING,
             CAP_MCP_BINDING,
+            CAP_GRAPH_INDEX,
         }
     )
 

@@ -1391,6 +1391,11 @@
             "title": "Embedding Model",
             "type": "string"
           },
+          "engine_id": {
+            "default": "",
+            "title": "Engine Id",
+            "type": "string"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -8599,6 +8604,72 @@
           }
         },
         "summary": "Knowledge Preview Document",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/knowledge-center/engines": {
+      "get": {
+        "description": "引擎目录（P3 T12 12.1）：kb_count 为 best-effort（R6：单引擎失败置 null）。",
+        "operationId": "knowledge_engine_catalog_api_knowledge_center_engines_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Knowledge Engine Catalog Api Knowledge Center Engines Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Knowledge Engine Catalog",
         "tags": [
           "knowledge"
         ]

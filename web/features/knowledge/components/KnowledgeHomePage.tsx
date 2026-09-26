@@ -12,8 +12,13 @@ import {
   createDataset,
   deleteDataset,
   fetchDatasets,
+  fetchEngineCatalog,
 } from "../api";
-import type { KnowledgeDataset, KnowledgeVisibility } from "../model";
+import type {
+  EngineCatalogEntry,
+  KnowledgeDataset,
+  KnowledgeVisibility,
+} from "../model";
 import {
   KnowledgePageBody,
   KnowledgePageHeader,
@@ -59,6 +64,8 @@ export default function KnowledgeHomePage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeDataset | null>(null);
+  // P3 T12：引擎目录（首页引擎条 + 卡片徽标）
+  const [engineCatalog, setEngineCatalog] = useState<EngineCatalogEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -98,6 +105,14 @@ export default function KnowledgeHomePage() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    // 引擎目录：仅启用时拉取（未启用时导航入口已隐藏）
+    if (status && !status.enabled) return;
+    fetchEngineCatalog()
+      .then(setEngineCatalog)
+      .catch(() => setEngineCatalog(null));
+  }, [status]);
 
   const onDelete = async () => {
     if (!deleteTarget) return;
@@ -142,6 +157,42 @@ export default function KnowledgeHomePage() {
           ) : undefined
         }
       />
+
+      {engineCatalog != null && engineCatalog.length > 0 ? (
+        <section className="mb-5">
+          <h2 className="mb-2 text-[11.5px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+            {t("Knowledge engines")}
+          </h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {engineCatalog.map((entry) => (
+              <div
+                key={entry.engineId}
+                className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)]/60 bg-[var(--card)] px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-[var(--foreground)]">
+                    {entry.displayName}
+                  </p>
+                  <p className="text-[11.5px] text-[var(--muted-foreground)]">
+                    {entry.error
+                      ? entry.error
+                      : t("{{count}} knowledge bases", { count: entry.kbCount ?? 0 })}
+                  </p>
+                </div>
+                {entry.isDefault ? (
+                  <span className="shrink-0 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-700 dark:text-emerald-400">
+                    {t("Current engine")}
+                  </span>
+                ) : !entry.configured ? (
+                  <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-700 dark:text-amber-400">
+                    {t("Needs setup")}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {datasets != null && datasets.length === 0 && !errorText ? (
         <div className="rounded-xl border border-dashed border-[var(--border)]/70 bg-[var(--card)]/50 px-6 py-12 text-center">
@@ -217,6 +268,7 @@ export default function KnowledgeHomePage() {
           busy={busy}
           onCancel={() => setCreating(false)}
           onCreate={onCreate}
+          engineCatalog={engineCatalog}
           createVisibility={status?.create_visibility ?? "private"}
         />
       ) : null}
@@ -244,12 +296,15 @@ function CreateDatasetDialog({
   onCancel,
   onCreate,
   createVisibility,
+  engineCatalog,
 }: {
   busy: boolean;
   onCancel: () => void;
   onCreate: (form: { name: string; description: string; permission: "me" | "team" }) => void;
   /** 新建库实际会得到的可见范围（由后端按身份归因头推导） */
   createVisibility: KnowledgeVisibility;
+  /** P3 T12 12.3：引擎候选（未 configured 的引擎禁选并给出原因；T5 落地后非默认引擎分派其创建页） */
+  engineCatalog: EngineCatalogEntry[] | null;
 }) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
@@ -274,6 +329,42 @@ function CreateDatasetDialog({
         <h2 className="text-[15px] font-semibold text-[var(--foreground)]">
           {t("New knowledge base")}
         </h2>
+        {engineCatalog != null && engineCatalog.length > 0 ? (
+          <div className="mt-3" role="radiogroup" aria-label={t("Knowledge engine")}>
+            <span className="text-[12.5px] font-medium text-[var(--foreground)]">
+              {t("Knowledge engine")}
+            </span>
+            <div className="mt-1.5 grid grid-cols-1 gap-2">
+              {engineCatalog.map((entry, index) => {
+                const selected = index === 0;
+                return (
+                  <div
+                    key={entry.engineId}
+                    role="radio"
+                    aria-checked={selected}
+                    className={`rounded-lg border px-3 py-2 text-[12.5px] ${
+                      selected
+                        ? "border-[var(--primary)]/50 bg-[var(--primary)]/5 text-[var(--foreground)]"
+                        : "border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]"
+                    } ${entry.configured ? "" : "opacity-60"}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{entry.displayName}</span>
+                      {!entry.configured ? (
+                        <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] text-amber-700 dark:text-amber-400">
+                          {t("Needs setup")}
+                        </span>
+                      ) : null}
+                    </div>
+                    {!entry.configured && entry.error ? (
+                      <p className="mt-0.5 text-[11px] opacity-80">{entry.error}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <label className="mt-4 block text-[12.5px] font-medium text-[var(--foreground)]">
           {t("Name")}
           <input

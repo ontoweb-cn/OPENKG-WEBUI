@@ -17,6 +17,7 @@ import { ApiError } from "@/shared/api/errors";
 import {
   parseEmbeddingCheckResult,
   parseEmbeddingModelOptions,
+  parseEngineCatalog,
   parseIngestionLogs,
   parseKnowledgeChunks,
   parseKnowledgeDatasets,
@@ -27,6 +28,7 @@ import {
   parseSearchChunks,
   type EmbeddingCheckResult,
   type EmbeddingModelOption,
+  type EngineCatalogEntry,
   type KnowledgeChunk,
   type KnowledgeDataset,
   type KnowledgeDocument,
@@ -215,6 +217,15 @@ export async function stopParsing(
     `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/stop`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ document_ids: documentIds }) },
   );
+}
+
+// —— 引擎目录（P3 T12 12.1）——
+
+export async function fetchEngineCatalog(): Promise<EngineCatalogEntry[]> {
+  const payload = await requestKnowledge<unknown>("/api/knowledge-center/engines", {
+    cache: "no-store",
+  });
+  return parseEngineCatalog(payload);
 }
 
 // —— 嵌入模型兼容性检查（P3 T13'）——

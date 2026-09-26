@@ -38,6 +38,8 @@ class KnowledgeDataset(BaseModel):
     #: 不触碰 POST /embedding 重建触发器）
     embedding_model: str = ""
     created_at: str = ""
+    #: 所属引擎（路由层按 engine_id_for_dataset 附加；引擎出站形状不含）
+    engine_id: str = ""
 
 
 class DatasetPage(BaseModel):
