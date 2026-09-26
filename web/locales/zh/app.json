@@ -5058,5 +5058,9 @@
   "No knowledge graph yet. Build one from the parsed documents.": "还没有知识图谱。可基于已解析文档构建。",
   "Graph builds run on the server and may take a while; raptor builds a summary tree instead.": "图谱构建在服务端运行，可能耗时较长；raptor 构建的是摘要树。",
   "Build graph index": "构建图谱索引",
-  "Build raptor index": "构建 Raptor 索引"
+  "Build raptor index": "构建 Raptor 索引",
+  "Uploaded. Waiting for server…": "已上传，等待服务端处理…",
+  "{{percent}}%": "{{percent}}%",
+  "Graph index build failed": "图谱索引构建失败",
+  "Graph extraction requires a chat model on the RAG server; configure one and rebuild.": "图谱抽取需要 RAG 服务端配置对话模型；请先配置再重新构建。"
 }

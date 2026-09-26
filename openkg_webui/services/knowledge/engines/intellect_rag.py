@@ -213,7 +213,9 @@ class IntellectRagEngine:
             visibility=_dataset_visibility(row),
             document_count=int(row.get("document_count") or 0),
             chunk_count=int(row.get("chunk_count") or 0),
-            token_count=int(row.get("token_count") or 0),
+            # 上游列名是 token_num（token_count 恒缺——收尾批次 R2 定性为映射 bug）
+            token_count=int(row.get("token_num") or 0),
+            embedding_model=str(row.get("embedding_model") or ""),
             created_at=str(row.get("create_time") or ""),
         )
 

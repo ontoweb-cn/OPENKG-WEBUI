@@ -335,5 +335,9 @@
   "No knowledge graph yet. Build one from the parsed documents.": "No knowledge graph yet. Build one from the parsed documents.",
   "Graph builds run on the server and may take a while; raptor builds a summary tree instead.": "Graph builds run on the server and may take a while; raptor builds a summary tree instead.",
   "Build graph index": "Build graph index",
-  "Build raptor index": "Build raptor index"
+  "Build raptor index": "Build raptor index",
+  "Uploaded. Waiting for server…": "Uploaded. Waiting for server…",
+  "{{percent}}%": "{{percent}}%",
+  "Graph index build failed": "Graph index build failed",
+  "Graph extraction requires a chat model on the RAG server; configure one and rebuild.": "Graph extraction requires a chat model on the RAG server; configure one and rebuild."
 }

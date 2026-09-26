@@ -1,7 +1,7 @@
 # 知识中心 UI 对齐收尾批次：实施遗留小项（一）+ 降级中项（二）
 
 - 日期：2026-09-26
-- 状态：**评审通过（§三），实施中**
+- 状态：**已实施完成（2026-09-26）**——T-A/B/C/D/E 落地并 live 验证；T-F 两项关闭入档（见 §四）
 - 依据：[knowledge-center-ui-parity.md](knowledge-center-ui-parity.md) 遗留清单第一/二节；
   P0-P2 已交付。本批探针（2026-09-26，生产 ：8082 已载新代码 + 上游直探）：
 
@@ -102,3 +102,38 @@ XHR progress 只覆盖客户端→代理段；代理→上游转发无事件。U
 
 **通过**。R1 为方案修订（thumbnails→类型图标），R2 为 bug 定性，R3/R4 为口径，
 R5 为两条关闭。实施范围 = T-A/B/C/D/E 落码 + T-F 入档。
+
+## 四、实施记录（2026-09-26）
+
+**T-A**：engine `_dataset` 改读 `token_num`（真 bug——此前恒 0）+ 域模型增加
+`embedding_model`；前端 parser 修正为读域字段 `created_at`（**第二个叠加 bug**：
+此前读上游列名 `create_time`，T3 契约下恒空——"创建时间 —"的真根因）；新增
+`formatEpochMillis`（epoch ms → "YYYY-MM-DD HH:mm"）；Settings 面板加"嵌入模型"行。
+live：Token 数 75 KB、创建 2026-08-28 08:00、嵌入模型 qwen3-embedding-4b@GPUStack
+全部如实显示。
+
+**T-B**：GraphPanel 按实测任务形状判定终态——`progress < 0` = 失败（停止轮询），
+展示 progress_msg 尾部（含上游 `[ERROR]` 日志）+ 重建按钮 + "需在 RAG 服务端配置
+对话模型"提示。live：此前的真实失败任务正确呈现为失败终态、无无限轮询。
+真实构建→画布闭环与 mind_map 渲染：**defer（上游未配置 LLM，环境阻塞）**——
+用户在 rag-app 配置 LLM 后点击"构建图谱索引"即可走通，UI 路径已就绪。
+
+**T-C**：`getDocument`（既有单文档端点）+ `?file=` 深链——当前页命中即开，
+否则端点兜底；打开/关闭同步 URL 参数，深链目标不存在时静默清参。
+live：`?file=<docId>` 直开预览抽屉通过。
+
+**T-D**：`uploadDocumentWithProgress`（XHR `upload.onprogress`，浏览器→代理段
+字节进度）+ UploadDropzone 改为自管提交：逐文件顺序上传、每行进度条（100% 后
+显示"已上传，等待服务端处理…"，R4 口径）、失败行内报错、提交中禁用移除/清空。
+zip 保持结构化端点（直接"服务端处理中"）。live：暂存→上传→列表刷新闭环通过。
+
+**T-E**：`docIconFor`（扩展名→语义色徽标：PDF 红/DOCX 蓝/MD 紫/图片紫红/ZIP 橙/
+其余灰）接入文档表 Name 列。live：MD/PDF 徽标渲染通过。
+
+**T-F 关闭入档**：item 6（主从树+文件夹操作——上游 files 域与 KB 文档域独立，
+无文档移动/建夹 API）；item 9（全库分块搜索——上游 POST chunks 为批量创建非搜索，
+语义检索已覆盖）。
+
+**验证**：后端 pytest 59 项 + ruff 全绿；前端 typecheck / lint（0 错误）/ vitest 67 /
+node 693 / 契约双门全绿；live：元数据三项、深链、图谱失败终态、上传闭环、类型
+图标全部通过。测试上传文档已删除，联调测试库无残留。

@@ -11,7 +11,7 @@
  * Content-Type，fetch 自动带 boundary）。
  */
 
-import { requestJson } from "@/shared/api/client";
+import { apiUrl, requestJson } from "@/shared/api/client";
 import { ApiError } from "@/shared/api/errors";
 
 import {
@@ -19,6 +19,7 @@ import {
   parseKnowledgeChunks,
   parseKnowledgeDatasets,
   parseKnowledgeDocuments,
+  parseKnowledgeDocument,
   parseKnowledgeGraph,
   parseKnowledgePreferences,
   parseSearchChunks,
@@ -134,18 +135,49 @@ export async function fetchDocuments(
   return parseKnowledgeDocuments(payload);
 }
 
-export async function uploadDocuments(
+/**
+ * 单文件上传（XHR：`upload.onprogress` 提供浏览器→代理段的字节进度——
+ * 大文件的主要耗时段。代理→上游转发无事件，100% 后为"服务端处理中"。
+ * XHR 不走 requestJson 的 401 重定向（上传中断开登录属边缘场景，错误原样抛出）。
+ */
+export function uploadDocumentWithProgress(
   datasetId: string,
-  files: File[],
+  file: File,
+  onProgress: (percent: number) => void,
 ): Promise<void> {
-  const form = new FormData();
-  // 上游 document_api 读 files.getlist("file")——字段名单数（评审 R-1）
-  for (const file of files) form.append("file", file, file.name);
-  form.append("type", "local");
-  await requestJson<unknown>(
-    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents`,
-    { method: "POST", body: form, scope: "knowledge" },
-  );
+  return new Promise<void>((resolve, reject) => {
+    const form = new FormData();
+    // 上游 document_api 读 files.getlist("file")——字段名单数（评审 R-1）
+    form.append("file", file, file.name);
+    form.append("type", "local");
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      apiUrl(`/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents`),
+    );
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(100);
+        resolve();
+        return;
+      }
+      let detail = `HTTP ${xhr.status}`;
+      try {
+        const parsed = JSON.parse(xhr.responseText) as { detail?: unknown };
+        if (typeof parsed.detail === "string" && parsed.detail) detail = parsed.detail;
+      } catch {
+        /* 非 JSON 错误体，保留状态码 */
+      }
+      reject(new Error(detail));
+    };
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.send(form);
+  });
 }
 
 export async function deleteDocuments(
@@ -180,6 +212,24 @@ export async function stopParsing(
 }
 
 // —— 文档预览（P0-T2）——
+
+/**
+ * 单文档获取（P1 收尾 T-C：`?file=` 深链的兜底解析——文档不在当前页时仍可
+ * 打开预览。端点已存在：knowledge.py 单文档 GET）。
+ */
+export async function getDocument(
+  datasetId: string,
+  documentId: string,
+): Promise<KnowledgeDocument | null> {
+  const payload = await requestKnowledge<unknown>(
+    `/api/knowledge-center/datasets/${encodeURIComponent(datasetId)}/documents/${encodeURIComponent(documentId)}`,
+    { cache: "no-store" },
+  );
+  const row = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const inner = (row.document ?? row) as Record<string, unknown>;
+  const doc = parseKnowledgeDocument(inner);
+  return doc.id ? doc : null;
+}
 
 /**
  * 文档原始字节流地址（app 相对路径；直接取用时经 apiUrl() 套部署前缀）。

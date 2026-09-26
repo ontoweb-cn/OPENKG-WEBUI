@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { fetchKnowledgePreferences, putKnowledgePreferences, updateDataset } from "../api";
 import {
   formatBytes,
+  formatEpochMillis,
   type KnowledgeDataset,
   type KnowledgeVisibility,
 } from "../model";
@@ -136,6 +137,8 @@ export default function KnowledgeDatasetSettingsPanel({
         <dl className="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-[12.5px]">
           <dt className="text-[var(--muted-foreground)]">{t("Visibility")}</dt>
           <dd className="text-[var(--foreground)]">{visibilityLabel[dataset.visibility]}</dd>
+          <dt className="text-[var(--muted-foreground)]">{t("Embedding model")}</dt>
+          <dd className="text-[var(--foreground)]">{dataset.embeddingModel || "—"}</dd>
           <dt className="text-[var(--muted-foreground)]">{t("Documents")}</dt>
           <dd className="text-[var(--foreground)]">{dataset.documentCount}</dd>
           <dt className="text-[var(--muted-foreground)]">{t("Chunks")}</dt>
@@ -145,7 +148,9 @@ export default function KnowledgeDatasetSettingsPanel({
             {dataset.tokenCount > 0 ? formatBytes(dataset.tokenCount) : "—"}
           </dd>
           <dt className="text-[var(--muted-foreground)]">{t("Created")}</dt>
-          <dd className="text-[var(--foreground)]">{dataset.createdAt || "—"}</dd>
+          <dd className="text-[var(--foreground)]">
+            {formatEpochMillis(dataset.createdAt) || "—"}
+          </dd>
         </dl>
       </section>
 

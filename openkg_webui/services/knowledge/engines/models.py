@@ -34,6 +34,9 @@ class KnowledgeDataset(BaseModel):
     document_count: int = 0
     chunk_count: int = 0
     token_count: int = 0
+    #: 上游 embedding_model（dataset 行内列；D8 谨慎项的闭环——只读展示，
+    #: 不触碰 POST /embedding 重建触发器）
+    embedding_model: str = ""
     created_at: str = ""
 
 

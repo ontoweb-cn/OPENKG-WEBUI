@@ -71,15 +71,20 @@ export default function KnowledgeGraphPanel({ datasetId }: { datasetId: string }
   }, [load, reloadTick]);
 
   const hasGraph = (graph?.nodes.length ?? 0) > 0;
-  // R4：status 非空即视为有任务信息——图未就绪且状态非空 → 轮询
-  const hasStatus = status != null && Object.keys(status).length > 0;
-  const polling = !hasGraph && hasStatus;
+  // 实测任务形状：{progress(-1=失败/0-1=进行), progress_msg, begin_at, …}。
+  // progress<0 为失败终态——停止轮询，展示错误与重建入口（收尾批次 T-B/R3）。
+  const taskProgress = status != null ? Number((status as Record<string, unknown>).progress) : NaN;
+  const failed =
+    !hasGraph && status != null && Object.keys(status).length > 0 && taskProgress < 0;
+  const indexRunning = !hasGraph && !failed && status != null && Object.keys(status).length > 0;
+  const progressMsg = String((status as Record<string, unknown>)?.progress_msg ?? "");
+  const msgTail = progressMsg.split("\n").slice(-3).join("\n");
 
   useEffect(() => {
-    if (!polling) return;
+    if (!indexRunning) return;
     const timer = setInterval(() => setReloadTick((value) => value + 1), POLL_MS);
     return () => clearInterval(timer);
-  }, [polling]);
+  }, [indexRunning]);
 
   // 画布：数据就绪时渲染（数据变化重建）
   useEffect(() => {
@@ -209,12 +214,38 @@ export default function KnowledgeGraphPanel({ datasetId }: { datasetId: string }
           </div>
           <div ref={containerRef} className="h-[480px] w-full" />
         </div>
-      ) : polling ? (
+      ) : failed ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-6 py-8 text-center">
+          <p className="flex items-center justify-center gap-1.5 text-[13px] text-destructive">
+            <AlertTriangle size={14} />
+            {t("Graph index build failed")}
+          </p>
+          {msgTail ? (
+            <pre className="mx-auto mt-3 max-w-lg overflow-x-auto rounded bg-[var(--muted)]/30 p-2 text-left font-mono text-[11px] text-[var(--muted-foreground)]">
+              {msgTail}
+            </pre>
+          ) : null}
+          <p className="mt-3 text-[11.5px] text-[var(--muted-foreground)]">
+            {t("Graph extraction requires a chat model on the RAG server; configure one and rebuild.")}
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            loading={building}
+            onClick={() => onBuild("graph")}
+          >
+            {t("Build graph index")}
+          </Button>
+        </div>
+      ) : indexRunning ? (
         <div className="rounded-xl border border-dashed border-[var(--border)]/70 bg-[var(--card)]/50 px-6 py-10 text-center">
           <p className="text-[13px] text-[var(--foreground)]">{t("Graph index is building…")}</p>
-          <pre className="mx-auto mt-3 max-w-md overflow-x-auto rounded bg-[var(--muted)]/30 p-2 text-left font-mono text-[11px] text-[var(--muted-foreground)]">
-            {JSON.stringify(status, null, 2).slice(0, 400)}
-          </pre>
+          {msgTail ? (
+            <pre className="mx-auto mt-3 max-w-lg overflow-x-auto rounded bg-[var(--muted)]/30 p-2 text-left font-mono text-[11px] text-[var(--muted-foreground)]">
+              {msgTail}
+            </pre>
+          ) : null}
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-[var(--border)]/70 bg-[var(--card)]/50 px-6 py-10 text-center">

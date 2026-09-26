@@ -41,6 +41,9 @@ export interface KnowledgeDataset {
   documentCount: number;
   chunkCount: number;
   tokenCount: number;
+  /** 上游 embedding 模型名（只读展示） */
+  embeddingModel: string;
+  /** 上游 create_time（epoch 毫秒串） */
   createdAt: string;
 }
 
@@ -65,7 +68,10 @@ export function parseKnowledgeDataset(raw: unknown): KnowledgeDataset {
     documentCount: num(row.document_count),
     chunkCount: num(row.chunk_count),
     tokenCount: num(row.token_count),
-    createdAt: text(row.create_time),
+    // 后端域字段是 created_at（T3 收口）；create_time 是上游列名——
+    // 此前读错侧导致创建时间恒为空（收尾批次 R2）
+    createdAt: text(row.created_at) || text(row.create_time),
+    embeddingModel: text(row.embedding_model),
   };
 }
 
@@ -302,4 +308,44 @@ export function formatBytes(size: number): string {
     unit += 1;
   }
   return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** 上游 create_time（epoch 毫秒串）→ 本地 "YYYY-MM-DD HH:mm"；无效输入原样返回。 */
+export function formatEpochMillis(raw: string): string {
+  if (!raw) return "";
+  const millis = Number(raw);
+  if (!Number.isFinite(millis) || millis <= 0) return raw;
+  const date = new Date(millis);
+  if (Number.isNaN(date.getTime())) return raw;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** 文档类型图标（扩展名 → 语义色徽标文本）；对齐 DeepMentor docIconFor 的概念。 */
+export function docIconFor(name: string): { label: string; className: string } {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : "";
+  const table: Record<string, { label: string; className: string }> = {
+    pdf: { label: "PDF", className: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30" },
+    doc: { label: "DOC", className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30" },
+    docx: { label: "DOCX", className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/30" },
+    ppt: { label: "PPT", className: "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/30" },
+    pptx: { label: "PPTX", className: "bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-500/30" },
+    xls: { label: "XLS", className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" },
+    xlsx: { label: "XLSX", className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" },
+    csv: { label: "CSV", className: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30" },
+    md: { label: "MD", className: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30" },
+    png: { label: "IMG", className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/30" },
+    jpg: { label: "IMG", className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/30" },
+    jpeg: { label: "IMG", className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/30" },
+    svg: { label: "SVG", className: "bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/30" },
+    zip: { label: "ZIP", className: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30" },
+    txt: { label: "TXT", className: "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]" },
+  };
+  return (
+    table[ext] ?? {
+      label: ext.slice(0, 4).toUpperCase() || "FILE",
+      className: "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]",
+    }
+  );
 }

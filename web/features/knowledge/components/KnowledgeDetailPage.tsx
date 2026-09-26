@@ -25,12 +25,13 @@ import {
   fetchDataset,
   fetchDocuments,
   fetchIngestionLogs,
+  getDocument,
   logsStreamUrl,
   parseDocuments,
   previewUrl,
   searchDataset,
   stopParsing,
-  uploadDocuments,
+  uploadDocumentWithProgress,
   uploadStructured,
 } from "../api";
 import ChunkListPanel from "./ChunkListPanel";
@@ -40,6 +41,7 @@ import ParseTasksPanel from "./ParseTasksPanel";
 import WebSourcePanel from "./WebSourcePanel";
 import KnowledgeDatasetSettingsPanel from "./KnowledgeDatasetSettingsPanel";
 import {
+  docIconFor,
   formatBytes,
   anyDocumentRunning,
   type KnowledgeDataset,
@@ -94,10 +96,73 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
 
   const switchSection = useCallback(
     (next: DetailSection) => {
-      router.replace(`?section=${next}`, { scroll: false });
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("file");
+      params.set("section", next);
+      router.replace(`?${params.toString()}`, { scroll: false });
     },
-    [router],
+    [router, searchParams],
   );
+
+  // P1 收尾 T-C：?file= 预览深链——当前页命中即开，否则单文档端点兜底
+  const fileParam = searchParams.get("file");
+  const openPreview = useCallback(
+    (doc: KnowledgeDocument) => {
+      setPreviewSource({
+        filename: doc.name,
+        url: previewUrl(doc.id),
+        size: doc.size,
+        id: doc.id,
+      });
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("file", doc.id);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+
+  const closePreview = useCallback(() => {
+    setPreviewSource(null);
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.get("file")) {
+      params.delete("file");
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, [router, searchParams]);
+
+  useEffect(() => {
+    if (!fileParam || previewSource) return;
+    const local = (documents ?? []).find((doc) => doc.id === fileParam);
+    if (local) {
+      setPreviewSource({
+        filename: local.name,
+        url: previewUrl(local.id),
+        size: local.size,
+        id: local.id,
+      });
+      return;
+    }
+    let cancelled = false;
+    getDocument(datasetId, fileParam)
+      .then((doc) => {
+        if (cancelled || !doc) return;
+        setPreviewSource({
+          filename: doc.name,
+          url: previewUrl(doc.id),
+          size: doc.size,
+          id: doc.id,
+        });
+      })
+      .catch(() => {
+        // 深链文档不存在/无权——静默清除参数
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete("file");
+        router.replace(`?${params.toString()}`, { scroll: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileParam, documents, previewSource, datasetId, router, searchParams]);
 
   // T3：解析进行中时订阅代理 SSE 日志流；非 JSON/错误帧静默忽略，
   // 断开自动回退到文档列表轮询。
@@ -185,26 +250,10 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
     [load],
   );
 
-  const onUpload = async (fileList: FileList | File[] | null) => {
-    if (!fileList || fileList.length === 0) return;
-    setUploading(true);
-    setError(null);
-    try {
-      // zip 走结构化端点（代理解包，D1）；其余走多文件直传
-      const files = Array.from(fileList);
-      const zips = files.filter((f) => f.name.toLowerCase().endsWith(".zip"));
-      const plain = files.filter((f) => !f.name.toLowerCase().endsWith(".zip"));
-      if (plain.length) await uploadDocuments(datasetId, plain);
-      for (const zf of zips) {
-        await uploadStructured(datasetId, [{ file: zf }]);
-      }
-      if (plain.length || zips.length) await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setUploading(false);
-    }
-  };
+  // P1 收尾 T-D：上传执行移入 UploadDropzone（逐文件 XHR 进度）；父层仅提供刷新
+  const refreshAfterUpload = useCallback(async () => {
+    await load();
+  }, [load]);
 
   const onUploadFolder = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -353,7 +402,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       </div>
 
       <div className={section === "documents" ? "" : "hidden"}>
-        <UploadDropzone uploading={uploading} onUpload={onUpload} />
+        <UploadDropzone datasetId={datasetId} onUploaded={refreshAfterUpload} />
         <ParseTasksPanel
           datasetId={datasetId}
           documents={documents}
@@ -373,14 +422,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
           busy={busy}
           onRequestDelete={(ids) => setDeleteIds(ids)}
           onReparse={onReparse}
-          onOpenPreview={(doc) =>
-            setPreviewSource({
-              filename: doc.name,
-              url: previewUrl(doc.id),
-              size: doc.size,
-              id: doc.id,
-            })
-          }
+          onOpenPreview={openPreview}
           onOpenChunks={setChunkDoc}
         />
         <PagePager
@@ -440,7 +482,7 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
       <FilePreviewDrawer
         open={previewSource !== null}
         source={previewSource}
-        onClose={() => setPreviewSource(null)}
+        onClose={closePreview}
       />
 
       <ChunkListPanel datasetId={datasetId} doc={chunkDoc} onClose={() => setChunkDoc(null)} />
@@ -449,21 +491,29 @@ export default function KnowledgeDetailPage({ datasetId }: { datasetId: string }
 }
 
 /**
- * 拖放上传区（P0-T3）：拖放/点击选择 → 预校验摘要（去重、扩展名提示、
- * 单文件移除）→ 确认上传。文件夹上传仍走页头按钮（webkitdirectory 直传）。
+ * 拖放上传区（P0-T3 → P1 收尾 T-D）：拖放/点击选择 → 预校验摘要 → 确认上传。
+ * 普通文件走逐文件 XHR（进度条，R4 口径：100% = 浏览器→代理完成，随后"服务端
+ * 处理中"）；zip 走结构化端点（无单文件事件，直接"服务端处理中"）。文件夹上传
+ * 仍走页头按钮（webkitdirectory 直传）。
  */
+const uploadKey = (file: File) => `${file.name}\u0000${file.size}`;
+
 function UploadDropzone({
-  uploading,
-  onUpload,
+  datasetId,
+  onUploaded,
 }: {
-  uploading: boolean;
-  onUpload: (files: File[] | null) => void;
+  datasetId: string;
+  onUploaded: () => void | Promise<void>;
 }) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const [staged, setStaged] = useState<PrecheckItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  /** key → 进度：0-99 上传中，100 = 已上传待服务端处理 */
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [error, setError] = useState<string | null>(null);
 
   const stageFiles = (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
@@ -472,10 +522,31 @@ function UploadDropzone({
     setStaged(precheckUploadFiles(merged));
   };
 
-  const submit = () => {
-    if (staged.length === 0) return;
-    onUpload(staged.map((item) => item.file));
-    setStaged([]);
+  const submit = async () => {
+    if (staged.length === 0 || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const files = staged.map((item) => item.file);
+      const zips = files.filter((f) => f.name.toLowerCase().endsWith(".zip"));
+      const plain = files.filter((f) => !f.name.toLowerCase().endsWith(".zip"));
+      for (const file of plain) {
+        await uploadDocumentWithProgress(datasetId, file, (percent) => {
+          setProgress((prev) => ({ ...prev, [uploadKey(file)]: percent }));
+        });
+      }
+      for (const zip of zips) {
+        setProgress((prev) => ({ ...prev, [uploadKey(zip)]: 100 }));
+        await uploadStructured(datasetId, [{ file: zip }]);
+      }
+      setStaged([]);
+      await onUploaded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+      setProgress({});
+    }
   };
 
   return (
@@ -540,26 +611,31 @@ function UploadDropzone({
               {t("{{count}} files selected", { count: staged.length })}
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setStaged([])}>
+              <Button variant="ghost" size="sm" disabled={submitting} onClick={() => setStaged([])}>
                 {t("Clear")}
               </Button>
               <Button
                 variant="primary"
                 size="sm"
                 icon={<FileUp size={13} />}
-                loading={uploading}
-                onClick={submit}
+                loading={submitting}
+                onClick={() => void submit()}
               >
                 {t("Upload {{count}} files", { count: staged.length })}
               </Button>
             </div>
           </div>
-          <ul className="mt-2 max-h-44 space-y-1 overflow-y-auto">
-            {staged.map((item) => (
-              <li
-                key={`${item.file.name}-${item.file.size}`}
-                className="flex items-center gap-2 text-[12px]"
-              >
+          {error ? <p className="mt-2 text-[12.5px] text-destructive">{error}</p> : null}
+          <ul className="mt-2 max-h-44 space-y-1.5 overflow-y-auto">
+            {staged.map((item) => {
+              const key = uploadKey(item.file);
+              const percent = progress[key];
+              return (
+            <li
+              key={key}
+              className="text-[12px]"
+            >
+              <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">
                   {item.file.name}
                 </span>
@@ -578,7 +654,8 @@ function UploadDropzone({
                 <button
                   type="button"
                   aria-label={t("Remove")}
-                  className="shrink-0 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  className="shrink-0 text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:opacity-40"
+                  disabled={submitting}
                   onClick={() =>
                     setStaged((prev) =>
                       prev.filter((candidate) => candidate.file !== item.file),
@@ -587,8 +664,23 @@ function UploadDropzone({
                 >
                   <X size={13} />
                 </button>
-              </li>
-            ))}
+              </div>
+              {percent != null ? (
+                <div className="mt-1">
+                  <div className="h-1 overflow-hidden rounded-full bg-[var(--muted)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--primary)] transition-all"
+                      style={{ width: `${Math.max(4, percent)}%` }}
+                    />
+                  </div>
+                  <p className="mt-0.5 text-right text-[10.5px] text-[var(--muted-foreground)]">
+                    {percent >= 100 ? t("Uploaded. Waiting for server…") : t("{{percent}}%", { percent })}
+                  </p>
+                </div>
+              ) : null}
+            </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}
@@ -862,13 +954,25 @@ function GroupRows({
             />
           </td>
           <td className="max-w-72 truncate px-2 py-2.5" title={doc.location}>
-            <button
-              type="button"
-              className="truncate text-left text-[var(--foreground)] underline-offset-2 hover:underline"
-              onClick={() => onOpenPreview(doc)}
-            >
-              {doc.name}
-            </button>
+            <div className="flex items-center gap-2">
+              {(() => {
+                const icon = docIconFor(doc.name);
+                return (
+                  <span
+                    className={`shrink-0 rounded border px-1 py-0.5 text-[9px] font-semibold leading-none ${icon.className}`}
+                  >
+                    {icon.label}
+                  </span>
+                );
+              })()}
+              <button
+                type="button"
+                className="truncate text-left text-[var(--foreground)] underline-offset-2 hover:underline"
+                onClick={() => onOpenPreview(doc)}
+              >
+                {doc.name}
+              </button>
+            </div>
           </td>
           <td className="px-2 py-2.5">
             <RunBadge run={doc.run} progress={doc.progress} />
