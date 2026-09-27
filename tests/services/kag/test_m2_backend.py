@@ -322,6 +322,13 @@ def test_settings_kag_put_roundtrip_behind_frontend_proxy(
         "openkg_webui.services.config.runtime_settings.load_system_settings",
         lambda: service.load_system(),
     )
+    # 「空 key = 保留已存值」的回退（update_kag_domain）走的是 kag 模块的
+    # get_kag_settings()——它读单例、指向真实 data/，与上面的隔离 service 无关；
+    # 不 patch 的话，宿主机一旦配好 bridge_api_key，下面的断言必然失败。
+    monkeypatch.setattr(
+        "openkg_webui.services.kag.get_kag_settings",
+        lambda: service.load_system().get("kag", {}),
+    )
     client = TestClient(api_main.app)
     proxy_headers = {
         # 浏览器经前端:8092 发起，Next rewrite 转发后 Host=testserver，
