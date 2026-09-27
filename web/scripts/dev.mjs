@@ -52,7 +52,16 @@ const nodeOptions = /--max[-_]old[-_]space[-_]size/.test(inherited)
       Math.floor(memoryBudgetMB() * 0.5),
     )}`.trim();
 
-const child = spawn(process.execPath, [NEXT_BIN, "dev", ...process.argv.slice(2)], {
+// A bare `npm run dev` must land on the port the app declares (8092, matching
+// system.json `frontend_port`) instead of Next's implicit 3000, so both entry
+// points agree. An explicit --port/-p from the caller always wins — the launcher
+// passes one, and it must keep overriding this default.
+const DEFAULT_PORT = 8092;
+const forwarded = process.argv.slice(2);
+const portGiven = forwarded.some((arg) => /^--port(=|$)|^-p(=|$|\d)/.test(arg));
+const devArgs = portGiven ? forwarded : [...forwarded, "--port", String(DEFAULT_PORT)];
+
+const child = spawn(process.execPath, [NEXT_BIN, "dev", ...devArgs], {
   cwd: WEB_DIR,
   stdio: "inherit",
   env: { ...process.env, NODE_OPTIONS: nodeOptions },
