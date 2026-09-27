@@ -3,7 +3,8 @@ name = "kag-bridge"
 version = "0.1.0"
 description = "KAG Bridge — MCP server exposing KAG reasoning as agent-loop tools (KAGWeb integration, design docs/kag-integration-design.md §5.1/附录 A)"
 requires-python = ">=3.10"
-dependencies = ["mcp>=1.23", "uvicorn>=0.30"]
+# mcp 2.x 将 FastMCP 改名 MCPServer（server.py 用 v1 API），故钉 <2
+dependencies = ["mcp>=1.23,<2", "uvicorn>=0.30"]
 
 [project.optional-dependencies]
 # KAG 运行时（重依赖，按需安装；本地开发可用源码 venv）
