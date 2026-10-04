@@ -117,9 +117,9 @@ def detect_cli(
     resolved, via_fallback = resolve_cli_command(command, command_paths)
     if resolved:
         detail = resolved
-    elif (
-        os.path.sep in command or (os.altsep and os.altsep in command)
-    ) and os.path.exists(command):
+    elif (os.path.sep in command or (os.altsep and os.altsep in command)) and os.path.exists(
+        command
+    ):
         # An absolute path that is there but cannot run: "not found" would
         # send the operator chasing the wrong fix.
         detail = f"'{command}' exists but is not executable"

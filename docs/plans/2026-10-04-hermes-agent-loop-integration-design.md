@@ -114,31 +114,35 @@ AgentLoopPreset(
     description="Nous Research Hermes: a local `hermes-acp` child, or a remote gateway /v1/runs service.",
     transports=(
         AgentLoopTransport(
-            id="acp", family="cli", label="Local CLI (ACP)",
+            id="acp",
+            family="cli",
+            label="Local CLI (ACP)",
             description="Runs `hermes-acp` on this host: streaming text, thinking, tool calls "
-                        "and approvals. The loop runs as a local process with the server's "
-                        "privileges. Answer approvals promptly: Hermes denies pending "
-                        "requests after its own approvals.timeout (300s by default). "
-                        "Per-turn model selection is not available on this "
-                        "transport; set the model with `hermes model`. After the agent "
-                        "process restarts, the conversation continues from OPENKG-WebUI's "
-                        "bounded history fold.",
+            "and approvals. The loop runs as a local process with the server's "
+            "privileges. Answer approvals promptly: Hermes denies pending "
+            "requests after its own approvals.timeout (300s by default). "
+            "Per-turn model selection is not available on this "
+            "transport; set the model with `hermes model`. After the agent "
+            "process restarts, the conversation continues from OPENKG-WebUI's "
+            "bounded history fold.",
             command="hermes-acp",
-            translator="",            # ACP 传输自带翻译
+            translator="",  # ACP 传输自带翻译
             cli_transport="acp",
-            per_turn_model=False,      # §8-2：显式声明不支持
-            native_resume=False,       # §5.3：新字段，绕过 §8-1
+            per_turn_model=False,  # §8-2：显式声明不支持
+            native_resume=False,  # §5.3：新字段，绕过 §8-1
             # 检测回退路径（新字段，见 §5.4）；顺序=优先级
             command_paths=(
-                "~/.local/bin/hermes-acp",          # 现行安装器/updater 的 launcher 位置
+                "~/.local/bin/hermes-acp",  # 现行安装器/updater 的 launcher 位置
                 "/usr/local/bin/hermes-acp",
                 "$HERMES_HOME/hermes-agent/venv/bin/hermes-acp",  # 旧源码安装；$HERMES_HOME 未设时按 ~/.hermes 展开
             ),
         ),
         AgentLoopTransport(
-            id="http", family="http", label="HTTP service (/v1/runs)",
+            id="http",
+            family="http",
+            label="HTTP service (/v1/runs)",
             description="Hermes gateway api_server (API_SERVER_ENABLED + API_SERVER_KEY in "
-                        "~/.hermes/.env). Supports per-turn model, approvals and cancellation.",
+            "~/.hermes/.env). Supports per-turn model, approvals and cancellation.",
             turn_path="/v1/runs",
             protocol="runs",
             probe_url="http://127.0.0.1:8642/health",

@@ -137,6 +137,9 @@ jobs:
           python -c "from openkg_webui.api.routers.unified_ws import unified_websocket; print('✅ Unified WS imports OK')"
           python -c "from openkg_webui.services.prompt.manager import PromptManager; print('✅ Prompt manager imports OK')"
         env:
+          # The ✅/🐍 markers above crash print() on windows-latest's cp1252
+          # stdout after a SUCCESSFUL import — the check itself passed.
+          PYTHONIOENCODING: utf-8
           PYTHONPATH: ${{ github.workspace }}
 
   python-tests:

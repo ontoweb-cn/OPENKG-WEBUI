@@ -478,7 +478,12 @@ class ChatCapability(TurnCapability):
             delivered = await backend.respond_approval(request_id, choice)
         await stream.progress(
             (
-                t("agent_loop.approval_decision_ignored", tool=tool, choice=choice, language=language)
+                t(
+                    "agent_loop.approval_decision_ignored",
+                    tool=tool,
+                    choice=choice,
+                    language=language,
+                )
                 if not delivered
                 else t("agent_loop.approval_decision", tool=tool, choice=choice, language=language)
             ),

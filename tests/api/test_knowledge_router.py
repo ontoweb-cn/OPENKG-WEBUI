@@ -279,9 +279,7 @@ def test_update_dataset_roundtrip_reads_back(
 
 def test_update_dataset_validations(proxy: TestClient) -> None:
     """空 body / 空白 name 在本层 400，不触达上游。"""
-    empty = proxy.put(
-        f"{_K}/datasets/kb1", json={}, headers={"origin": "http://testserver"}
-    )
+    empty = proxy.put(f"{_K}/datasets/kb1", json={}, headers={"origin": "http://testserver"})
     assert empty.status_code == 400
     blank = proxy.put(
         f"{_K}/datasets/kb1", json={"name": "   "}, headers={"origin": "http://testserver"}
@@ -880,9 +878,7 @@ def test_embedding_models_filters_by_type(
     assert names == ["qwen3-embedding-4b@default@GPUStack"]
 
 
-def test_check_embedding_compatible(
-    proxy: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_check_embedding_compatible(proxy: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
