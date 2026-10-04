@@ -1,6 +1,6 @@
 {
   "name": "openkg-webui-web",
-  "version": "1.0.0",
+  "version": "0.2.3",
   "private": true,
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
