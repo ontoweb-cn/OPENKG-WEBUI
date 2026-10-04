@@ -65,9 +65,7 @@ def test_chat_needs_the_agent_backend_when_one_is_configured(monkeypatch) -> Non
     _patch_settings(
         monkeypatch,
         {
-            "profiles": [
-                {"id": "p", "preset": "hermes", "transport": "http", "enabled": True}
-            ],
+            "profiles": [{"id": "p", "preset": "hermes", "transport": "http", "enabled": True}],
             "primary": "p",
         },
     )
@@ -400,9 +398,7 @@ async def test_an_http_backend_needs_no_cli_grant(tmp_path, monkeypatch) -> None
     _patch_agent_loop(
         monkeypatch,
         {
-            "profiles": [
-                {"id": "p", "preset": "hermes", "transport": "http", "enabled": True}
-            ],
+            "profiles": [{"id": "p", "preset": "hermes", "transport": "http", "enabled": True}],
             "primary": "p",
         },
     )

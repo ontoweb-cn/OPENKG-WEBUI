@@ -271,7 +271,11 @@ async def get_knowledge_selection(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     # store.get_session 返回 dict（评审修复：此前 getattr 对 dict 恒取 None，
     # 跨刷新回填永远为空）
-    prefs = session.get("preferences", {}) if isinstance(session, dict) else getattr(session, "preferences", None) or {}
+    prefs = (
+        session.get("preferences", {})
+        if isinstance(session, dict)
+        else getattr(session, "preferences", None) or {}
+    )
     kb_ids = prefs.get("knowledge_base_ids") if isinstance(prefs, dict) else None
     return {"kb_ids": [str(x) for x in kb_ids] if isinstance(kb_ids, list) else []}
 

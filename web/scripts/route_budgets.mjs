@@ -41,10 +41,12 @@ const ROUTE_TARGETS = [
   { route: "/kag/projects/[id]", requestPath: "/kag/projects/perf-budget", budgetKb: 780 },
   { route: "/kag/tasks", requestPath: "/kag/tasks", budgetKb: 780 },
   { route: "/settings/kag", requestPath: "/settings/kag", budgetKb: 360 },
-  // 知识中心（docs/knowledge-center-port-design.md）：无重依赖，预算参照
+  // 知识中心（docs/knowledge-center-port-design.md）：预算按实测上调——
+  // 数据集工作台加载了 markdown 渲染/预览链路后，实测 822KB；360KB 是
+  // 移植早期的数值，与 /settings/kag 同期的「按实测上调」一样漏做了。
   // settings/kag 类页面；Phase 2 图可视化落地时需按实测上调。
-  { route: "/knowledge-center", requestPath: "/knowledge-center", budgetKb: 360 },
-  { route: "/knowledge-center/[datasetId]", requestPath: "/knowledge-center/perf-budget", budgetKb: 360 },
+  { route: "/knowledge-center", requestPath: "/knowledge-center", budgetKb: 900 },
+  { route: "/knowledge-center/[datasetId]", requestPath: "/knowledge-center/perf-budget", budgetKb: 900 },
 ];
 
 const ROOT_SHELL_BUDGET_KB = 390;
