@@ -24,9 +24,9 @@ CLI (openkg_webui_cli)   WebSocket /ws   Python SDK (OPENKGWebUIApp)
                     AgentLoopBackend (openkg_webui/services/agent_loop/)
                        │                                   │
                  CLI subprocess                       HTTP service
-        claude-code · codex · opencode ·    intellect-team · hermes ·
-        intellect (ACP) · custom-cli        agentscope · custom-http ·
-                                            intellect (HTTP)
+        claude-code · codex · opencode ·    intellect-team · agentscope ·
+        hermes (ACP) · intellect (ACP) ·    custom-http · intellect (HTTP) ·
+        custom-cli                          hermes (HTTP runs)
 
         intellect runs `intellect acp` — one long-lived Agent Client
         Protocol child per session: message deltas, thinking, tool
@@ -86,9 +86,10 @@ single-operator / local-deployment shape.
 
 One streaming POST per turn for agent services — the multi-user shape, since
 the loop's code execution happens inside the operator's service, not the
-OPENKG-WebUI process. `hermes`, `agentscope` and `custom-http` speak one small
-contract; `intellect-team` and the community preset's `http` transport speak
-Intellect's run channel instead (see below):
+OPENKG-WebUI process. `agentscope` and `custom-http` speak one small
+contract; `intellect-team`, the community preset's `http` transport and
+`hermes`'s `http` transport speak a run channel instead (`/v1/runs` + SSE —
+see below):
 
 ```
 POST {url}{turn_path}                      # default path /agent/turn
@@ -320,8 +321,9 @@ concrete model name on `AgentLoopRequest.model`; family support varies:
 | --- | --- | --- |
 | CLI (one-shot) | ✅ | `{model}` substitution uses the turn override, else the profile's `model`, else the arg drops |
 | HTTP runs (`intellect-team` / `intellect` with the `http` transport) | ✅ | sent as `model` in the `POST /v1/runs` body, which both implementations read. The Python adapter validates it against its model catalog, so a name it does not know is rejected with `model_not_found` rather than ignored |
-| HTTP turn (`hermes` / `agentscope` / `custom-http`) | ⬜ opt-in | the body carries `model`; a profile with a non-empty curated `models` list claims the service honors it |
-| ACP | ✅ | no per-request field — the model is a session config option (`id="model"`), advertised by the agent in the handshake and applied via `session/set_config_option` before the prompt; Intellect implements both sides |
+| HTTP turn (`agentscope` / `custom-http`) | ⬜ opt-in | the body carries `model`; a profile with a non-empty curated `models` list claims the service honors it |
+| HTTP runs (`hermes` `http` transport) | ✅ | sent as `model` in the `POST /v1/runs` body, which the Hermes gateway routes on; an unknown id fails the run with the provider's 400 rather than being ignored |
+| ACP | ✅ | no per-request field — the model is a session config option (`id="model"`), advertised by the agent in the handshake and applied via `session/set_config_option` before the prompt; Intellect implements both sides, Hermes' ACP transport neither (its `per_turn_model` is False — see the hermes integration design, §8-2) |
 
 `AgentLoopPreset.per_turn_model` declares the preset truth;
 `profile_per_turn_model` derives the effective answer — for the HTTP-turn

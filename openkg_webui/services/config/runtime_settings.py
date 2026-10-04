@@ -1002,6 +1002,14 @@ class RuntimeSettingsService:
         api_key = self._process_env_value("KAG_AGENT_LOOP_API_KEY")
         if not (backend or command or url or transport or api_key):
             return None
+        # `hermes` preset grew a local ACP default; a legacy env deployment
+        # that names hermes with a URL and no explicit transport keeps the
+        # plain HTTP service. Rewritten on the RAW triple, before any
+        # normalization: the synthetic-profile branch carries no url for the
+        # file-layer rewrite to see, and the re-stamp below would otherwise
+        # re-resolve transport to the ACP default.
+        if backend == "hermes" and url and not transport:
+            backend = "custom-http"
         normalized = self._normalize_agent_loop({"agent_loop": block or {}})
         profiles = [dict(profile) for profile in normalized["profiles"]]
         target = next(
@@ -1441,6 +1449,16 @@ class RuntimeSettingsService:
         # rewrite — that one speaks the /v1/runs protocol, not /agent/turn.
         if (
             preset == "intellect"
+            and _string(raw.get("url")).strip()
+            and not _string(raw.get("transport")).strip()
+        ):
+            preset = "custom-http"
+        # Same shape for `hermes`: the preset grew a local ACP transport as
+        # its default, so a legacy URL-only profile (the old HTTP-turn stub)
+        # must stay a plain HTTP service instead of resolving transport=""
+        # to the new ACP default on this load.
+        if (
+            preset == "hermes"
             and _string(raw.get("url")).strip()
             and not _string(raw.get("transport")).strip()
         ):

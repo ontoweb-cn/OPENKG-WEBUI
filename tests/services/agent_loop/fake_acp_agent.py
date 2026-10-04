@@ -143,7 +143,10 @@ class FakeAgent:
             session_id,
             acp.update_tool_call("t1", title="shell", status="completed", raw_output="tool-out"),
         )
-        if self.scenario in {"full", "deny", "long-approval"}:
+        if self.scenario in {"full", "deny", "long-approval", "approval-then-hang"}:
+            # ``approval-then-hang`` parks like the others but the test never
+            # answers: it exists to exercise the CLIENT handler's approval
+            # deadline (the park times out and the agent reads a deny).
             tool_call = {"tool_call_id": "t1", "title": "shell"}
             if self.scenario == "long-approval":
                 # Reproduce Intellect's ``_build_permission_tool_call``: the

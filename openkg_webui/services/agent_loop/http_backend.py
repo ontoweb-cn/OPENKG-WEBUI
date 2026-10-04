@@ -1168,15 +1168,47 @@ class RunsAgentLoopBackend(HttpAgentLoopBackend):
 
     # -- control plane -------------------------------------------------------
 
-    async def respond_approval(self, request_id: str, choice: str) -> None:
+    async def respond_approval(self, request_id: str, choice: str) -> bool:
+        """Answer a pending run approval; ``False`` when it did not land.
+
+        The runs API resolves approvals per run, and a run that already moved
+        on (its own approval timeout denied the request, or the run finished)
+        answers 404/409; a 401/403 means the call itself was refused. The
+        caller surfaces all four as "not delivered" instead of reporting the
+        decision as applied. Any other non-2xx is logged and reported as
+        delivered: an unknown failure should not cry wolf on every answer.
+        """
         if not self._run_id:
-            return
-        async with httpx.AsyncClient(transport=self._transport) as client:
-            await client.post(
-                self._runs_url(self._run_id, "approval"),
-                json={"choice": choice},
-                headers=self._headers(),
+            return False
+        try:
+            async with httpx.AsyncClient(transport=self._transport) as client:
+                response = await client.post(
+                    self._runs_url(self._run_id, "approval"),
+                    json={"choice": choice},
+                    headers=self._headers(),
+                )
+        except Exception:  # noqa: BLE001 - the transport failing is "not delivered"
+            logger.debug(
+                "agent-loop %s: approval POST for run %s failed",
+                self.name,
+                self._run_id,
+                exc_info=True,
             )
+            return False
+        # Provably not applied: the request is gone (404/409) or the service
+        # refused the call outright (401/403 — a configuration error, which
+        # the operator must see as "the decision did not take effect", not
+        # as an approval).
+        if response.status_code in {401, 403, 404, 409}:
+            return False
+        if response.status_code >= 400:
+            logger.warning(
+                "agent-loop %s: approval POST for run %s returned HTTP %s",
+                self.name,
+                self._run_id,
+                response.status_code,
+            )
+        return True
 
     async def respond_clarify(self, request_id: str, answer: str) -> None:
         """Deliver the user's answer to an in-flight ``clarify``.

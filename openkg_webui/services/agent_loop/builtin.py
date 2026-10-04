@@ -12,9 +12,11 @@ block overrides anything operator-configurable. Two families:
 
 CLI presets come in two sub-transports: ``one-shot`` (a subprocess per turn,
 NDJSON stdout) and ``acp`` (one long-lived Agent Client Protocol child per
-session). Named HTTP presets (intellect-team / hermes / agentscope) only
+session). Named HTTP presets (intellect-team / agentscope) only
 provide defaults — the service side still speaks the documented contract, or
-the operator adapts ``custom-http``.
+the operator adapts ``custom-http``. ``hermes`` and ``intellect`` are
+multi-transport presets: a local ACP child (the default) or a remote runs
+service.
 
 A preset may offer **several transports** when one product has more than one
 way to reach it: the community Intellect preset is reachable either through
@@ -75,6 +77,18 @@ class AgentLoopTransport:
     # backend re-attaches instead of re-inlining a budget-truncated history
     # (agent-loop history design, L1); agents without a resume surface keep "".
     resume_kind: str = ""
+    # ACP transports only: whether the agent's own native session resume
+    # (``session/load`` + the OPENKG-WebUI session store) is used across child
+    # respawns. False = every spawn opens a fresh agent session and the G-1
+    # fold carries the context — the isolation for agents whose restore path
+    # is broken (Hermes loses the named-custom-provider identity on persist).
+    # One resume policy per command+env: the flag is read by the shared
+    # session manager, so two profiles on the same command must not disagree.
+    native_resume: bool = True
+    # CLI transports: well-known absolute paths probed when the command is not
+    # on PATH (detection and one-click prefill only; ``~`` and ``$VAR`` are
+    # expanded, unresolved variables never match). Order is priority.
+    command_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -110,6 +124,11 @@ class AgentLoopPreset:
     # Native agent-session resume dialect for one-shot CLIs (see the
     # transport field); "" for families whose history model needs none.
     resume_kind: str = ""
+    # Preset-level ACP resume policy and CLI detection fallbacks; carried so
+    # :func:`_transport_from_preset` can forward them for single-transport
+    # presets (multi-transport presets author transports directly).
+    native_resume: bool = True
+    command_paths: tuple[str, ...] = ()
     # Several transports for one product; empty = the preset fields above
     # describe its only transport.
     transports: tuple[AgentLoopTransport, ...] = ()
@@ -228,8 +247,66 @@ PRESETS: dict[str, AgentLoopPreset] = {
         ),
         AgentLoopPreset(
             name="hermes",
-            family="http",
-            description="Hermes agent service.",
+            # The Nous Research agent is reachable two ways; the local ACP
+            # child stays the default, mirroring the community Intellect
+            # preset's shape.
+            family="cli",
+            default_transport="acp",
+            description=(
+                "Nous Research Hermes: a local `hermes-acp` child, or a "
+                "remote gateway /v1/runs service."
+            ),
+            transports=(
+                AgentLoopTransport(
+                    id="acp",
+                    family="cli",
+                    label="Local CLI (ACP)",
+                    description=(
+                        "Runs `hermes-acp` on this host: streaming text, thinking, tool "
+                        "calls and approvals. The loop runs as a local process with the "
+                        "server's privileges. Answer approvals promptly: Hermes denies "
+                        "pending requests after its own approvals.timeout (300s by "
+                        "default). Per-turn model selection is not available on this "
+                        "transport; set the model with `hermes model`. After the agent "
+                        "process restarts, the conversation continues from OPENKG-WebUI's "
+                        "bounded history fold."
+                    ),
+                    command="hermes-acp",
+                    translator="",  # the ACP transport translates, not a line parser
+                    cli_transport="acp",
+                    # Hermes' own ACP session restore loses a named custom
+                    # provider's identity (persisted as the bare "custom"
+                    # class), so a resumed session fails its next turn. Until
+                    # the upstream fix ships, every respawn opens a fresh
+                    # Hermes session and the G-1 fold carries the context.
+                    native_resume=False,
+                    per_turn_model=False,
+                    # Detection fallbacks: the launchers live outside many
+                    # server PATHs, and older source installs under $HERMES_HOME
+                    # are last-resort hits (order is priority).
+                    command_paths=(
+                        "~/.local/bin/hermes-acp",
+                        "/usr/local/bin/hermes-acp",
+                        # Older source install; detect expands $HERMES_HOME
+                        # (defaulting to ~/.hermes when the variable is unset).
+                        "$HERMES_HOME/hermes-agent/venv/bin/hermes-acp",
+                    ),
+                ),
+                AgentLoopTransport(
+                    id="http",
+                    family="http",
+                    label="HTTP service (/v1/runs)",
+                    description=(
+                        "Hermes gateway api_server (set API_SERVER_ENABLED and "
+                        "API_SERVER_KEY in ~/.hermes/.env, then `hermes gateway run`). "
+                        "Supports per-turn model, approvals and mid-turn cancellation."
+                    ),
+                    turn_path="/v1/runs",
+                    protocol="runs",
+                    probe_url="http://127.0.0.1:8642/health",
+                    per_turn_model=True,
+                ),
+            ),
         ),
         AgentLoopPreset(
             name="agentscope",
@@ -312,6 +389,8 @@ def _transport_from_preset(preset: AgentLoopPreset) -> AgentLoopTransport:
         probe_url=preset.probe_url,
         per_turn_model=preset.per_turn_model,
         resume_kind=preset.resume_kind,
+        native_resume=preset.native_resume,
+        command_paths=preset.command_paths,
     )
 
 

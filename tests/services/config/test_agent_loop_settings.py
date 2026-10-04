@@ -142,9 +142,30 @@ def test_env_overrides_apply(tmp_path: Path) -> None:
     block = service.load_system()["agent_loop"]
     assert block["primary"] == "env-override"
     (profile,) = block["profiles"]
-    assert profile["preset"] == "hermes"
+    # hermes + URL + no explicit transport is the legacy HTTP-turn shape: the
+    # raw-triple rewrite keeps it a plain HTTP service (custom-http) instead
+    # of resolving to hermes' new ACP default and ignoring the URL.
+    assert profile["preset"] == "custom-http"
     assert profile["url"] == "http://hermes:9000"
     assert profile["api_key"] == "sk-test"
+
+
+def test_env_overrides_explicit_transport_wins(tmp_path: Path) -> None:
+    """An explicit OPENKG_WEBUI_AGENT_LOOP_TRANSPORT opts into the named
+    transport — hermes:http stays hermes."""
+    service = RuntimeSettingsService(
+        tmp_path,
+        process_env={
+            "OPENKG_WEBUI_AGENT_LOOP_BACKEND": "hermes",
+            "OPENKG_WEBUI_AGENT_LOOP_TRANSPORT": "http",
+            "OPENKG_WEBUI_AGENT_LOOP_URL": "http://hermes:9000",
+        },
+    )
+    block = service.load_system()["agent_loop"]
+    (profile,) = block["profiles"]
+    assert profile["preset"] == "hermes"
+    assert profile["transport"] == "http"
+    assert profile["url"] == "http://hermes:9000"
 
 
 def test_env_overrides_pin_the_primary_profile(tmp_path: Path) -> None:
@@ -167,7 +188,9 @@ def test_env_overrides_pin_the_primary_profile(tmp_path: Path) -> None:
     block = service.load_system()["agent_loop"]
     (profile,) = block["profiles"]
     assert profile["id"] == "li"
-    assert profile["preset"] == "hermes"  # the env pins the primary in place
+    # The env pins the primary in place; hermes + URL + no transport keeps
+    # the legacy HTTP service shape (see test_env_overrides_apply).
+    assert profile["preset"] == "custom-http"
     assert profile["url"] == "http://h:9000"
     assert block["primary"] == "li"
 
@@ -510,3 +533,40 @@ def test_models_list_normalizes() -> None:
         {"id": "qwen-max", "name": "qwen-max"},
         {"id": "sonnet", "name": "Sonnet"},
     ]
+
+
+def test_hermes_url_profile_migrates_to_custom_http() -> None:
+    """`hermes` grew a local ACP default; a legacy URL-only profile (the old
+    HTTP-turn stub) keeps working as custom-http instead of silently
+    becoming a local ACP spawn on the next settings load."""
+    block = _normalize_agent_loop(
+        {"profiles": [{"id": "h", "preset": "hermes", "url": "http://hermes:8642"}]}
+    )
+    profile = block["profiles"][0]
+    assert profile["preset"] == "custom-http"
+    assert profile["url"] == "http://hermes:8642"
+    # An explicit transport selection is never rewritten: both hermes
+    # transports keep their preset.
+    explicit = _normalize_agent_loop(
+        {
+            "profiles": [
+                {"id": "a", "preset": "hermes", "transport": "acp"},
+                {"id": "b", "preset": "hermes", "transport": "http", "url": "http://h:1"},
+            ]
+        }
+    )
+    first, second = explicit["profiles"]
+    assert (first["preset"], first["transport"]) == ("hermes", "acp")
+    assert (second["preset"], second["transport"]) == ("hermes", "http")
+
+
+def test_hermes_profile_without_url_resolves_the_acp_default() -> None:
+    """No URL → this is a local hermes-acp profile: the transport resolves to
+    the preset default and the CLI command comes from the transport."""
+    from openkg_webui.services.agent_loop.builtin import preset_family
+
+    block = _normalize_agent_loop({"profiles": [{"id": "h", "preset": "hermes"}]})
+    profile = block["profiles"][0]
+    assert profile["preset"] == "hermes"
+    assert profile["transport"] == "acp"
+    assert preset_family("hermes", profile["transport"]) == "cli"

@@ -131,7 +131,7 @@ intellect-rag-app (Quart :9380)  ← 知识中心后端归属地
 | --- | --- | --- |
 | **intellect-team**（HTTP runs） | **Plugin 方式 = 自带 RAGProvider 插件（已核实，推荐主路径）** | intellect-team 已捆绑指向 intellect-rag-app 的 `plugins/rag/intellect-rag/` provider：RAGHttpClient 直连 `/api/v1`、每请求注入 X-Intellect-* 身份 header、自带 `intellect_search(kb_ids)` 等工具与每 turn prefetch/system_prompt 注入。接入 = 配置启用（§九-9.2 B1）+ run 级 kb_ids 透传（B2，两端各一处小改）。openkg-webui **不再**为其注入 manifest 块（provider 已做，避免双重注入）；grounding 块的主战场移至 CLI 后端 |
 | **CLI 后端**（claude-code / codex / opencode） | **MCP（session 级注入）** | 复制 `ensure_session_mcp_config`：每 turn 在 session workdir 写 `.mcp.json`（指向 intellect MCP server 的 streamable-http URL + 凭据）+ `.claude/settings.json` 权限放行（`mcp__<server>__intellect_retrieval`）。凭据已定（决策 Q6）：host 模式 + 从 identity_store 取该用户 token 写入本会话 `.mcp.json`（与 agent loop 同一身份源），无需签发端点 |
-| **其它 HTTP 后端**（hermes / agentscope / custom-http） | **MCP（服务侧自注册）** | openkg-webui 无工具注入通道：只注入 prompt grounding 块；由各服务运营者将其自身 MCP 客户端指向 intellect MCP server（部署文档 + settings 校验提示） |
+| **其它后端**（hermes 本地 ACP / agentscope / custom-http） | **MCP（服务侧自注册）** | openkg-webui 无工具注入通道：只注入 prompt grounding 块；由各服务运营者将其自身 MCP 客户端指向 intellect MCP server（部署文档 + settings 校验提示） |
 
 配套约定：
 - 会话勾选 KB 沿用 DeepMentor 交互（composer 勾选 → `session.preferences.knowledge_bases`），但落 openkg-webui 自己的会话偏好；dataset_id 映射由代理层解析，不把 intellect 内部 ID 直接暴露为会话标识（merge-feasibility §5.3）。
@@ -275,7 +275,7 @@ intellect-team ═════════════════════�
      （经自带 RAG provider 插件，不经 MCP）
 
 CLI 后端（claude-code / codex / opencode）── session .mcp.json ──► intellect-rag-app MCP server :9382
-其它 HTTP loop（hermes / agentscope / custom）── 各自 MCP client ──► 同上
+其它 loop（hermes 本地 ACP / agentscope / custom）── 各自 MCP client ──► 同上
 ```
 
 **推论**：若 Phase 1 的 agent loop 只有 intellect-team，`A5/A6`（MCP server）可整体延后——知识引擎接入 = rag-app 一个 env（A1）+ team 一份配置（B1）+ 两处小代码（B2 两侧）。

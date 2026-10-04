@@ -55,11 +55,21 @@ def _patch_settings(monkeypatch, block: dict[str, Any] | None) -> None:
 
 
 def test_chat_needs_the_agent_backend_when_one_is_configured(monkeypatch) -> None:
-    # ``hermes`` is the HTTP family: it runs the loop in its own service and
-    # starts nothing on this host.
+    # hermes' default transport is the local ACP child (a local process), so
+    # the backend gate applies; an explicitly-remote hermes stays HTTP.
     _patch_settings(
         monkeypatch,
         {"profiles": [{"id": "p", "preset": "hermes", "enabled": True}], "primary": "p"},
+    )
+    assert _effective_required_service("chat") == "agent_loop_cli"
+    _patch_settings(
+        monkeypatch,
+        {
+            "profiles": [
+                {"id": "p", "preset": "hermes", "transport": "http", "enabled": True}
+            ],
+            "primary": "p",
+        },
     )
     assert _effective_required_service("chat") == "agent_loop"
 
@@ -385,10 +395,16 @@ async def test_the_gate_is_consulted_on_both_paths(tmp_path, monkeypatch) -> Non
 
 async def test_an_http_backend_needs_no_cli_grant(tmp_path, monkeypatch) -> None:
     """The HTTP family starts no local process, so the stricter grant must not
-    apply to it: this is what keeps multi-user deployments usable."""
+    apply to it: this is what keeps multi-user deployments usable. hermes'
+    gateway transport is the non-Intellect HTTP shape."""
     _patch_agent_loop(
         monkeypatch,
-        {"profiles": [{"id": "p", "preset": "hermes", "enabled": True}], "primary": "p"},
+        {
+            "profiles": [
+                {"id": "p", "preset": "hermes", "transport": "http", "enabled": True}
+            ],
+            "primary": "p",
+        },
     )
     _patch_grant(monkeypatch, _GRANTED_LLM)  # no agent_loop_cli
     token = set_current_user(_user(tmp_path))

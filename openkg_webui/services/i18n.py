@@ -37,7 +37,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "agent_loop.timeout": ("Agent-loop backend {backend!r} timed out after {seconds}s."),
         "agent_loop.session_reset": (
             "The agent's own session for this conversation no longer exists; "
-            "restarting fresh — history re-attaches from the transcript."
+            "restarting fresh — the recent conversation context is folded into "
+            "this turn's request."
         ),
         "agent_loop.http_status": (
             "Agent-loop backend {backend!r} returned HTTP {status}: {detail}"
@@ -70,6 +71,11 @@ _MESSAGES: dict[str, dict[str, str]] = {
         # quotes of its own choosing. Callers pass a short label.
         "agent_loop.approval_prompt": ('The agent wants to run "{tool}". Allow it to continue?'),
         "agent_loop.approval_decision": ('Approval for "{tool}": {choice}.'),
+        "agent_loop.approval_decision_ignored": (
+            'Approval for "{tool}": {choice} — but the request was no longer '
+            "pending (the agent had already stopped waiting), so the decision "
+            "did not take effect."
+        ),
         "agent_loop.approval_choice_once": "Allow once",
         "agent_loop.approval_choice_once_hint": "Approve this single request",
         "agent_loop.approval_choice_session": "Allow for this session",
@@ -195,7 +201,8 @@ _MESSAGES: dict[str, dict[str, str]] = {
         ),
     },
     "zh": {
-        "agent_loop.session_reset": "该 agent 的会话已不存在，正在全新重启——历史将从转录重新附着。",
+        "agent_loop.session_reset": "该 agent 的会话已不存在，正在全新重启——最近的对话上下文将随本轮请求一并写入。",
+        "agent_loop.approval_decision_ignored": "对“{tool}”的授权：{choice}——但该请求已不在等待（agent 已停止等待），本次决定未生效。",
         "api.content_required": "content 不能为空",
         "api.invalid_channels_config": "渠道配置无效",
         "api.partner_already_exists": "伙伴 '{name}' 已存在",

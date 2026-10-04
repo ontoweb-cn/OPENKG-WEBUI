@@ -667,8 +667,9 @@ class _ControlledBackend(_RecordingBackend):
         self.decisions: list[tuple[str, str]] = []
         self.clarifications: list[tuple[str, str]] = []
 
-    async def respond_approval(self, request_id: str, choice: str) -> None:
+    async def respond_approval(self, request_id: str, choice: str) -> bool:
         self.decisions.append((request_id, choice))
+        return True
 
     async def respond_clarify(self, request_id: str, answer: str) -> None:
         self.clarifications.append((request_id, answer))
@@ -758,6 +759,7 @@ async def test_approval_parks_and_forwards_label_decision(monkeypatch) -> None:
         "request_id": "req-1",
         "tool": "shell",
         "decision": "once",
+        "delivered": True,
     }
     assert context_answer(events) == "ok"
 

@@ -197,7 +197,7 @@ Authorization: Bearer <api_key>
 
 `model` **仅在 profile 配置了它时才出现**。runs 协议同构（`{"input", "conversation_history", "session_id", "model"}`）。
 
-预设 `intellect` / `intellect-team` / `hermes` / `agentscope` / `custom-http` 说同一套契约。**没有 `kind` 的对象回落到启发式翻译器**，使外部服务可以渐进迁移。
+预设 `intellect-team` / `agentscope` / `custom-http` 说同一套契约（`intellect` 与 `hermes` 是多传输预设：本地 ACP 子进程为默认，`http` 传输走 runs 协议）。**没有 `kind` 的对象回落到启发式翻译器**，使外部服务可以渐进迁移。
 
 ### 咨商协议（`consult.py`）
 

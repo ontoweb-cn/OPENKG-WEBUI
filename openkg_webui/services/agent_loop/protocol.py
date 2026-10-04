@@ -230,11 +230,15 @@ class AgentLoopBackend(ABC):
             or None
         )
 
-    async def respond_approval(self, request_id: str, choice: str) -> None:
+    async def respond_approval(self, request_id: str, choice: str) -> bool:
         """Deliver the user's decision for one pending ``approval_request``.
 
         ``choice`` is one of the choices the request carried (by default
-        :data:`APPROVAL_CHOICES`). Only called on backends with
+        :data:`APPROVAL_CHOICES`). Returns whether the decision actually
+        reached a live pending request — ``False`` when the request is gone
+        (the agent timed out and denied on its own side, or the turn ended);
+        the caller surfaces that so the UI never reports "approved" for a
+        decision that did not take effect. Only called on backends with
         ``supports_control``; the default raises so a wiring bug surfaces
         instead of silently dropping the decision.
         """

@@ -1000,8 +1000,11 @@ def test_per_turn_model_derivation_opts_http_turn_in_via_the_models_list() -> No
     body's ``model`` key; an empty list keeps the picker hidden."""
     from openkg_webui.services.agent_loop.settings import profile_per_turn_model
 
+    # hermes' default transport is the local ACP child, which never claims
+    # the per-turn model; the gateway transport does, with or without a list.
     assert profile_per_turn_model({"preset": "hermes"}) is False
-    assert profile_per_turn_model({"preset": "hermes", "models": ["qwen-max"]}) is True
+    assert profile_per_turn_model({"preset": "hermes", "transport": "http"}) is True
+    assert profile_per_turn_model({"preset": "hermes", "transport": "acp"}) is False
     assert profile_per_turn_model({"preset": "custom-http", "url": "http://h:1"}) is False
     # Non-HTTP-turn families with a list: the preset flag already decided.
     assert profile_per_turn_model({"preset": "claude-code"}) is True
@@ -1075,7 +1078,9 @@ def test_factory_threads_the_model_onto_every_family() -> None:
     )
     assert cli.model == "claude-sonnet-5"
 
-    http = build_agent_loop_backend({"backend": "hermes", "url": "http://h:1", "model": "qwen-max"})
+    http = build_agent_loop_backend(
+        {"backend": "hermes", "transport": "http", "url": "http://h:1", "model": "qwen-max"}
+    )
     assert http.model == "qwen-max"
 
     runs = build_agent_loop_backend(
@@ -1089,7 +1094,7 @@ def test_an_absent_model_leaves_every_family_unconfigured() -> None:
     # byte-identical (no `--model` arg, no `model` in the request body).
     for spec in (
         {"backend": "claude-code", "command": "claude"},
-        {"backend": "hermes", "url": "http://h:1"},
+        {"backend": "hermes", "transport": "http", "url": "http://h:1"},
     ):
         assert build_agent_loop_backend(spec).model == ""
 
@@ -1345,3 +1350,58 @@ async def test_http_backend_uses_the_sse_event_name_as_a_fallback() -> None:
     events = [event async for event in backend.run(AgentLoopRequest(prompt="hi"))]
 
     assert any(e.kind == "content" and e.text == "answer via the event line" for e in events)
+
+
+def test_hermes_preset_is_dual_transport_with_acp_default() -> None:
+    """hermes mirrors the intellect shape: local ACP child (default) plus a
+    remote gateway runs service."""
+    from openkg_webui.services.agent_loop.builtin import (
+        per_turn_model_apply,
+        preset_family,
+        preset_transports,
+        resolve_transport,
+        transport_key,
+    )
+
+    assert preset_family("hermes") == "cli"
+    assert preset_family("hermes", "acp") == "cli"
+    assert preset_family("hermes", "http") == "http"
+    ids = [transport.id for transport in preset_transports("hermes")]
+    assert ids == ["acp", "http"]
+    # Detection keys follow the multi-transport convention.
+    assert transport_key("hermes", "acp") == "hermes:acp"
+    assert transport_key("hermes", "http") == "hermes:http"
+    # Per-turn model: ACP no (Hermes' set_config_option is a silent no-op),
+    # HTTP runs yes (the body's model key is routed on).
+    assert per_turn_model_apply("hermes", "acp") is False
+    assert per_turn_model_apply("hermes", "http") is True
+    acp = resolve_transport("hermes", "acp")
+    http = resolve_transport("hermes", "http")
+    assert acp is not None and http is not None
+    # The ACP transport declares native resume OFF: Hermes' ACP session
+    # restore loses a named custom provider's identity (upstream #63681).
+    assert acp.native_resume is False
+    assert acp.command_paths, "detection fallbacks must be declared"
+    assert http.turn_path == "/v1/runs"
+    assert http.protocol == "runs"
+    assert http.probe_url.startswith("http://127.0.0.1:8642/health")
+
+
+def test_native_resume_flag_reaches_the_shared_manager(tmp_path) -> None:
+    """The transport's declaration is read by ensure()/spawn via the manager,
+    so building a backend must stamp it there (and honor the default)."""
+    from openkg_webui.services.agent_loop import build_agent_loop_backend
+    from openkg_webui.services.agent_loop.acp_backend import (
+        AcpAgentLoopBackend,
+        get_acp_session_manager,
+    )
+
+    hermes = build_agent_loop_backend({"preset": "hermes", "transport": "acp"})
+    assert isinstance(hermes, AcpAgentLoopBackend)
+    assert hermes._manager.native_resume is False
+
+    intellect = build_agent_loop_backend({"preset": "intellect", "transport": "acp"})
+    assert isinstance(intellect, AcpAgentLoopBackend)
+    assert intellect._manager.native_resume is True
+    # A different command hashes to a different manager; nothing leaks.
+    assert get_acp_session_manager(hermes._config_key) is hermes._manager

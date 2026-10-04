@@ -245,7 +245,9 @@ def test_detect_reports_cli_presets_and_http_profiles(client: TestClient) -> Non
         client,
         [
             _profile(preset="agentscope", url="http://127.0.0.1:59999"),
-            _profile(preset="hermes", url=""),  # no URL → not probed
+            # hermes resolved to its default ACP transport, so this profile is
+            # CLI-probed (`hermes-acp`) despite carrying no URL.
+            _profile(preset="hermes", url=""),
         ],
     )
     response = client.get("/api/settings/agent-loop/detect")
@@ -266,15 +268,15 @@ def test_detect_reports_cli_presets_and_http_profiles(client: TestClient) -> Non
         for key, r in http.items()
         if not r["key"].startswith("intellect")
     )
-    # Profiles without a URL are not probed at all. The Intellect run channels
-    # carry preset-level probes, so the probe count is the agentscope profile
-    # plus those two — the team preset gaining a probe target is the fix for a
-    # preset that previously had none at all.
-    assert len(http) == 3
+    # Preset-level probes: the agentscope profile plus the run channels of
+    # intellect (per-transport) and the team/hermes presets — the hermes
+    # gateway probe target is new with its HTTP transport.
+    assert len(http) == 4
     # The community runs channel is keyed per transport (`intellect:http`), so
     # each button in the picker can show its own badge.
     assert http["intellect:http"]["local"] is True
     assert http["intellect-team"]["local"] is True
+    assert http["hermes:http"]["local"] is True
 
 
 def test_test_endpoint_reports_stub_and_unknown_backend(client: TestClient) -> None:
@@ -335,7 +337,9 @@ def test_workdir_inside_allowed_roots_is_persisted(client: TestClient) -> None:
 
 def test_disabled_or_http_profile_workdir_does_not_block_a_save(client: TestClient) -> None:
     """Only enabled CLI profiles can spawn, so a stale workdir on a profile
-    that never runs must not wedge unrelated settings changes."""
+    that never runs must not wedge unrelated settings changes. The hermes
+    profile here explicitly rides the gateway transport — the URL family —
+    so its stale workdir must not block either (the transport-aware gate)."""
     body = _put(
         client,
         [
@@ -347,12 +351,40 @@ def test_disabled_or_http_profile_workdir_does_not_block_a_save(client: TestClie
                 workdir="../outside",
             ),
             _profile(
-                id="http", name="http", preset="hermes", url="https://h", workdir="../outside"
+                id="http",
+                name="http",
+                preset="hermes",
+                transport="http",
+                url="https://h",
+                workdir="../outside",
             ),
         ],
         allowed_workdir_roots=["data/user"],
     )
     assert body["settings"]["profiles"][0]["workdir"] == "../outside"
+    assert body["settings"]["profiles"][1]["preset"] == "hermes"
+
+
+def test_cli_transport_workdir_outside_roots_is_rejected(client: TestClient) -> None:
+    """The other side of the transport-aware gate: hermes' LOCAL transport is
+    a CLI child, so an out-of-roots workdir on it is refused at save time."""
+    response = client.put(
+        "/api/settings/agent-loop",
+        json={
+            "profiles": [
+                _profile(
+                    id="local",
+                    name="local",
+                    preset="hermes",
+                    transport="acp",
+                    workdir="../outside",
+                )
+            ],
+            "allowed_workdir_roots": ["data/user"],
+        },
+    )
+    assert response.status_code == 400
+    assert "outside the allowed" in response.json()["detail"]
 
 
 def test_empty_workdir_roots_forbid_every_profile_workdir(client: TestClient) -> None:

@@ -1056,14 +1056,25 @@ def _agent_loop_profile_block(
     api_key = str(stored.get("api_key") or "")
     if profile.api_key is not None:
         api_key = profile.api_key.strip()
+    # `hermes` preset grew a local ACP default; a legacy client replaying the
+    # old HTTP-turn shape ({preset: hermes, url, no transport}) keeps the
+    # plain HTTP service instead of persisting the resolved ACP default.
+    # Applied on the raw payload BEFORE transport resolution — this function
+    # is shared by the PUT and Test endpoints, so both see one behavior. The
+    # comparison strips first (like the id/name handling next to it): the
+    # pydantic fields are raw and the file layer would not re-rewrite a
+    # profile persisted with a resolved transport.
+    preset = profile.preset.strip()
+    if preset == "hermes" and profile.url.strip() and not profile.transport.strip():
+        preset = "custom-http"
     return {
         "id": profile.id.strip(),
         "name": profile.name.strip(),
-        "preset": profile.preset,
+        "preset": preset,
         # Stored normalized: a single-transport preset keeps "" (so the file
         # does not grow a field that means nothing), and a multi-transport
         # preset resolves its default here rather than at every read site.
-        "transport": profile_transport_id(profile.preset, profile.transport),
+        "transport": profile_transport_id(preset, profile.transport),
         "enabled": profile.enabled,
         "command": profile.command,
         "args": [str(arg) for arg in profile.args],
@@ -1249,15 +1260,18 @@ def _reject_unauthorized_workdirs(block: dict[str, Any]) -> None:
     the HTTP family never reads ``workdir``, so a stale value there must not
     block an unrelated save.
     """
-    from openkg_webui.services.agent_loop.builtin import PRESETS
+    from openkg_webui.services.agent_loop.builtin import preset_family
 
     roots = list(block.get("allowed_workdir_roots") or [])
     base = get_admin_path_service().project_root
     for profile in block.get("profiles") or []:
         if not profile.get("enabled"):
             continue
-        preset = PRESETS.get(str(profile.get("preset") or ""))
-        if preset is None or preset.family != "cli":
+        preset = str(profile.get("preset") or "")
+        # Transport-aware: a multi-transport preset (intellect, hermes) is a
+        # workdir-running CLI child on one transport and a URL service on the
+        # other — the preset's default family alone answers wrongly.
+        if preset_family(preset, str(profile.get("transport") or "")) != "cli":
             continue
         workdir = str(profile.get("workdir") or "").strip()
         if workdir and resolve_allowed_workdir(workdir, roots, base=base) is None:
@@ -1340,10 +1354,10 @@ async def test_agent_loop_settings(payload: AgentLoopProfileUpdate):
     """
     _require_settings_admin()
     import os
-    import shutil
     import urllib.parse
 
     from openkg_webui.services.agent_loop import AgentLoopError, build_agent_loop_backend
+    from openkg_webui.services.agent_loop.detect import resolve_cli_command
 
     stored = get_runtime_settings_service().load_system(include_process_overrides=False)
     stored_profiles = {
@@ -1364,14 +1378,31 @@ async def test_agent_loop_settings(payload: AgentLoopProfileUpdate):
 
     command = str(getattr(backend, "command", "") or "")
     if command:
-        if os.path.sep in command or (os.altsep and os.altsep in command):
-            found = os.path.isfile(command)
-            detail = command
-        else:
-            resolved = shutil.which(command)
-            found = resolved is not None
-            detail = resolved or command
-        if not found:
+        # Same resolution the detector uses — PATH first, then the preset
+        # transport's well-known locations for a DEFAULTED command — so the
+        # Test verdict cannot disagree with the picker's badge. An explicit
+        # profile command is authoritative and is probed bare, exactly like
+        # the detector's profile card.
+        from openkg_webui.services.agent_loop.builtin import resolve_transport
+
+        transport = resolve_transport(
+            str(profile.get("preset") or ""), str(profile.get("transport") or "")
+        )
+        fallbacks = (
+            transport.command_paths
+            if transport is not None and not str(profile.get("command") or "").strip()
+            else ()
+        )
+        resolved, _via_fallback = resolve_cli_command(command, fallbacks)
+        if not resolved:
+            if os.path.sep in command and os.path.exists(command):
+                return {
+                    "ok": False,
+                    "message": (
+                        f"'{command}' exists but is not executable "
+                        "(missing the execute bit, or a directory)."
+                    ),
+                }
             return {
                 "ok": False,
                 "message": f"'{command}' was not found on the server PATH.",
@@ -1382,9 +1413,9 @@ async def test_agent_loop_settings(payload: AgentLoopProfileUpdate):
         probe = getattr(backend, "probe", None)
         if callable(probe):
             ok, detail = await probe()
-            prefix = f"CLI resolved: {detail}. "
+            prefix = f"CLI resolved: {resolved}. "
             return {"ok": ok, "message": prefix + detail}
-        return {"ok": True, "message": f"CLI resolved: {detail}. No live turn was sent."}
+        return {"ok": True, "message": f"CLI resolved: {resolved}. No live turn was sent."}
 
     scheme = urllib.parse.urlsplit(str(getattr(backend, "url", "") or "")).scheme.lower()
     if scheme not in {"http", "https"}:

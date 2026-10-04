@@ -108,6 +108,11 @@ type DetectInfo = {
   local: boolean
   available: boolean
   detail: string
+  /** The executable actually resolved (PATH hit or fallback hit). */
+  path?: string
+  /** True when ``path`` came from a transport's well-known location rather
+   * than the server PATH — the case where prefilling ``command`` helps. */
+  via_fallback?: boolean
 }
 
 /** Editable form state; ``apiKey`` is tri-state (null = keep stored key). */
@@ -562,6 +567,18 @@ export default function AgentLoopSettingsPage() {
       entry => entry.id === (transportId || preset.default_transport)
     )
     const baseName = presetLabel(preset.name, lang)
+    // A CLI install outside the server PATH is probed via the transport's
+    // well-known locations; prefilling the resolved absolute path makes the
+    // one-click profile work without the user hunting for the binary.
+    const detectKey = chosenTransport ? chosenTransport.detect_key : preset.name
+    const detectHit = detects[detectKey]
+    const prefilledCommand =
+      chosenTransport?.family === 'cli' &&
+      detectHit?.available &&
+      detectHit?.via_fallback &&
+      detectHit?.path
+        ? detectHit.path
+        : ''
     const draft = toDraft({
       id: tempId,
       name:
@@ -571,7 +588,7 @@ export default function AgentLoopSettingsPage() {
       preset: preset.name,
       transport: transportId ?? preset.default_transport ?? '',
       enabled: true,
-      command: '',
+      command: prefilledCommand,
       args: [],
       env: {},
       url: '',
@@ -673,18 +690,31 @@ export default function AgentLoopSettingsPage() {
           <SettingSection
             title={t('Local detection')}
             description={t(
-              "CLI presets are PATH-probed on this machine; configured HTTP services get a short reachability probe. Advisory only — the definitive check is each profile's Test button."
+              "CLI presets are PATH-probed on this machine (with well-known install locations as a fallback); local HTTP services get a short reachability probe. Advisory only — the definitive check is each profile's Test button."
             )}
           >
             <div className="flex flex-wrap items-center gap-2 py-4">
               {(payload.presets ?? [])
                 .filter(preset => preset.name !== 'custom-cli')
                 .flatMap(preset => {
-                  // One chip per CLI-reachable transport: a merged preset
-                  // probes its local transport here and its service transport
-                  // through the profile card.
+                  // One chip per locally-reachable transport: a merged preset
+                  // probes its CLI transport here and its service transport
+                  // through the profile card. An HTTP transport joins when its
+                  // probe target is a local URL (e.g. hermes' gateway health
+                  // endpoint) — remote services stay off this row.
+                  const locallyProbed = (entry: { detect_key: string }) => {
+                    const result = detects[entry.detect_key]
+                    return result?.local === true
+                  }
                   const entries = preset.transports.length
-                    ? preset.transports.filter(entry => entry.family === 'cli')
+                    ? preset.transports.filter(
+                        entry =>
+                          entry.family === 'cli' ||
+                          // Local http probes show at once (spinner while
+                          // detecting); remote services only ever appear via
+                          // their profile card.
+                          (entry.family === 'http' && (detecting || locallyProbed(entry)))
+                      )
                     : preset.family === 'cli'
                       ? [{ id: '', label: '', detect_key: preset.name }]
                       : []
@@ -1366,9 +1396,10 @@ export default function AgentLoopSettingsPage() {
                               </span>
                               <span className="mt-2 flex flex-wrap gap-1.5">
                                 {choices.map(choice => {
+                                  const key = detectKeyFor(preset, choice.id)
                                   const detect =
-                                    choice.family === 'cli'
-                                      ? detects[detectKeyFor(preset, choice.id)]
+                                    choice.family === 'cli' || detects[key]?.local
+                                      ? detects[key]
                                       : undefined
                                   return (
                                     <span

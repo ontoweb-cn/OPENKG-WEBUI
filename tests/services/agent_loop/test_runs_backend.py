@@ -1000,3 +1000,43 @@ async def test_runs_request_no_rag_block_when_knowledge_disabled(monkeypatch) ->
     request = AgentLoopRequest(prompt="hi", knowledge_kb_ids=["ds-1"])
     [event async for event in backend.run(request)]
     assert "rag" not in bodies[-1]
+
+
+async def test_approval_after_the_run_moved_on_reports_not_delivered(tmp_path) -> None:
+    """A 404/409-style answer (the run's own approval timeout denied, or the
+    run finished) must come back as ``False`` so the UI can say the decision
+    did not take effect instead of "approved"."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        path = request.url.path
+        if path.endswith("/v1/runs") and request.method == "POST":
+            return httpx.Response(202, json={"run_id": "run_1", "status": "started"})
+        if path.endswith("/events"):
+            return httpx.Response(200, text=SSE_BODY, headers={"content-type": "text/event-stream"})
+        if path.endswith("/approval"):
+            return httpx.Response(409, json={"error": "approval_not_pending"})
+        return httpx.Response(200, json={})
+
+    backend = RunsAgentLoopBackend(
+        name="intellect-runs",
+        url="http://gateway.test",
+        turn_path="/v1/runs",
+        api_key="key-1",
+        headers={},
+        timeout_seconds=30,
+        transport=httpx.MockTransport(handler),
+    )
+
+    delivered = None
+    async for event in backend.run(AgentLoopRequest(prompt="hi", session_id="s1", history=[])):
+        if event.kind == "approval_request":
+            delivered = await backend.respond_approval(event.data["request_id"], "once")
+
+    assert delivered is False
+
+
+async def test_approval_without_a_run_reports_not_delivered() -> None:
+    backend = _mock_backend([])
+    assert await backend.respond_approval("whatever", "once") is False

@@ -17,7 +17,10 @@ def test_cli_and_http_presets_derive_their_families() -> None:
     assert profile_family({"preset": "opencode"}) == "cli"
     assert profile_family({"preset": "intellect"}) == "cli"
     assert profile_family({"preset": "intellect-team"}) == "http"
-    assert profile_family({"preset": "hermes"}) == "http"
+    # Multi-transport presets follow their default transport: hermes' local
+    # ACP child (the default) is local, its gateway transport is remote.
+    assert profile_family({"preset": "hermes"}) == "cli"
+    assert profile_family({"preset": "hermes", "transport": "http"}) == "http"
     assert profile_family({"preset": "custom-http"}) == "http"
 
 

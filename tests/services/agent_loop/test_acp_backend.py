@@ -899,3 +899,164 @@ async def test_acp_first_turn_without_history_stays_quiet(tmp_path) -> None:
 
     assert not [event for event in events if event.kind == "progress"]
     await backend._manager.close_all()
+
+
+# ---------------------------------------------------------------------------
+# G-1 fold: bounded tail semantics
+# ---------------------------------------------------------------------------
+
+
+def test_fold_keeps_the_newest_turns_when_over_budget() -> None:
+    """Over the character budget the fold must drop the OLDEST turns.
+
+    The tail is the agent's only memory channel after a reset, so "most
+    recent last" has to mean the newest exchange survives truncation — the
+    old oldest-first accumulation silently kept mid-history and dropped the
+    turns the agent was about to be asked about."""
+    from openkg_webui.services.agent_loop.acp_backend import _fold_history_for_reset
+
+    history = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i:02d} " + "x" * 880}
+        for i in range(40)
+    ]
+    fold = _fold_history_for_reset(history)
+    assert "m39" in fold, "the newest message must survive truncation"
+    assert "m00" not in fold, "the oldest messages are what the budget drops"
+    assert fold.index("m38") < fold.index("m39"), "chronological order preserved"
+
+
+def test_fold_keeps_a_single_oversized_newest_message() -> None:
+    """One message larger than the whole budget still anchors the fold
+    (truncated), rather than collapsing to an empty fold."""
+    from openkg_webui.services.agent_loop.acp_backend import _fold_history_for_reset
+
+    history = [{"role": "user", "content": "最新一问 " + "y" * 20_000}]
+    fold = _fold_history_for_reset(history)
+    assert "最新一问" in fold
+    assert "session-transcript.md" not in fold
+
+
+def test_fold_transcript_note_is_caller_supplied() -> None:
+    """The transcript claim rides an explicit note: no note, no claim."""
+    from openkg_webui.services.agent_loop.acp_backend import _fold_history_for_reset
+
+    history = [{"role": "user", "content": "你好"}, {"role": "assistant", "content": "在"}]
+    plain = _fold_history_for_reset(history)
+    assert "session-transcript.md" not in plain
+    noted = _fold_history_for_reset(
+        history,
+        transcript_note=" The full transcript is in session-transcript.md in the working directory.",
+    )
+    assert "session-transcript.md" in noted
+
+
+# ---------------------------------------------------------------------------
+# §8-5 approval choice fidelity: option_id first, kind fallback, deny pinned
+# ---------------------------------------------------------------------------
+
+
+class _Opt:
+    """Minimal stand-in for the SDK's PermissionOption."""
+
+    def __init__(self, option_id: str, kind: str) -> None:
+        self.option_id = option_id
+        self.kind = kind
+
+
+_HERMES_LIKE = [
+    _Opt("allow_once", "allow_once"),
+    _Opt("allow_session", "allow_always"),
+    _Opt("allow_always", "allow_always"),
+    _Opt("deny", "reject_once"),
+    _Opt("deny_always", "reject_always"),
+]
+_OPAQUE = [_Opt("opt-allow", "allow_once"), _Opt("opt-reject", "reject_once")]
+
+
+def test_approval_choice_session_maps_to_the_session_option_id() -> None:
+    """With semantic ids on the wire, "session" must select ``allow_session``
+    — the old kind-first match grabbed the first ``allow_always`` option,
+    which on Hermes' list is the session one only by luck of ordering."""
+    from openkg_webui.services.agent_loop.acp_backend import _permission_response
+
+    response = _permission_response("session", "s", None, _HERMES_LIKE)
+    assert response == {"outcome": {"outcome": "selected", "optionId": "allow_session"}}
+
+
+def test_approval_choice_always_maps_to_the_always_option_id() -> None:
+    from openkg_webui.services.agent_loop.acp_backend import _permission_response
+
+    response = _permission_response("always", "s", None, _HERMES_LIKE)
+    assert response == {"outcome": {"outcome": "selected", "optionId": "allow_always"}}
+
+
+def test_approval_choice_once_maps_to_allow_once() -> None:
+    from openkg_webui.services.agent_loop.acp_backend import _permission_response
+
+    response = _permission_response("once", "s", None, _HERMES_LIKE)
+    assert response == {"outcome": {"outcome": "selected", "optionId": "allow_once"}}
+
+
+def test_approval_choice_deny_stays_cancelled_regardless_of_options() -> None:
+    """``deny`` never selects a wire option — fail-closed, and pinned so a
+    future reorder cannot turn it into an approval."""
+    from openkg_webui.services.agent_loop.acp_backend import _permission_response
+
+    for options in (_HERMES_LIKE, _OPAQUE, []):
+        assert _permission_response("deny", "s", None, options) == {
+            "outcome": {"outcome": "cancelled"}
+        }
+
+
+def test_approval_choices_fall_back_to_kind_for_opaque_ids() -> None:
+    """Agents with opaque option ids still work through the kind fallback."""
+    from openkg_webui.services.agent_loop.acp_backend import _permission_response
+
+    response = _permission_response("once", "s", None, _OPAQUE)
+    assert response == {"outcome": {"outcome": "selected", "optionId": "opt-allow"}}
+    # session/always degrade to the only allow-ish option (once scope).
+    for choice in ("session", "always"):
+        response = _permission_response(choice, "s", None, _OPAQUE)
+        assert response == {"outcome": {"outcome": "selected", "optionId": "opt-allow"}}
+
+
+def test_approval_choices_survive_a_missing_permanent_option() -> None:
+    """Hermes drops ``allow_always`` when permanence is disallowed: "always"
+    degrades to the session-scoped option, never to a wrong permanent one."""
+    from openkg_webui.services.agent_loop.acp_backend import _permission_response
+
+    limited = [_HERMES_LIKE[0], _HERMES_LIKE[1], _HERMES_LIKE[3]]
+    response = _permission_response("always", "s", None, limited)
+    assert response == {"outcome": {"outcome": "selected", "optionId": "allow_session"}}
+
+
+# ---------------------------------------------------------------------------
+# §8-4 late answers: a dead parked request reports "not delivered"
+# ---------------------------------------------------------------------------
+
+
+async def test_respond_approval_after_the_handler_timed_out_reports_not_delivered(tmp_path) -> None:
+    """Hermes denies a pending request at its own ``approvals.timeout`` with a
+    LOCAL cancel — no wire message tells us. The handler's approval window is
+    what ends the park: past it the parked future is cancelled and the agent
+    reads a deny; a later user answer must then resolve against the dead
+    future and be reported as NOT delivered, never as "approved"."""
+    result_file = tmp_path / "result.json"
+    backend = _backend("approval-then-hang", result_file)
+    backend.approval_timeout_limit = 0.05  # tiny window for the test
+
+    events = [event async for event in backend.run(_request("acp-late", tmp_path))]
+
+    # The deadline denied on the wire; the turn still completes cleanly.
+    assert not [event for event in events if event.kind == "error"]
+    assert [event.kind for event in events if event.kind == "approval_request"] == [
+        "approval_request"
+    ]
+    outcome = json.loads(result_file.read_text())
+    assert outcome["permission_option_id"] == "outcome:DeniedOutcome"
+
+    # The user answers after the fact: against the cancelled future this is
+    # "not delivered", which the capability surfaces as an ignored decision.
+    assert await backend.respond_approval("acp-approval-1", "once") is False
+
+    await backend._manager.close_all()

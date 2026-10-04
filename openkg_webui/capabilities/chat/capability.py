@@ -469,12 +469,28 @@ class ChatCapability(TurnCapability):
                 reply = None
         choice = _approval_choice_from_reply(reply, question["options"], default_choice)
 
+        # Deliver first, then describe: whether the decision landed decides
+        # which sentence this event carries. One event either way — the card
+        # resolution metadata below is what flips the pending ask_user card,
+        # and a second event would not.
+        delivered = True
+        if request_id:
+            delivered = await backend.respond_approval(request_id, choice)
         await stream.progress(
-            t("agent_loop.approval_decision", tool=tool, choice=choice, language=language),
+            (
+                t("agent_loop.approval_decision_ignored", tool=tool, choice=choice, language=language)
+                if not delivered
+                else t("agent_loop.approval_decision", tool=tool, choice=choice, language=language)
+            ),
             source=self.name,
             stage="responding",
             metadata={
-                "approval": {"request_id": request_id, "tool": tool, "decision": choice},
+                "approval": {
+                    "request_id": request_id,
+                    "tool": tool,
+                    "decision": choice,
+                    "delivered": delivered,
+                },
                 # The same resolution marker the web's ask_user card renderer
                 # consumes: it flips the pending card to its answered state.
                 "ask_user_resolved": True,
@@ -482,8 +498,6 @@ class ChatCapability(TurnCapability):
                 "answers": [{"questionId": "approval", "text": choice}],
             },
         )
-        if request_id:
-            await backend.respond_approval(request_id, choice)
 
     async def _handle_clarify_request(
         self,

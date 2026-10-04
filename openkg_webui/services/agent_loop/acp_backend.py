@@ -77,36 +77,56 @@ REAP_AFTER_SECONDS = float(os.getenv("OPENKG_WEBUI_ACP_REAP_SECONDS", "600"))
 _RESET_FOLD_MAX_MESSAGES = 30
 _RESET_FOLD_MAX_CHARS = 12_000
 
-#: Header for the fold, addressed at the agent. The workspace transcript
-#: (L0) gives it full fidelity when it wants more than the tail.
-_RESET_FOLD_HEADER = (
+#: Opening of the fold header, addressed at the agent. The prefix is pinned by
+#: a test (the fold's shape is part of the prompt contract); the sentence about
+#: the workspace transcript is appended only when the caller knows one exists.
+_RESET_FOLD_HEADER_PREFIX = (
     "[Conversation context — the previous agent session was lost and a new "
-    "one was opened; the prior turns follow, most recent last. The full "
-    "transcript is in session-transcript.md in the working directory.]\n"
+    "one was opened; the prior turns follow, most recent last."
+)
+_RESET_FOLD_HEADER_SUFFIX = "]\n"
+#: Appended when the caller passes a transcript note (see
+#: :func:`_fold_history_for_reset`): the workspace transcript (L0) gives the
+#: agent full fidelity when it wants more than the tail.
+_RESET_FOLD_TRANSCRIPT_NOTE = (
+    " The full transcript is in session-transcript.md in the working directory."
 )
 
 
-def _fold_history_for_reset(history: list[dict[str, Any]]) -> str:
-    """A bounded transcript of the prior turns for a reset agent session."""
+def _fold_history_for_reset(history: list[dict[str, Any]], *, transcript_note: str = "") -> str:
+    """A bounded transcript of the prior turns for a reset agent session.
+
+    Collects **newest first** within the budget, then restores chronological
+    order — a long conversation must lose its oldest turns, never the most
+    recent ones the agent is about to be asked about. The newest block is kept
+    even when it alone would exceed the character budget (truncated to it), so
+    "the last exchange survives" holds unconditionally.
+    """
     labels = {"user": "User", "assistant": "Assistant", "system": "System"}
-    lines: list[str] = []
-    total = len(_RESET_FOLD_HEADER)
-    for item in list(history or [])[-_RESET_FOLD_MAX_MESSAGES:]:
-        if not isinstance(item, dict):
-            continue
+    header = _RESET_FOLD_HEADER_PREFIX + transcript_note + _RESET_FOLD_HEADER_SUFFIX
+    blocks: list[str] = []
+    total = len(header)
+    recent = [
+        item for item in (history or [])[-_RESET_FOLD_MAX_MESSAGES:] if isinstance(item, dict)
+    ]
+    for item in reversed(recent):
         role = str(item.get("role") or "").strip().lower()
         content = str(item.get("content") or "").strip()
         label = labels.get(role)
         if label is None or not content:
             continue
         block = f"[{label}]: {content}"
-        total += len(block)
-        if total > _RESET_FOLD_MAX_CHARS:
+        if blocks and total + len(block) > _RESET_FOLD_MAX_CHARS:
             break
-        lines.append(block)
-    if not lines:
+        if not blocks and len(block) > _RESET_FOLD_MAX_CHARS:
+            # The only survivor is the newest exchange; truncate it rather
+            # than shipping an empty fold.
+            block = block[:_RESET_FOLD_MAX_CHARS]
+        blocks.append(block)
+        total += len(block)
+    if not blocks:
         return ""
-    return _RESET_FOLD_HEADER + "\n\n".join(lines) + "\n\n"
+    return header + "\n\n".join(reversed(blocks)) + "\n\n"
 
 
 def _extract_model_options(response: Any) -> list[dict[str, Any]] | None:
@@ -195,7 +215,7 @@ class _AcpClientHandler:  # pragma: no cover - exercised through the backend
     and at turn end (content events are complete blocks, not deltas).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, approval_window: float = 0.0) -> None:
         self.sink: asyncio.Queue[AgentLoopEvent | None] = asyncio.Queue()
         self._pending: dict[str, asyncio.Future[str]] = {}
         #: What each parked request is waiting for, so the cancel sweep can
@@ -205,6 +225,13 @@ class _AcpClientHandler:  # pragma: no cover - exercised through the backend
         self._pending_kind: dict[str, str] = {}
         self._text_buf: list[str] = []
         self._counter = 0
+        #: Bound on how long a parked approval waits for the wire answer.
+        #: The agent denies on its own side at its own ``approvals.timeout``
+        #: (a local cancel — no wire message reaches us), so without this
+        #: deadline a later user answer would resolve an already-dead
+        #: request and be reported as "delivered". 0 = wait unbounded (the
+        #: pre-deadline behaviour).
+        self.approval_window = float(approval_window or 0.0)
 
     def _emit(self, event: AgentLoopEvent) -> None:
         self.sink.put_nowait(event)
@@ -313,7 +340,16 @@ class _AcpClientHandler:  # pragma: no cover - exercised through the backend
                 data={"request_id": request_id, "choices": list(APPROVAL_CHOICES)},
             )
         )
-        choice = await future
+        if self.approval_window > 0:
+            try:
+                choice = await asyncio.wait_for(future, timeout=self.approval_window)
+            except asyncio.TimeoutError:
+                # wait_for cancelled the future: the request is dead for the
+                # user too, and any late answer now resolves against a done
+                # future → respond_approval reports "not delivered".
+                return _permission_response("deny", session_id, tool_call, options)
+        else:
+            choice = await future
         return _permission_response(choice, session_id, tool_call, options)
 
     async def create_elicitation(self, message: str, mode: Any, **kwargs: Any) -> Any:
@@ -557,17 +593,42 @@ def _permission_response(
 ) -> dict[str, Any]:
     """Map our decision vocabulary onto the agent's permission options.
 
+    Matching order per choice (§8-5 of the hermes integration design):
+    option_id first — agents like Hermes advertise semantic ids
+    (``allow_once``/``allow_session``/``allow_always``) and resolve the
+    answer by id, so an id hit preserves the requested scope exactly —
+    then the kind-based match for agents with opaque ids (``opt-allow``,
+    Intellect), then any allow-ish option, else the decision degrades to
+    "cancelled" (the agent's own deny). ``deny``/unknown always cancels:
+    fail-closed, never widened into a wire deny option.
+
     Returns the wire-shaped dict directly: the SDK serializes handler
     responses shallowly, so nested response models do not survive.
     """
-    wanted = {
+    option_ids_first: dict[str, tuple[str, ...]] = {
+        "once": ("allow_once",),
+        "session": ("allow_session",),
+        "always": ("allow_always", "allow_session"),
+    }
+    wanted_kind = {
         "once": "allow_once",
         "session": "allow_always",
         "always": "allow_always",
-        "deny": "reject_once",
-    }.get(choice, "reject_once")
+    }.get(choice, "")
     options = list(options or [])
-    picked = next((option for option in options if getattr(option, "kind", "") == wanted), None)
+    picked = None
+    for wanted_id in option_ids_first.get(choice, ()):
+        picked = next(
+            (option for option in options if str(getattr(option, "option_id", "")) == wanted_id),
+            None,
+        )
+        if picked is not None:
+            break
+    if picked is None and wanted_kind:
+        picked = next(
+            (option for option in options if getattr(option, "kind", "") == wanted_kind),
+            None,
+        )
     if picked is None and choice != "deny":
         # No option of the preferred kind: fall back to the first allow-ish
         # option; if the agent offered none, the turn is denied outright.
@@ -656,6 +717,11 @@ class AcpSessionManager:
         self.max_children = max_children
         self._handles: dict[str, AcpSessionHandle] = {}
         self._spawn: Any = None  # async (handle, cwd) -> None; set by backend
+        #: Whether respawns re-attach the agent's own session (``load_session``
+        #: + the OPENKG-WebUI session store). Set by the backend from its
+        #: transport's declaration; one resume policy per command+env config,
+        #: so it lives here where :meth:`ensure` reads it, not per handle.
+        self.native_resume = True
 
     def set_spawner(self, spawn: Any) -> None:
         self._spawn = spawn
@@ -669,8 +735,11 @@ class AcpSessionManager:
             return handle
         if handle is not None:
             # Crashed child: drop the transport but keep the ACP session id
-            # and cwd so the respawn can re-attach via load_session.
-            previous_id, previous_cwd = handle.acp_session_id, handle.cwd
+            # and cwd so the respawn can re-attach via load_session. A
+            # native_resume=False config never carries the id — the respawn
+            # opens a fresh agent session and the G-1 fold restores context.
+            previous_id = handle.acp_session_id if self.native_resume else ""
+            previous_cwd = handle.cwd
             await self.discard(session_key)
             handle = AcpSessionHandle(
                 key=session_key, cwd=previous_cwd or cwd, acp_session_id=previous_id
@@ -680,7 +749,7 @@ class AcpSessionManager:
         # Did the id below come off disk? Only that source can outlive a
         # failed spawn, so only that source needs the forget-and-retry below.
         restored_from_disk = False
-        if not handle.acp_session_id:
+        if not handle.acp_session_id and self.native_resume:
             # Nothing survives in memory across a OPENKG-WebUI restart, so the id
             # has to come back off disk or the agent starts a fresh session
             # and answers with no memory of the conversation.
@@ -829,6 +898,13 @@ class AcpAgentLoopBackend(AgentLoopBackend):
     uses_workdir = True
     supports_control = True
 
+    #: Ceiling on the approval park window (capability clamps the profile's
+    #: ``approval_timeout_seconds`` to this). Hermes denies a pending request
+    #: at its own ``approvals.timeout`` — 300s by default — so waiting longer
+    #: than that only produces decisions that cannot take effect. Operators
+    #: running a shorter Hermes timeout should set the profile below it too.
+    approval_timeout_limit = 300
+
     def __init__(
         self,
         *,
@@ -839,6 +915,7 @@ class AcpAgentLoopBackend(AgentLoopBackend):
         timeout_seconds: float,
         model: str = "",
         models: list[dict[str, str]] | None = None,
+        native_resume: bool = True,
     ) -> None:
         self.name = name
         self.command = command
@@ -871,6 +948,11 @@ class AcpAgentLoopBackend(AgentLoopBackend):
         self._config_key = config_key
         self._manager = get_acp_session_manager(config_key)
         self._manager.set_spawner(self._spawn_session)
+        # The transport's resume declaration, read by ensure()/_spawn_session
+        # off the shared manager (same lifecycle as the spawner override; the
+        # last construction wins, which is safe because one command+env is
+        # declared with one policy — see builtin.AgentLoopTransport).
+        self._manager.native_resume = bool(native_resume)
         self._current_key = ""
 
     # -- session lifecycle -----------------------------------------------------
@@ -900,7 +982,10 @@ class AcpAgentLoopBackend(AgentLoopBackend):
         reader, writer, process = await cm.__aenter__()
         handle.transport_cm = cm
         handle.process = process
-        handle.client = _AcpClientHandler()
+        # The handler's approval deadline mirrors the backend's park-window
+        # ceiling: past it, the pending future is cancelled and any late user
+        # answer is reported as not delivered (the agent denied on its side).
+        handle.client = _AcpClientHandler(approval_window=float(self.approval_timeout_limit))
         try:
             connection = acp.connect_to_agent(
                 handle.client,
@@ -935,10 +1020,12 @@ class AcpAgentLoopBackend(AgentLoopBackend):
                     name="openkg-webui", title="OPENKG-WebUI", version=""
                 ),
             )
-            if handle.acp_session_id:
+            if handle.acp_session_id and self._manager.native_resume:
                 # Child died earlier, or this is a fresh process after a
                 # OPENKG-WebUI restart: re-attach the recorded agent session so
-                # history and compression chains survive.
+                # history and compression chains survive. A native_resume=False
+                # config never carries an id here (ensure() clears it), so the
+                # fresh-session branch below is its only path.
                 try:
                     response = await connection.load_session(
                         cwd=handle.cwd or "", session_id=handle.acp_session_id
@@ -961,10 +1048,11 @@ class AcpAgentLoopBackend(AgentLoopBackend):
             # response; recorded here so the composer and the turn-model filter
             # can read it without another handshake.
             handle.model_options = _extract_model_options(response)
-            # Record it so the next process can re-attach too. Probe children
-            # are throwaway readiness checks whose key dies with the request,
-            # so recording them would only litter the store.
-            if not handle.key.startswith("probe-"):
+            # Record it so the next process can re-attach too — unless this
+            # config declared native resume off (nothing will ever load it)
+            # or the child is a throwaway probe whose key dies with the
+            # request, which recording would only litter the store with.
+            if self._manager.native_resume and not handle.key.startswith("probe-"):
                 save_acp_session(
                     handle.key,
                     config_key=self._config_key,
@@ -1037,7 +1125,18 @@ class AcpAgentLoopBackend(AgentLoopBackend):
             # tail of the prior turns into this first prompt (the full
             # transcript rides in the workspace file the manifest names).
             handle.session_reset = False
-            fold = _fold_history_for_reset(request.history)
+            fold = _fold_history_for_reset(
+                request.history,
+                transcript_note=(
+                    _RESET_FOLD_TRANSCRIPT_NOTE
+                    # The note is only honest when the file is actually there
+                    # (session_workspace materializes it; small transcripts
+                    # stay inline-only).
+                    if request.workdir
+                    and (Path(request.workdir) / "session-transcript.md").is_file()
+                    else ""
+                ),
+            )
             if fold:
                 yield AgentLoopEvent(
                     "progress", text=t("agent_loop.session_reset", backend=self.name)
@@ -1239,11 +1338,11 @@ class AcpAgentLoopBackend(AgentLoopBackend):
             allowed.add(configured)
         return candidate if candidate in allowed else ""
 
-    async def respond_approval(self, request_id: str, choice: str) -> None:
+    async def respond_approval(self, request_id: str, choice: str) -> bool:
         handle = self._manager._handles.get(self._current_key)
         if handle is None or not handle.alive:
-            return
-        handle.client.resolve_pending(request_id, choice)
+            return False
+        return handle.client.resolve_pending(request_id, choice)
 
     async def respond_clarify(self, request_id: str, answer: str) -> None:
         """Deliver the user's answer to a question the agent asked mid-turn.

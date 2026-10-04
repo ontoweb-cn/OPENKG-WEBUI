@@ -85,6 +85,7 @@ def build_agent_loop_backend(settings: dict | None = None) -> AgentLoopBackend |
                 timeout_seconds=timeout,
                 model=model,
                 models=models,
+                native_resume=transport.native_resume,
             )
         return CliAgentLoopBackend(
             name=name,

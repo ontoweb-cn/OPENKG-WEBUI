@@ -289,7 +289,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     adminOnly: true,
     label: { zh: '智能体后端', en: 'Agent Backend' },
     blurb: {
-      zh: '选择驱动对话的智能体后端（Intellect、HERMES、AgentScope…）。',
+      zh: '选择驱动对话的智能体后端（Intellect、HERMES（本地 ACP / 远端 gateway）、AgentScope…）。',
       en: 'The agent backend that drives conversations.',
     },
     icon: Bot,
