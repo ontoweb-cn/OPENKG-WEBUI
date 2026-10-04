@@ -608,6 +608,13 @@ export default function AgentLoopSettingsPage() {
     setDrafts(current => [...(current ?? []), draft])
     setExpanded(tempId)
     setPickerOpen(false)
+    // Bring the new card into view: the picker sits at the bottom of the
+    // page and a click with no visible effect reads as "cannot select".
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-profile-id="${tempId}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
   }
 
   const removeProfile = (id: string) => {
@@ -723,11 +730,9 @@ export default function AgentLoopSettingsPage() {
                 .map(({ preset, entry }) => {
                   const result = detects[entry.detect_key]
                   const label = entry.label || presetLabel(preset.name, lang)
-                  return (
-                    <span
-                      key={entry.detect_key}
-                      className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)]/60 px-2.5 py-1 text-[12px]"
-                    >
+                  const actionable = Boolean(result?.available)
+                  const chip = (
+                    <>
                       <span className="text-[var(--foreground)]">
                         {entry.label ? `${presetLabel(preset.name, lang)} · ${label}` : label}
                       </span>
@@ -736,7 +741,32 @@ export default function AgentLoopSettingsPage() {
                       ) : (
                         <DetectBadge result={result} />
                       )}
-                    </span>
+                    </>
+                  )
+                  if (!actionable) {
+                    return (
+                      <span
+                        key={entry.detect_key}
+                        className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)]/60 px-2.5 py-1 text-[12px]"
+                      >
+                        {chip}
+                      </span>
+                    )
+                  }
+                  // A detected entry IS one click from selected: clicking it
+                  // adds the preset/transport as a profile (command prefilled
+                  // for non-PATH installs) and scrolls the card into view.
+                  return (
+                    <button
+                      key={entry.detect_key}
+                      type="button"
+                      title={t('Add this detected agent loop')}
+                      onClick={() => addProfile(preset, entry.id || undefined)}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)]/60 px-2.5 py-1 text-[12px] transition-colors hover:border-[var(--ring)]/60 hover:bg-[var(--ring)]/5"
+                    >
+                      {chip}
+                      <Plus className="h-3 w-3 text-[var(--muted-foreground)]" />
+                    </button>
                   )
                 })}
               <button
@@ -852,6 +882,7 @@ export default function AgentLoopSettingsPage() {
                 return (
                   <div
                     key={draft.id}
+                    data-profile-id={draft.id}
                     className={`rounded-xl border transition-colors ${
                       draft.enabled
                         ? 'border-[var(--border)]/70 bg-[var(--card)]'
